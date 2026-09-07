@@ -10,7 +10,7 @@ import { ensureAudio, toggleMute, isMuted } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
 import { sanitizeName, NAME_MAX_LEN } from '../../shared/constants.js';
-import { renderThemePicker } from './themes.js';
+import './themes.js';   // 套用霓虹主題（唯一風格）
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
@@ -42,10 +42,6 @@ function takeName() {
   localStorage.setItem('stardust_name', name);
   return name;
 }
-
-// ---------- 主題 ----------
-renderThemePicker($('themes'));
-renderThemePicker($('themes-pause'));
 
 // ---------- 選單 ----------
 nameInput.maxLength = NAME_MAX_LEN;

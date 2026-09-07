@@ -50,15 +50,3 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; }
 .check input { width: 18px; height: 18px; accent-color: #ff3860; }
 .toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 10px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); color: var(--gold); font-size: 14px; letter-spacing: .05em; pointer-events: none; z-index: 5; }
 .toast[hidden] { display: none; }
-
-/* 主題選擇 */
-.themes-label { margin: 14px 0 6px; font-size: 12px; letter-spacing: .1em; color: color-mix(in srgb, var(--text) 55%, transparent); }
-.themes { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-.themes .chip { margin: 0; width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; letter-spacing: .05em; border-radius: 999px; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); box-shadow: none; }
-.themes .chip:hover { transform: none; box-shadow: none; background: color-mix(in srgb, var(--text) 14%, transparent); }
-.themes .chip.on { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 30%, transparent); }
-.themes .chip .sw { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,.4); }
-/* 像素風：畫布不做平滑 */
-body.pixel canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
-body.pixel .panel { border-radius: 4px; }
-body.pixel .panel button, body.pixel .panel input, body.pixel .themes .chip { border-radius: 4px; }
