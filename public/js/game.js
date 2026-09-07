@@ -139,7 +139,7 @@ function spawnBoss(world, fx) {
   fx.sfx('wave');
 }
 function bossFire(world, x, y, a, spd, r = 6, life = 4) {
-  world.enemyBullets.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life, r, boss: true });
+  world.enemyBullets.push({ id: world.nextId++, x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life, r, boss: true });
 }
 function updateBoss(world, dt, fx) {
   const b = world.boss, W = world.W, H = world.H;
@@ -272,7 +272,7 @@ function killBoss(world, fx) {
   fx.ring(b.x, b.y, '#fff', b.r, Math.max(world.W, world.H), 0.9, 8); fx.ring(b.x, b.y, b.color, b.r, Math.max(world.W, world.H) * 0.6, 0.7, 5);
   fx.shake(24); fx.flash(0.6); fx.hitStop(0.25); fx.aberrate(1); fx.zoom(1); fx.crossPunch();
   const kinds = ['heal', 'shield', 'spread', 'rapid'];
-  for (let i = 0; i < 3; i++) world.pickups.push({ x: b.x + rand(-60, 60), y: b.y + rand(-40, 40), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
+  for (let i = 0; i < 3; i++) world.pickups.push({ id: world.nextId++, x: b.x + rand(-60, 60), y: b.y + rand(-40, 40), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
   for (const p of world.players) {
     p.maxHp += 20; if (!p.dead) p.hp = Math.min(p.maxHp, p.hp + 40);
     fx.text(p.x, p.y - 40, '最大生命 +20', '#3ddc84', 18, 1.5);
@@ -284,7 +284,7 @@ function killBoss(world, fx) {
 // ---------- 子彈 / 道具 ----------
 function spawnBullet(world, p, x, y, a, dmgMul = 1) {
   world.bullets.push({
-    owner: p.id, x, y, vx: Math.cos(a) * PLAYER_BASE.bulletSpeed, vy: Math.sin(a) * PLAYER_BASE.bulletSpeed,
+    id: world.nextId++, owner: p.id, x, y, vx: Math.cos(a) * PLAYER_BASE.bulletSpeed, vy: Math.sin(a) * PLAYER_BASE.bulletSpeed,
     life: PLAYER_BASE.bulletLife, dmg: p.damage * dmgMul,
     pierce: p.pierce, bounce: p.bounce, homing: p.homing, size: p.bulletSize, hit: new Set(),
   });
@@ -297,7 +297,7 @@ function spawnPickup(world, x, y) {
   else if (roll < 0.24) kind = 'rapid';
   else if (roll < 0.29) kind = 'shield';
   else if (roll < 0.34) kind = 'bomb';
-  if (kind) world.pickups.push({ x, y, kind, life: 10, t: 0 });
+  if (kind) world.pickups.push({ id: world.nextId++, x, y, kind, life: 10, t: 0 });
 }
 function applyPickup(world, p, kind, fx) {
   fx.sfx('pickup');
@@ -549,7 +549,7 @@ export function update(world, dt, fx = NULL_FX) {
       if (e.shootCd <= 0 && d < 500) {
         e.shootCd = rand(1.4, 2.4);
         const a = Math.atan2(dy, dx);
-        world.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, life: 3, r: 5 });
+        world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, life: 3, r: 5 });
         fx.beep(400, 0.1, 'sine', 0.04, -200);
       }
     }
