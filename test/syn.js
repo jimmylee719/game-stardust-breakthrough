@@ -67,7 +67,7 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   for (let k = 0; k < 20; k++) enemy(world, 500 + k * 20, 450, 1);
   p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false }; p.pierce = 30;
   step(world, 420);
-  if (p.shield < 1) fail('20 次擊殺後應獲得護盾，kills=' + p.kills);
+  if (p.shield < 1) fail('20 次擊殺後應獲得護盾，kills=' + p.kills + ' streak=' + p.killStreak + ' syn=' + JSON.stringify(p.syn) + ' shield=' + p.shield + ' hp=' + p.hp);
   console.log('recharge ok: kills', p.kills, 'shield', p.shield);
 }
 // 6. 第 20 波 Boss 擊破 → victory；繼續無盡 → play；finishRun → gameover
@@ -81,7 +81,7 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (world.scene !== 'victory' || !world.won) fail('擊破第 20 波 Boss 應進入勝利畫面，scene=' + world.scene);
   const s = world.score;
   if (!continueEndless(world) || world.scene !== 'play' || !world.endless) fail('無盡模式切換失敗');
-  step(world, 60 * 5);
+  for (let i = 0; i < 60 * 8; i++) { if (world.scene === 'upgrade') chooseUpgrade(world, 1, 0, fx); update(world, 1 / 60, fx); }   // Boss 後會先給升級
   if (world.wave < WIN_WAVE + 1) fail('無盡模式應繼續下一波，wave=' + world.wave);
   const w2 = fresh({}).world; w2.scene = 'victory'; if (!finishRun(w2) || w2.scene !== 'gameover') fail('finishRun 應進入結算');
   console.log('victory ok: score', s, '→ endless wave', world.wave);
