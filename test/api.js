@@ -54,6 +54,16 @@ if (!badPerk.error) fail('未知強化應被拒絕');
 const lowRun = await post('/api/runs', { id: a.id, secret: a.secret, score: 3, wave: 1 });
 if (lowRun.rank !== null || lowRun.dust !== 5) fail('低分局不上榜但仍給星塵 ' + JSON.stringify(lowRun));
 console.log('dust & perks ok:', bought.dust, bought.unlocks);
+// 機體：未解鎖不能選（伺服器會退回獵鷹）、星塵不足不能買、買到後 unlocks 帶 ship:id
+const shipNo = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'ship:carrier' });
+if (shipNo.error !== 'not enough dust') fail('星塵不足應不能解鎖機體 ' + JSON.stringify(shipNo));
+const r5 = await post('/api/runs', { id: a.id, secret: a.secret, score: 20000, wave: 12 });
+const shipOk = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'ship:wasp' });
+if (!shipOk.ok || !shipOk.unlocks.includes('ship:wasp')) fail('解鎖機體失敗 ' + JSON.stringify(shipOk));
+const shipDup = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'ship:wasp' });
+if (shipDup.error !== 'max level') fail('重複解鎖應被拒絕');
+console.log('ships ok:', shipOk.unlocks.join(','), 'dust', shipOk.dust);
+
 
 // 每日挑戰：今天規則固定、一天一次、獨立榜
 const d0 = await get(`/api/daily?id=${a.id}&secret=${encodeURIComponent(a.secret)}`);
@@ -80,11 +90,12 @@ function client(name, acct) {
   const c = { ws, msgs: [], snaps: [] };
   ws.on('message', d => { const m = JSON.parse(d); c.msgs.push(m); if (m.t === 'snap') c.snaps.push(m.s); if (m.t === 'welcome') c.w = m; if (m.t === 'result') c.result = m; });
   c.open = new Promise(r => ws.on('open', r));
-  c.join = code => ws.send(JSON.stringify({ t: 'join', name, code, acct }));
+  c.join = (code, ship) => ws.send(JSON.stringify({ t: 'join', name, code, acct, ship }));
   return c;
 }
-const A = client('改名A', { id: a.id, secret: a.secret }); await A.open; A.join(); await wait(200);
-const B = client('測試員B', { id: b.id, secret: b.secret }); await B.open; B.join(A.w.code); await wait(200);
+const A = client('改名A', { id: a.id, secret: a.secret }); await A.open; A.join(undefined, 'wasp'); await wait(300);
+const B = client('測試員B', { id: b.id, secret: b.secret }); await B.open; B.join(A.w.code, 'bastion'); await wait(300);
+if (A.w.ship !== 'wasp' || B.w.ship !== 'falcon') fail('機體驗證錯誤：A=' + A.w.ship + ' B=' + B.w.ship);
 A.ws.send(JSON.stringify({ t: 'start' })); await wait(300);
 // 前 10 秒對最近的敵人做預判射擊拿分數（零分局不記錄），之後停火站著被打到全員倒地 → gameover
 let seq = 0;
@@ -103,6 +114,9 @@ while (!A.result && Date.now() - t0 < 60000) await wait(200);
 clearInterval(iv);
 if (!A.result) fail('合作局結束後應收到 result（等了 60 秒）');
 console.log('coop result:', A.result);
+const shipsSeen = A.snaps[0].players.map(p => p.name + ':' + p.ship + ':' + p.maxHp).join(' ');
+if (!shipsSeen.includes('改名A:wasp:70') || !shipsSeen.includes('測試員B:falcon:100')) fail('快照機體錯誤 ' + shipsSeen);
+console.log('ships in coop:', shipsSeen);
 if (!A.result.dustBy || !(A.result.dustBy[a.id] > 0)) fail('合作局應發星塵給有帳號的隊員 ' + JSON.stringify(A.result));
 const coop = await get('/api/leaderboard?mode=coop&period=all');
 if (coop.rows.length !== 1 || coop.rows[0].party.length !== 2 || !coop.rows[0].party.some(p => p.id === a.id)) fail('合作榜應有一筆兩人成績並帶帳號 id: ' + JSON.stringify(coop.rows));

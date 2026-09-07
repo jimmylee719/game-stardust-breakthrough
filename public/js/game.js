@@ -5,7 +5,7 @@ import { TAU, rand, randInt, rnd, clamp, dist2, angleDiff } from '../../shared/m
 import {
   WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS,
   UPGRADES, UPGRADE_EVERY_WAVES, WAVE_MODES, MODE_SCHEDULE, MODE_CHANCE_AFTER, MODE_CHANCE,
-  DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName, applyPerks,
+  DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName, applyPerks, applyShip,
 } from '../../shared/constants.js';
 
 // ---------- fx 介面（預設全部 no-op，讓邏輯可在無視聽環境執行） ----------
@@ -33,7 +33,7 @@ export function createWorld() {
   };
 }
 
-export function addPlayer(world, { id, name, local = false, token = null, acctId = null, perks = null }) {
+export function addPlayer(world, { id, name, local = false, token = null, acctId = null, perks = null, ship = 'falcon' }) {
   const pid = id ?? world.nextId++;
   const idx = world.players.length;
   const p = {
@@ -49,8 +49,9 @@ export function addPlayer(world, { id, name, local = false, token = null, acctId
     kills: 0,
     input: { ix: 0, iy: 0, angle: 0, fire: false, dash: false },
     inputQueue: [], lastSeq: 0, netInput: false,
-    luck: 0, perks: [],
+    luck: 0, perks: [], ship: 'falcon',
   };
+  applyShip(p, ship);
   applyPerks(p, perks);
   if (world.mods.glass) { p.maxHp = Math.round(p.maxHp / 2); p.hp = p.maxHp; p.damage *= 1.5; }
   world.players.push(p);
@@ -66,7 +67,7 @@ export function joinMidGame(world, opts) {
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
 export function startRun(world, { startWave = 0, mods = null } = {}) {
-  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks }));
+  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
   world.mods = Object.fromEntries((mods || []).map(m => [typeof m === 'string' ? m : m.id, true]));

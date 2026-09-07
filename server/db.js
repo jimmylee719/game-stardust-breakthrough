@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { MIN_RUN_SCORE, PERKS, perkLevels } from '../shared/constants.js';
+import { MIN_RUN_SCORE, PERKS, SHIPS, perkLevels } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'store.json');
@@ -14,6 +14,12 @@ const WEEK_MS = 7 * 24 * 3600 * 1000;
 
 /** 購買永久強化的共用規則：回傳 {ok, cost} 或 {error} */
 function priceOf(unlocks, perkId) {
+  if (perkId.startsWith('ship:')) {
+    const s = SHIPS.find(x => x.id === perkId.slice(5));
+    if (!s || !s.cost) return { error: 'unknown perk' };
+    if ((unlocks || []).includes(perkId)) return { error: 'max level' };
+    return { ok: true, cost: s.cost };
+  }
   const k = PERKS.find(p => p.id === perkId);
   if (!k) return { error: 'unknown perk' };
   const lv = perkLevels(unlocks)[perkId] || 0;

@@ -9,7 +9,7 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effe
 import { ensureAudio, toggleMute, isMuted } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels } from '../../shared/constants.js';
+import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS } from '../../shared/daily.js';
 import './themes.js';   // 套用霓虹主題（唯一風格）
@@ -36,6 +36,7 @@ let toastTimer = 0;
 let lastResult = null;   // 結算畫面用：{ rank, mode }
 let leftTeam = false;    // 多人：主動離開隊伍後的本機結算畫面
 let soloSubmitted = false;
+let ship = localStorage.getItem('stardust_ship') || 'falcon';   // 出擊用的機體
 let runKind = 'solo';    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
 const me = () => world.players.find(p => p.id === myId);
@@ -83,13 +84,33 @@ function beginSolo(startWave = 0, daily = null) {
   world.players.length = 0;
   runKind = daily ? 'daily' : 'solo'; dailyInfo = daily;
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
-  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks });
+  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false;
   startRun(world, { startWave, mods: daily ? daily.mods : null });
   menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true; hangarEl.hidden = true; dailyEl.hidden = true;
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
 }
-function renderDust() { $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
+function currentShip() { if (!shipUnlocked(ship, profile.unlocks)) ship = 'falcon'; return ship; }
+function renderShips() {
+  const cur = currentShip(), s0 = shipById(cur);
+  $('ship-name').textContent = `${s0.icon} ${s0.name}`;
+  const bar = (v) => { const w = Math.min(100, v * 62); return `<b><i class="${v > 1.02 ? 'hi' : v < 0.98 ? 'lo' : ''}" style="width:${w}%"></i></b>`; };
+  $('ship-cards').innerHTML = SHIPS.map(s => {
+    const un = shipUnlocked(s.id, profile.unlocks);
+    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-ship="${s.id}"><div class="ic">${s.icon}</div><div class="nm">${s.name}</div><div class="st"><span>生命</span>${bar(s.stats.hp)}<span>速度</span>${bar(s.stats.speed)}<span>射速</span>${bar(s.stats.fire)}<span>傷害</span>${bar(s.stats.dmg)}</div><div class="ds">${s.desc}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? '✔ 出擊中' : '已解鎖') : '✨ ' + s.cost}</div></div>`;
+  }).join('');
+  for (const el of $('ship-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
+    const id = el.dataset.ship;
+    $('hangar-err').textContent = '';
+    if (shipUnlocked(id, profile.unlocks)) { ship = id; localStorage.setItem('stardust_ship', id); ensureAudio(); renderShips(); return; }
+    const s = shipById(id);
+    if (profile.dust < s.cost) { $('hangar-err').textContent = `星塵不足，解鎖 ${s.name} 需要 ${s.cost}`; return; }
+    try { await buyPerk('ship:' + id); ship = id; localStorage.setItem('stardust_ship', id); ensureAudio(); renderHangar(); toast(`已解鎖 ${s.icon} ${s.name}`); }
+    catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', offline: '目前離線，無法解鎖' }[e.message] || e.message; }
+  });
+}
+function renderDust() {
+  renderShips(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
 
 // ---------- 機庫：永久強化 ----------
 function renderHangar() {
@@ -138,7 +159,7 @@ function beginOnline(code) {
   const name = takeName();
   errEl.textContent = '連線中…';
   net = connect({
-    name, code, acct: accountCredentials(),
+    name, code, acct: accountCredentials(), ship: currentShip(),
     onWelcome(m) {
       mode = 'online'; myId = m.id; fx = createFx(myId);
       resetEffects(); predictor.reset(); lastSnapSeen = -1;
@@ -154,7 +175,7 @@ function beginOnline(code) {
     },
     onLobby(m) {
       hostId = m.hostId;
-      $('lobby-players').innerHTML = m.players.map(p => `<li style="color:${p.color}">${p.id === m.hostId ? '👑 ' : ''}${escapeHtml(p.name)}${p.id === myId ? '（你）' : ''}</li>`).join('');
+      $('lobby-players').innerHTML = m.players.map(p => `<li style="color:${p.color}">${p.id === m.hostId ? '👑 ' : ''}${shipById(p.ship).icon} ${escapeHtml(p.name)}${p.id === myId ? '（你）' : ''}</li>`).join('');
       const host = m.hostId === myId;
       $('lobby-start').hidden = !host; $('lobby-boss-row').hidden = !host;
       $('lobby-wait').hidden = host;

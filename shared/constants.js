@@ -135,6 +135,25 @@ export const PERKS = [
   { id: 'salvo',  icon: '💥', name: '預備彈頭', max: 1, cost: [600],            desc: () => '開局子彈傷害 +10%', apply: (p, l) => { p.damage *= 1 + 0.1 * l; } },
   { id: 'dust',   icon: '✨', name: '星塵收集', max: 2, cost: [500, 1000],      desc: l => `每局獲得星塵 +${l * 20}%`, apply: () => {} },
 ];
+/**
+ * 起始機體。獵鷹免費；其餘在機庫用星塵解鎖（unlocks 內存 'ship:<id>'）。
+ * apply(p) 在 addPlayer 建立後、永久強化之前套用；只改玩家物件。
+ * stats 給機庫顯示（1 = 基準）。
+ */
+export const SHIPS = [
+  { id: 'falcon',  icon: '🚀', name: '獵鷹',   cost: 0,    desc: '均衡型，標準機體',
+    stats: { hp: 1, speed: 1, fire: 1, dmg: 1 }, apply: () => {} },
+  { id: 'wasp',    icon: '🐝', name: '黃蜂',   cost: 800,  desc: '極速輕型機：速度 +25%、射速 +25%、衝刺冷卻 0.8 秒；生命 70、傷害 -20%',
+    stats: { hp: 0.7, speed: 1.25, fire: 1.25, dmg: 0.8 }, apply: p => { p.maxHp = 70; p.hp = 70; p.speedMul *= 1.25; p.fireRate *= 0.8; p.damage *= 0.8; p.dashCdMax = 0.8; p.r = 12; } },
+  { id: 'bastion', icon: '🛡️', name: '堡壘',   cost: 800,  desc: '重裝機：生命 160、傷害 +30%、子彈體積 +50%；速度 -20%、射速 -25%、衝刺冷卻 1.6 秒',
+    stats: { hp: 1.6, speed: 0.8, fire: 0.75, dmg: 1.3 }, apply: p => { p.maxHp = 160; p.hp = 160; p.speedMul *= 0.8; p.fireRate *= 1.33; p.damage *= 1.3; p.bulletSize += 0.5; p.dashCdMax = 1.6; p.r = 16; } },
+  { id: 'carrier', icon: '🛸', name: '母艦',   cost: 1200, desc: '航艦：開局自帶 2 台僚機、生命 110；射速 -15%、傷害 -10%',
+    stats: { hp: 1.1, speed: 0.95, fire: 0.85, dmg: 0.9 }, apply: p => { p.maxHp = 110; p.hp = 110; p.speedMul *= 0.95; p.fireRate *= 1.18; p.damage *= 0.9; for (let i = 0; i < 2; i++) p.drones.push({ a: i * Math.PI, cd: 0.2 * i, x: p.x, y: p.y }); } },
+];
+export function shipById(id) { return SHIPS.find(s => s.id === id) || SHIPS[0]; }
+export function shipUnlocked(id, unlocks) { return id === 'falcon' || (unlocks || []).includes('ship:' + id); }
+export function applyShip(p, shipId) { const s = shipById(shipId); s.apply(p); p.ship = s.id; }
+
 /** unlocks 是 id 陣列（重複代表等級）→ {id: level} */
 export function perkLevels(unlocks) {
   const out = {};

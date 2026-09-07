@@ -14,7 +14,7 @@ export function snapshotWorld(world) {
     players: world.players.map(p => ({
       id: p.id, name: p.name, color: p.color, x: r1(p.x), y: r1(p.y), vx: r1(p.vx), vy: r1(p.vy), angle: r1(p.angle * 100) / 100,
       r: p.r, hp: Math.round(p.hp), maxHp: p.maxHp, dead: p.dead, downed: p.downed, downTimer: r1(p.downTimer), reviveProgress: r1(p.reviveProgress), offline: p.offline,
-      shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined,
+      shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined, ship: p.ship,
       dashCd: r1(p.dashCd), dashCdMax: r1(p.dashCdMax), dashing: r1(p.dashing), inv: r1(p.inv), seq: p.lastSeq, kills: p.kills, upgrades: p.upgrades,
       drones: p.drones.map(d => ({ x: r1(d.x ?? p.x), y: r1(d.y ?? p.y), a: r1(d.a) })),
     })),

@@ -21,7 +21,7 @@
     </div>
     <div class="row meta">
       <button id="open-daily">📅 每日挑戰</button>
-      <button id="open-hangar">🔧 機庫 <span id="dust" class="dust">✨ 0</span></button>
+      <button id="open-hangar"><span id="ship-name">🚀 獵鷹</span> · 機庫 <span id="dust" class="dust">✨ 0</span></button>
     </div>
     <div class="divider"><span>與朋友連線（最多 4 人）</span></div>
     <div class="row">
@@ -81,8 +81,10 @@
 <div id="hangar" class="overlay" hidden>
   <div class="panel wide">
     <h2>機庫</h2>
-    <div class="sub2">用每局獲得的星塵購買永久強化，每一局開局自動套用</div>
     <div id="hangar-dust" class="lb-me">✨ 星塵 0</div>
+    <div class="divider"><span>機體（點選出擊用的機體）</span></div>
+    <div id="ship-cards" class="ships"></div>
+    <div class="divider"><span>永久強化（每局開局自動套用）</span></div>
     <ul id="perk-rows" class="perk-rows"></ul>
     <div id="hangar-err" class="err"></div>
     <button id="hangar-close" class="small">關閉</button>

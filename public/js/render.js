@@ -284,7 +284,7 @@ export function createRenderer(canvas, world) {
       ctx.fillStyle = `rgba(255,${140 + randInt(0, 80)},60,${0.5 + thrust * 0.5})`;
       ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-16 - thrust * 14 - rand(0, 6), 0); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#e8f6ff'; ctx.strokeStyle = p.color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-10, 11); ctx.lineTo(-5, 0); ctx.lineTo(-10, -11); ctx.closePath(); ctx.fill(); ctx.stroke();
+      shipPath(p.ship); ctx.fill(); ctx.stroke();
       ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(4, 0, 3.5, 0, TAU); ctx.fill();
       ctx.restore();
       // 名牌：其他玩家在角色頭上看到名字
@@ -302,13 +302,22 @@ export function createRenderer(canvas, world) {
       ctx.globalAlpha = 1;
     }
   }
+  /** 各機體的船身輪廓（朝 +x），畫在已 translate/rotate 的座標系 */
+  function shipPath(ship) {
+    ctx.beginPath();
+    if (ship === 'wasp') { ctx.moveTo(22, 0); ctx.lineTo(-8, 6); ctx.lineTo(-14, 12); ctx.lineTo(-6, 0); ctx.lineTo(-14, -12); ctx.lineTo(-8, -6); }
+    else if (ship === 'bastion') { ctx.moveTo(16, 0); ctx.lineTo(8, 12); ctx.lineTo(-12, 14); ctx.lineTo(-8, 0); ctx.lineTo(-12, -14); ctx.lineTo(8, -12); }
+    else if (ship === 'carrier') { ctx.moveTo(20, 0); ctx.lineTo(4, 8); ctx.lineTo(-14, 8); ctx.lineTo(-10, 0); ctx.lineTo(-14, -8); ctx.lineTo(4, -8); ctx.closePath(); ctx.moveTo(-2, 14); ctx.lineTo(-12, 14); ctx.lineTo(-8, 9); ctx.moveTo(-2, -14); ctx.lineTo(-12, -14); ctx.lineTo(-8, -9); }
+    else { ctx.moveTo(18, 0); ctx.lineTo(-10, 11); ctx.lineTo(-5, 0); ctx.lineTo(-10, -11); }
+    ctx.closePath();
+  }
   function drawDowned(p, time) {
     ctx.save(); ctx.translate(p.x, p.y);
     const pulse = 0.5 + 0.5 * Math.sin(time * 5);
     ctx.globalAlpha = 0.55; ctx.shadowColor = '#ff5f7a'; ctx.shadowBlur = 16;
     ctx.rotate(p.angle);
     ctx.fillStyle = '#6a6a7a'; ctx.strokeStyle = '#ff5f7a'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-10, 11); ctx.lineTo(-5, 0); ctx.lineTo(-10, -11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    shipPath(p.ship); ctx.fill(); ctx.stroke();
     ctx.rotate(-p.angle); ctx.globalAlpha = 1;
     ctx.strokeStyle = `rgba(255,95,122,${0.25 + pulse * 0.35})`; ctx.lineWidth = 2; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.arc(0, 0, 70, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
     if (p.reviveProgress > 0) { ctx.strokeStyle = '#3ddc84'; ctx.shadowColor = '#3ddc84'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, 30, -Math.PI / 2, -Math.PI / 2 + TAU * (p.reviveProgress / REVIVE_TIME)); ctx.stroke(); }

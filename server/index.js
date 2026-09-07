@@ -10,10 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS } from '../shared/constants.js';
+import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { openDb } from './db.js';
-import * as perksLib from '../shared/constants.js';
 
 const db = await openDb();
 
@@ -175,9 +174,8 @@ function broadcast(room, msg) {
   for (const ws of room.clients.keys()) if (ws.readyState === ws.OPEN) ws.send(data);
 }
 function lobbyMsg(room) {
-  return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color })) };
+  return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color, ship: p.ship })) };
 }
-function applyPerksTo(p, unlocks) { const { applyPerks } = perksLib; applyPerks(p, unlocks); }
 function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
 async function recordCoopRun(room) {
   const w = room.world;
@@ -246,19 +244,25 @@ wss.on('connection', ws => {
 
       if (r.clients.size >= MAX_PLAYERS) { send({ t: 'error', msg: '房間已滿（最多 4 人）' }); return; }
       room = r;
-      const id = room.nextPlayerId++;
-      const token = crypto.randomBytes(12).toString('base64url');
-      player = inProgress(room) ? joinMidGame(room.world, { id, name, token }) : addPlayer(room.world, { id, name, token });
-      room.clients.set(ws, player);
-      if (room.hostId === null) room.hostId = id;
-      send({ t: 'welcome', id, code: room.code, token, inProgress: inProgress(room) });
-      broadcast(room, lobbyMsg(room));
-      if (m.acct && m.acct.id && m.acct.secret) {
-        // 驗證帳號並套用永久強化（大廳階段套用；開局時 startRun 會依 perks 重建）
-        db.auth(String(m.acct.id), String(m.acct.secret)).then(a => { const cur = current(); if (a && cur) { cur.acctId = a.id; if (!inProgress(room)) applyPerksTo(cur, a.unlocks || []); } }).catch(() => {});
-      }
-      if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
-      console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''}`);
+      const wantShip = SHIPS.some(s => s.id === m.ship) ? m.ship : 'falcon';
+      // 先驗證帳號（取得永久強化與已解鎖機體），再把玩家放進世界，這樣中途加入也會拿到正確的機體
+      (async () => {
+        let acct = null;
+        if (m.acct && m.acct.id && m.acct.secret) { try { acct = await db.auth(String(m.acct.id), String(m.acct.secret)); } catch {} }
+        if (ws.readyState !== ws.OPEN || !rooms.has(room.code)) return;
+        const unlocks = acct?.unlocks || [];
+        const ship = shipUnlocked(wantShip, unlocks) ? wantShip : 'falcon';
+        const id = room.nextPlayerId++;
+        const token = crypto.randomBytes(12).toString('base64url');
+        const opts = { id, name, token, acctId: acct?.id || null, perks: unlocks, ship };
+        player = inProgress(room) ? joinMidGame(room.world, opts) : addPlayer(room.world, opts);
+        room.clients.set(ws, player);
+        if (room.hostId === null) room.hostId = id;
+        send({ t: 'welcome', id, code: room.code, token, inProgress: inProgress(room), ship });
+        broadcast(room, lobbyMsg(room));
+        if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
+        console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''} ship=${ship}`);
+      })();
       return;
     }
     if (!room || !player) return;
