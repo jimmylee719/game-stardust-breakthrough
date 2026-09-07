@@ -41,6 +41,39 @@ const me = await get(`/api/me?id=${a.id}&secret=${encodeURIComponent(a.secret)}`
 if (me.name !== '改名A' || me.stats.solo.best !== 1500 || me.stats.solo.runs !== 2 || me.stats.solo.rank !== 2) fail('me 統計錯誤 ' + JSON.stringify(me));
 console.log('me:', me.name, me.stats.solo);
 
+// 星塵：每局依分數與波次發放（1500/w6 → 90，800/w4 → 52）；永久強化用星塵購買
+if (me.dust !== 142) fail('星塵應為 142，得到 ' + me.dust);
+const noMoney = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'magnet' });
+if (noMoney.error !== 'not enough dust') fail('星塵不足應被拒絕：' + JSON.stringify(noMoney));
+const r4 = await post('/api/runs', { id: a.id, secret: a.secret, score: 5000, wave: 10 });
+if (r4.dust !== 250 || r4.total !== 392) fail('第三局星塵錯誤 ' + JSON.stringify(r4));
+const bought = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'magnet' });
+if (!bought.ok || bought.dust !== 142 || bought.unlocks.join() !== 'magnet') fail('購買失敗 ' + JSON.stringify(bought));
+const badPerk = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'nope' });
+if (!badPerk.error) fail('未知強化應被拒絕');
+const lowRun = await post('/api/runs', { id: a.id, secret: a.secret, score: 3, wave: 1 });
+if (lowRun.rank !== null || lowRun.dust !== 5) fail('低分局不上榜但仍給星塵 ' + JSON.stringify(lowRun));
+console.log('dust & perks ok:', bought.dust, bought.unlocks);
+
+// 每日挑戰：今天規則固定、一天一次、獨立榜
+const d0 = await get(`/api/daily?id=${a.id}&secret=${encodeURIComponent(a.secret)}`);
+if (d0.mods.length !== 2 || d0.started || d0.run) fail('每日挑戰初始狀態錯誤 ' + JSON.stringify(d0));
+const ds = await post('/api/daily/start', { id: a.id, secret: a.secret });
+if (!ds.ok || ds.seed !== d0.seed) fail('開始每日挑戰失敗 ' + JSON.stringify(ds));
+const ds2 = await post('/api/daily/start', { id: a.id, secret: a.secret });
+if (ds2.error !== 'daily already played') fail('每日挑戰應只能開始一次');
+const dr = await post('/api/runs', { id: a.id, secret: a.secret, score: 300, wave: 3, mode: 'daily', day: d0.key });
+if (dr.rank !== 1 || dr.mode !== 'daily') fail('每日成績錯誤 ' + JSON.stringify(dr));
+const dr2 = await post('/api/runs', { id: a.id, secret: a.secret, score: 999, wave: 9, mode: 'daily', day: d0.key });
+if (dr2.error !== 'daily already played') fail('每日成績應只能上傳一次');
+const dlb = await get('/api/leaderboard?mode=daily');
+if (dlb.rows.length !== 1 || dlb.rows[0].score !== 300 || dlb.day !== d0.key) fail('每日榜錯誤 ' + JSON.stringify(dlb));
+const solo2 = await get('/api/leaderboard?mode=solo&period=all');
+if (solo2.rows.some(r => r.score === 300)) fail('每日成績不該混進單人榜');
+const d1 = await get(`/api/daily?id=${a.id}&secret=${encodeURIComponent(a.secret)}`);
+if (!d1.run || d1.run.rank !== 1) fail('每日狀態應顯示已完成 ' + JSON.stringify(d1));
+console.log('daily ok:', d0.key, d0.mods.join('+'), 'rank', dr.rank);
+
 // 合作：兩人進房、開局、全員陣亡 → 伺服器記錄 coop 成績並廣播 result
 function client(name, acct) {
   const ws = new WebSocket(`ws://localhost:${PORT}`);
@@ -70,6 +103,7 @@ while (!A.result && Date.now() - t0 < 60000) await wait(200);
 clearInterval(iv);
 if (!A.result) fail('合作局結束後應收到 result（等了 60 秒）');
 console.log('coop result:', A.result);
+if (!A.result.dustBy || !(A.result.dustBy[a.id] > 0)) fail('合作局應發星塵給有帳號的隊員 ' + JSON.stringify(A.result));
 const coop = await get('/api/leaderboard?mode=coop&period=all');
 if (coop.rows.length !== 1 || coop.rows[0].party.length !== 2 || !coop.rows[0].party.some(p => p.id === a.id)) fail('合作榜應有一筆兩人成績並帶帳號 id: ' + JSON.stringify(coop.rows));
 console.log('coop leaderboard:', coop.rows[0].party.map(p => p.name).join(' + '), coop.rows[0].score);

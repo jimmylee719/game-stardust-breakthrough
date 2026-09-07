@@ -9,13 +9,15 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effe
 import { ensureAudio, toggleMute, isMuted } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { sanitizeName, NAME_MAX_LEN } from '../../shared/constants.js';
+import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels } from '../../shared/constants.js';
+import { seedRandom } from '../../shared/math.js';
+import { DAILY_MODS } from '../../shared/daily.js';
 import './themes.js';   // 套用霓虹主題（唯一風格）
-import { ensureAccount, accountCredentials, submitSoloRun, fetchLeaderboard, fetchMe, getAccount } from './account.js';
+import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe, getAccount, profile, buyPerk, fetchDaily, startDaily } from './account.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
-const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard');
+const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily');
 const nameInput = $('name'), codeInput = $('code');
 const errEl = $('err'), bestEl = $('best');
 
@@ -34,8 +36,10 @@ let toastTimer = 0;
 let lastResult = null;   // 結算畫面用：{ rank, mode }
 let leftTeam = false;    // 多人：主動離開隊伍後的本機結算畫面
 let soloSubmitted = false;
+let runKind = 'solo';    // solo | daily（單機模式的成績歸類）
+let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
 const me = () => world.players.find(p => p.id === myId);
-const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden || !lbEl.hidden;
+const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden || !lbEl.hidden || !hangarEl.hidden || !dailyEl.hidden;
 
 // ---------- 小工具 ----------
 function toast(msg, ms = 2500) { toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms); }
@@ -59,6 +63,10 @@ function showMenu(msg = '') {
   menuEl.hidden = false; lobbyEl.hidden = true; pauseEl.hidden = true;
   errEl.textContent = msg;
   bestEl.textContent = best > 0 ? `最高分 ${best}` : '';
+  hangarEl.hidden = true; dailyEl.hidden = true;
+  seedRandom(null); runKind = 'solo'; dailyInfo = null;
+  renderDust();
+  fetchMe().then(renderDust);
   history.replaceState(null, '', location.pathname);
   setTimeout(() => nameInput.focus(), 0);
 }
@@ -69,15 +77,60 @@ function goFullscreenIfTouch() {
   const el = document.documentElement;
   if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
 }
-function beginSolo(startWave = 0) {
+function beginSolo(startWave = 0, daily = null) {
   ensureAudio(); goFullscreenIfTouch();
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
-  addPlayer(world, { id: myId, name: takeName(), local: true });
+  runKind = daily ? 'daily' : 'solo'; dailyInfo = daily;
+  seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
+  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false;
-  startRun(world, { startWave });
-  menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true;
+  startRun(world, { startWave, mods: daily ? daily.mods : null });
+  menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true; hangarEl.hidden = true; dailyEl.hidden = true;
+  if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
 }
+function renderDust() { $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
+
+// ---------- 機庫：永久強化 ----------
+function renderHangar() {
+  renderDust();
+  const lv = perkLevels(profile.unlocks);
+  $('perk-rows').innerHTML = PERKS.map(k => {
+    const l = lv[k.id] || 0, maxed = l >= k.max, cost = maxed ? 0 : k.cost[l];
+    const dots = Array.from({ length: k.max }, (_, i) => `<i class="${i < l ? 'on' : ''}"></i>`).join('');
+    return `<li><span class="ic">${k.icon}</span><span><span class="nm">${k.name}</span><span class="lv">${dots}</span><div class="ds">${k.desc(Math.max(1, Math.min(k.max, l + 1)))}${l ? `（目前：${k.desc(l)}）` : ''}</div></span><button data-perk="${k.id}" class="${maxed ? 'max' : ''}" ${maxed || profile.dust < cost ? 'disabled' : ''}>${maxed ? '已滿級' : '✨ ' + cost}</button></li>`;
+  }).join('');
+  for (const b of $('perk-rows').querySelectorAll('button[data-perk]')) b.addEventListener('click', async () => {
+    $('hangar-err').textContent = '';
+    try { await buyPerk(b.dataset.perk); ensureAudio(); renderHangar(); toast('購買成功，下一局開始生效'); }
+    catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', 'max level': '已達上限', offline: '目前離線，無法購買' }[e.message] || e.message; }
+  });
+}
+$('open-hangar').addEventListener('click', async () => { hangarEl.hidden = false; renderHangar(); await fetchMe(); renderHangar(); });
+$('hangar-close').addEventListener('click', () => { hangarEl.hidden = true; renderDust(); });
+
+// ---------- 每日挑戰 ----------
+let dailyToday = null;
+async function openDaily() {
+  dailyEl.hidden = false;
+  $('daily-status').textContent = '載入中…'; $('daily-start').disabled = true;
+  try {
+    dailyToday = await fetchDaily();
+    $('daily-date').textContent = `${dailyToday.key} · 全球玩家同一組敵人與規則 · 一天一次`;
+    $('daily-mods').innerHTML = dailyToday.mods.map(id => { const m = DAILY_MODS.find(x => x.id === id); return `<li><span class="ic">${m.icon}</span><span><div class="nm">${m.name}</div><div class="ds">${m.desc}</div></span></li>`; }).join('');
+    if (dailyToday.run) { $('daily-status').textContent = `今天已完成：${dailyToday.run.score} 分（第 ${dailyToday.run.wave} 波）· 今日第 ${dailyToday.run.rank} 名`; $('daily-start').textContent = '明天再來'; }
+    else if (dailyToday.started) { $('daily-status').textContent = '今天的挑戰已開始過（中途離開也算一次）'; $('daily-start').textContent = '明天再來'; }
+    else { $('daily-status').textContent = '尚未挑戰'; $('daily-start').textContent = '出擊'; $('daily-start').disabled = false; }
+  } catch (e) { $('daily-status').textContent = '無法連線到伺服器：' + e.message; }
+}
+$('open-daily').addEventListener('click', openDaily);
+$('daily-close').addEventListener('click', () => { dailyEl.hidden = true; });
+$('daily-lb').addEventListener('click', () => { lb.mode = 'daily'; openLeaderboard(); });
+$('daily-start').addEventListener('click', async () => {
+  $('daily-start').disabled = true;
+  try { const r = await startDaily(); beginSolo(0, { key: r.key, seed: r.seed, mods: r.mods }); }
+  catch (e) { $('daily-status').textContent = e.message === 'daily already played' ? '今天已經挑戰過了' : '無法開始：' + e.message; }
+});
 
 // 連線
 function beginOnline(code) {
@@ -109,7 +162,7 @@ function beginOnline(code) {
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
     onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
-    onResult(m) { lastResult = { rank: m.rank, mode: 'coop' }; toast(`合作排行榜 第 ${m.rank} 名`, 4000); },
+    onResult(m) { const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
     onClose() { if (mode === 'online') showMenu('與伺服器的連線已中斷'); },
@@ -136,14 +189,16 @@ async function openLeaderboard() {
 }
 async function refreshLeaderboard() {
   for (const b of lbEl.querySelectorAll('[data-mode]')) b.classList.toggle('on', b.dataset.mode === lb.mode);
-  for (const b of lbEl.querySelectorAll('[data-period]')) b.classList.toggle('on', b.dataset.period === lb.period);
+  for (const b of lbEl.querySelectorAll('[data-period]')) { b.classList.toggle('on', b.dataset.period === lb.period); b.hidden = lb.mode === 'daily'; }
   const rows = $('lb-rows'), meEl = $('lb-me');
   rows.innerHTML = '<li class="muted">載入中…</li>';
   try {
     const [data, meData] = await Promise.all([fetchLeaderboard(lb.mode, lb.period), fetchMe()]);
     const myId = getAccount()?.id;
     const st = meData?.stats?.[lb.mode];
-    meEl.textContent = st ? `你的最佳：${st.best} 分（第 ${st.bestWave} 波）· 全部時間第 ${st.rank} 名 · 共 ${st.runs} 局` : '還沒有成績，去打一局吧！';
+    if (lb.mode === 'daily') meEl.textContent = `今日挑戰（${data.day}）· 每人一次`;
+    else meEl.textContent = st ? `你的最佳：${st.best} 分（第 ${st.bestWave} 波）· 全部時間第 ${st.rank} 名 · 共 ${st.runs} 局` : '還沒有成績，去打一局吧！';
+    renderDust();
     if (!data.rows.length) { rows.innerHTML = '<li class="muted">還沒有人上榜，第一名就是你</li>'; return; }
     rows.innerHTML = data.rows.map((r, i) => {
       const mine = myId && r.party.some(p => p.id === myId);
@@ -175,7 +230,13 @@ function finishSoloRun() {
   if (soloSubmitted) return;
   soloSubmitted = true;
   if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
-  submitSoloRun(world.score, world.wave).then(r => { if (r) { lastResult = { rank: r.rank, mode: 'solo' }; toast(`單人排行榜 第 ${r.rank} 名`, 4000); } });
+  const kind = runKind, day = dailyInfo?.key || null;
+  submitRun(world.score, world.wave, { mode: kind, day }).then(r => {
+    if (!r) return;
+    lastResult = { rank: r.rank, mode: kind, dust: r.dust };
+    renderDust();
+    toast(`${kind === 'daily' ? '今日挑戰' : '單人排行榜'}${r.rank ? ` 第 ${r.rank} 名` : ''} · 星塵 +${r.dust}`, 4000);
+  });
 }
 function leaveGame() {
   pauseEl.hidden = true;
@@ -198,7 +259,7 @@ function leaveGame() {
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
   onKeyDown(code) {
-    if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape' && !lbEl.hidden) lbEl.hidden = true; return; }
+    if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { if (!lbEl.hidden) lbEl.hidden = true; else if (!hangarEl.hidden) hangarEl.hidden = true; else if (!dailyEl.hidden) dailyEl.hidden = true; } return; }
     if (code === 'Escape') {
       if (!lbEl.hidden) { lbEl.hidden = true; return; }
       if (!pauseEl.hidden) closePause();
@@ -207,10 +268,10 @@ attachInput(canvas, renderer.toWorld, {
       return;
     }
     if (!pauseEl.hidden) return;
-    if (code === 'KeyL' && world.scene === 'gameover') { lb.mode = leftTeam || mode === 'online' ? 'coop' : 'solo'; openLeaderboard(); return; }
+    if (code === 'KeyL' && world.scene === 'gameover') { lb.mode = leftTeam || mode === 'online' ? 'coop' : runKind; openLeaderboard(); return; }
     if (code === 'KeyM') toggleMute();
     if (code === 'KeyP' && mode === 'solo') { if (world.scene === 'pause') closePause(); else openPause(); }
-    if (code === 'Enter' && world.scene === 'gameover') { if (leftTeam) showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); }
+    if (code === 'Enter' && world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); }
     if (world.scene === 'upgrade') {
       const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[code];
       if (n !== undefined) pickUpgrade(n);
@@ -219,7 +280,7 @@ attachInput(canvas, renderer.toWorld, {
   onMouseDown(button) {
     ensureAudio();
     if (button !== 0 || overlayOpen()) return;
-    if (world.scene === 'gameover') { if (leftTeam) showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); return; }
+    if (world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); return; }
     if (world.scene === 'upgrade') {
       const i = renderer.upgradeCardRects().findIndex(r => mouse.x >= r.x && mouse.x <= r.x + r.w && mouse.y >= r.y && mouse.y <= r.y + r.h);
       if (i >= 0) pickUpgrade(i);
@@ -276,7 +337,7 @@ function loop(now) {
     renderer.updateStars(rawDt, null);
   }
   decayEffects(rawDt);
-  renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId, result: lastResult, left: leftTeam });
+  renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId, result: lastResult, left: leftTeam, daily: runKind === 'daily' });
   requestAnimationFrame(loop);
 }
 showMenu();

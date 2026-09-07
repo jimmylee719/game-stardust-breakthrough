@@ -19,6 +19,10 @@
       <button id="solo" class="primary">單人出擊</button>
       <button id="solo-boss" class="boss">Boss 挑戰</button>
     </div>
+    <div class="row meta">
+      <button id="open-daily">📅 每日挑戰</button>
+      <button id="open-hangar">🔧 機庫 <span id="dust" class="dust">✨ 0</span></button>
+    </div>
     <div class="divider"><span>與朋友連線（最多 4 人）</span></div>
     <div class="row">
       <button id="create">建立房間</button>
@@ -32,6 +36,7 @@
       <li>WASD 移動 · 滑鼠 瞄準 · 左鍵 射擊 · Shift 衝刺</li>
       <li>每 2 波三選一強化 · 每 5 波 BOSS · 特殊波次：小行星帶 / 彈幕求生 / 懸賞獵殺 / 防衛信標 / 護送運輸艦</li>
       <li>隊友倒地時靠近 3 秒救援 · 斷線 15 秒內自動重連</li>
+      <li>每局獲得星塵，到機庫買永久強化 · 每日挑戰一天一次，全球同一組規則</li>
       <li>Esc 選單（離開即結算成績） · M 靜音 · 結算畫面 L 看排行榜</li>
     </ul>
   </div>
@@ -64,13 +69,34 @@
   <div class="panel wide">
     <h2>全球排行榜</h2>
     <div class="tabs">
-      <button class="tab on" data-mode="solo">單人</button><button class="tab" data-mode="coop">合作</button>
+      <button class="tab on" data-mode="solo">單人</button><button class="tab" data-mode="coop">合作</button><button class="tab" data-mode="daily">每日</button>
       <span class="gap"></span>
       <button class="tab on" data-period="all">全部</button><button class="tab" data-period="week">本週</button>
     </div>
     <div id="lb-me" class="lb-me"></div>
     <ol id="lb-rows" class="lb-rows"><li class="muted">載入中…</li></ol>
     <button id="lb-close" class="small">關閉</button>
+  </div>
+</div>
+<div id="hangar" class="overlay" hidden>
+  <div class="panel wide">
+    <h2>機庫</h2>
+    <div class="sub2">用每局獲得的星塵購買永久強化，每一局開局自動套用</div>
+    <div id="hangar-dust" class="lb-me">✨ 星塵 0</div>
+    <ul id="perk-rows" class="perk-rows"></ul>
+    <div id="hangar-err" class="err"></div>
+    <button id="hangar-close" class="small">關閉</button>
+  </div>
+</div>
+<div id="daily" class="overlay" hidden>
+  <div class="panel">
+    <h2>每日挑戰</h2>
+    <div id="daily-date" class="sub2"></div>
+    <ul id="daily-mods" class="mods"></ul>
+    <div id="daily-status" class="lb-me"></div>
+    <button id="daily-start" class="primary">出擊</button>
+    <button id="daily-lb" class="small">今日排行榜</button>
+    <button id="daily-close" class="small">關閉</button>
   </div>
 </div>
 <div id="rotate" class="rotate"><div>📱↻<br>請將手機轉成橫向遊玩</div></div>

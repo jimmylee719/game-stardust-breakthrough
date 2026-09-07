@@ -36,6 +36,8 @@ description: >-
 | `shared/math.js` | `TAU rand randInt clamp dist2 lerp angleDiff` |
 | `shared/constants.js` | 全部數值與升級定義、`sanitizeName()` |
 | `shared/snapshot.js` | 快照序列化與雙快照插值（`INTERP_DELAY` 兩個 tick） |
+| `shared/daily.js` | 每日挑戰：`dayKey()`（台灣時間）、`dailyChallenge(key)` 由種子選兩個規則 |
+| `shared/math.js` 的 `seedRandom` | 可換種子的亂數；`game.js` 一律用 `rnd()/rand()`，**不要直接呼叫 `Math.random`**（每日挑戰要固定種子） |
 | `public/js/game.js` | 世界、玩家、敵人 AI、Boss 狀態機、波次模式、雷射、道具、擊殺 / 受傷 / 倒地救援、升級、`abandonRun` |
 | `public/js/render.js` | 所有繪製；`themedContext` Proxy 包裝 canvas context |
 | `public/js/effects.js` | 粒子、浮字、震動、慢動作、定格、色差；**震動與慢動作以真實時間衰減**（`decayEffects`） |
@@ -71,7 +73,8 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - Boss 每 5 波，體型 110，招式 ring / spiral / volley / wall / homing / charge / summon / **laser（掃射）**，三階段。
 - 特殊波：3 小行星帶、4 彈幕求生、6 懸賞獵殺、8 護送運輸艦、9 防衛信標、12 小行星帶；10 波後 40% 隨機。
 - 合作：倒地 30 s、靠近 3 s 救援；斷線 15 s 內重連；中途加入；Esc 離開 = 單人立即結算上傳、多人離隊（擊殺仍計入隊伍成績）。
-- 排行榜：單人（客戶端回報）、合作（伺服器記錄）、全部 / 本週；`MIN_RUN_SCORE = 10`；玩家可刪自己的單人成績。
+- 排行榜：單人（客戶端回報）、合作（伺服器記錄）、每日（今日榜）、全部 / 本週；`MIN_RUN_SCORE = 10`；玩家可刪自己的單人成績。
+- 局外成長：星塵 = `dustFor(score, wave, unlocks)`（分數/25 + 波×5，上限 2000，任何分數都給）；機庫 `PERKS`（7 種永久強化，`applyPerks` 在 `addPlayer` 套用，伺服器在 join 時依帳號套用）；每日挑戰 `DAILY_MODS`（`world.mods` 由 `startRun({mods})` 設定，只在單機模式跑，伺服器房間不做每日）。一天一次由伺服器用 `players.daily_started` + 當日 runs 記錄擋。
 
 ## 5. 部署與資料
 
@@ -102,6 +105,12 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - 手機：橫向；左半螢幕拖曳移動，右半螢幕拖曳瞄準開火（不按就自動瞄準最近敵人），右下衝刺鈕，右上 ☰ 選單。
 - 多人：輸入名字 → 建立房間 → 分享 4 碼房號或 `?room=CODE` 邀請連結 → 房主「全員出擊」（可勾 Boss 挑戰）。看到紫色虛線就離開那條線；橘色地雷靠近會炸；懸賞目標要在 25 秒內追殺。
 
-## 8. 未做的候選項目
+## 8. 成長路線（依序執行中）
 
-背景音樂、局內統計面板、MessagePack 壓縮快照、手動部署避免清房、付費外觀（`themes.js` 的重映射機制已保留）。
+1. ✅ 局外成長（星塵 + 機庫）+ 每日挑戰
+2. 結算一鍵分享圖（Canvas 產圖 + Web Share API）
+3. 機體選擇（3 到 4 種起始機）
+4. 升級協同（組合技）、20 波通關結局
+5. 遊玩事件記錄（局數、平均波次、流失點）
+
+其他候選：背景音樂、MessagePack 壓縮快照、手動部署避免清房、付費外觀（`themes.js` 的重映射機制已保留）。

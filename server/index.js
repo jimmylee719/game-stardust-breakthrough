@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName } from '../shared/constants.js';
+import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS } from '../shared/constants.js';
+import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { openDb } from './db.js';
+import * as perksLib from '../shared/constants.js';
 
 const db = await openDb();
 
@@ -45,7 +47,7 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-const MODES = new Set(['solo', 'coop']);
+const MODES = new Set(['solo', 'coop', 'daily']);
 async function handleApi(req, res, url) {
   try {
     if (req.method === 'POST' && url.pathname === '/api/register') {
@@ -60,14 +62,50 @@ async function handleApi(req, res, url) {
       return json(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/runs') {
-      // 單人成績由客戶端回報（單機模擬在瀏覽器）；合作成績由伺服器自己記錄，不走這裡
+      // 單人 / 每日成績由客戶端回報（單機模擬在瀏覽器）；合作成績由伺服器自己記錄，不走這裡。
+      // 不論分數高低都發星塵；只有達到 MIN_RUN_SCORE 的局才上榜。每日挑戰一天一次。
       const b = await readBody(req);
       const me = await db.auth(String(b.id || ''), String(b.secret || ''));
       if (!me) return json(res, 401, { error: 'unauthorized' });
       const score = Math.max(0, Math.min(10_000_000, Number(b.score) | 0)), wave = Math.max(0, Math.min(999, Number(b.wave) | 0));
-      if (score < MIN_RUN_SCORE) return json(res, 400, { error: 'score too low' });
-      const r = await db.addRun({ mode: 'solo', score, wave, party: [{ id: me.id, name: me.name }] });
-      return json(res, 200, r);
+      const mode = b.mode === 'daily' ? 'daily' : 'solo';
+      const day = mode === 'daily' ? dayKey() : null;
+      if (mode === 'daily') {
+        if (b.day && b.day !== day) return json(res, 400, { error: 'daily expired' });
+        if (await db.dailyRun(me.id, day)) return json(res, 400, { error: 'daily already played' });
+      }
+      const prof = await db.profile(me.id);
+      const dust = dustFor(score, wave, prof?.unlocks);
+      await db.grantDust(me.id, dust);
+      let rank = null, id = null;
+      if (score >= MIN_RUN_SCORE || mode === 'daily') { const r = await db.addRun({ mode, score, wave, party: [{ id: me.id, name: me.name }], day }); rank = r.rank; id = r.id; }
+      return json(res, 200, { id, rank, dust, total: (prof?.dust || 0) + dust, mode, day });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/perks/buy') {
+      const b = await readBody(req);
+      const me = await db.auth(String(b.id || ''), String(b.secret || ''));
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      const r = await db.buyPerk(me.id, String(b.perk || ''));
+      return json(res, r.error ? 400 : 200, r);
+    }
+    if (req.method === 'GET' && url.pathname === '/api/daily') {
+      // 今天的挑戰規則 + 若有帳號則附上是否已挑戰過
+      const c = dailyChallenge(dayKey());
+      const out = { key: c.key, seed: c.seed, mods: c.mods.map(m => m.id) };
+      const me = url.searchParams.get('id') ? await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '') : null;
+      if (me) { const prof = await db.profile(me.id); out.started = prof?.dailyStarted === c.key; out.run = await db.dailyRun(me.id, c.key); }
+      return json(res, 200, out);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/daily/start') {
+      // 開始每日挑戰即視為用掉今天的機會（重新整理也不能重來）
+      const b = await readBody(req);
+      const me = await db.auth(String(b.id || ''), String(b.secret || ''));
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      const c = dailyChallenge(dayKey());
+      const prof = await db.profile(me.id);
+      if (prof?.dailyStarted === c.key || await db.dailyRun(me.id, c.key)) return json(res, 400, { error: 'daily already played' });
+      await db.dailyStart(me.id, c.key);
+      return json(res, 200, { ok: true, key: c.key, seed: c.seed, mods: c.mods.map(m => m.id) });
     }
     if (req.method === 'POST' && url.pathname === '/api/runs/delete') {
       // 玩家可刪除自己的單人成績（合作成績由伺服器記錄，不可刪）
@@ -78,13 +116,15 @@ async function handleApi(req, res, url) {
     }
     if (req.method === 'GET' && url.pathname === '/api/leaderboard') {
       const mode = MODES.has(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'solo';
-      const period = url.searchParams.get('period') === 'week' ? 'week' : 'all';
-      return json(res, 200, { mode, period, rows: await db.top(mode, period, 20) });
+      const period = mode === 'daily' ? 'day' : url.searchParams.get('period') === 'week' ? 'week' : 'all';
+      const day = mode === 'daily' ? dayKey() : null;
+      return json(res, 200, { mode, period, day, rows: await db.top(mode, period, 20, day) });
     }
     if (req.method === 'GET' && url.pathname === '/api/me') {
       const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
       if (!me) return json(res, 401, { error: 'unauthorized' });
-      return json(res, 200, { id: me.id, name: me.name, stats: await db.me(me.id) });
+      const prof = await db.profile(me.id);
+      return json(res, 200, { id: me.id, name: me.name, stats: await db.me(me.id), dust: prof?.dust || 0, dustTotal: prof?.dustTotal || 0, unlocks: prof?.unlocks || [] });
     }
     return json(res, 404, { error: 'not found' });
   } catch (e) { return json(res, 400, { error: e.message }); }
@@ -137,17 +177,20 @@ function broadcast(room, msg) {
 function lobbyMsg(room) {
   return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color })) };
 }
+function applyPerksTo(p, unlocks) { const { applyPerks } = perksLib; applyPerks(p, unlocks); }
 function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
 async function recordCoopRun(room) {
   const w = room.world;
   if (room.recorded) return;
   room.recorded = true;
-  if (w.score < MIN_RUN_SCORE) return;
+  if (w.score < MIN_RUN_SCORE) { broadcast(room, { t: 'result', rank: null, score: w.score, wave: w.wave, dustBy: {} }); return; }
   // 隊伍名單：仍在場的玩家 + 中途離隊的玩家（離隊者的擊殺數也計入）
   const party = [...w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills })), ...room.departed];
   try {
     const r = await db.addRun({ mode: 'coop', score: w.score, wave: w.wave, party });
-    broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave });
+    const dustBy = {};
+    for (const m of party) if (m.id) { const prof = await db.profile(m.id); const d = dustFor(w.score, w.wave, prof?.unlocks); await db.grantDust(m.id, d); dustBy[m.id] = d; }
+    broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave, dustBy });
     console.log(`[room ${room.code}] coop run recorded: score ${w.score} wave ${w.wave} rank #${r.rank}`);
   } catch (e) { console.error('record run failed', e.message); }
 }
@@ -211,7 +254,8 @@ wss.on('connection', ws => {
       send({ t: 'welcome', id, code: room.code, token, inProgress: inProgress(room) });
       broadcast(room, lobbyMsg(room));
       if (m.acct && m.acct.id && m.acct.secret) {
-        db.auth(String(m.acct.id), String(m.acct.secret)).then(a => { const cur = current(); if (a && cur) cur.acctId = a.id; }).catch(() => {});
+        // 驗證帳號並套用永久強化（大廳階段套用；開局時 startRun 會依 perks 重建）
+        db.auth(String(m.acct.id), String(m.acct.secret)).then(a => { const cur = current(); if (a && cur) { cur.acctId = a.id; if (!inProgress(room)) applyPerksTo(cur, a.unlocks || []); } }).catch(() => {});
       }
       if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
       console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''}`);

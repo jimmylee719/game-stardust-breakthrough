@@ -41,12 +41,19 @@ npm start
 
 觸控與鍵盤滑鼠可混用，偵測到第一次觸控就切換成觸控模式。
 
+## 局外成長：星塵、機庫、每日挑戰
+
+- **星塵**：每局結束依「分數 ÷ 25 + 每波 5」發放（上限 2000，任何分數都有），單人 / 每日由客戶端上傳時發、合作由伺服器結算時發給有帳號的隊員。結算畫面與選單都會顯示。
+- **機庫**（選單「🔧 機庫」）：用星塵購買 7 種永久強化（裝甲塗層、起始護盾、牽引器、推進冷卻、幸運星、預備彈頭、星塵收集），每一局開局自動套用，多人房間也會套用。定義在 `shared/constants.js` 的 `PERKS`，價格與等級上限都在那裡改。
+- **每日挑戰**（選單「📅 每日挑戰」）：以台灣時間日期為種子，每天固定兩個規則（極速敵群、精英出沒、物資匱乏、玻璃大砲、雷射封鎖、蟲潮、深空突入、雷區）與固定的敵人組合；一個帳號一天一次（按下出擊就算用掉，重新整理也不能重來），獨立的今日榜。規則定義在 `shared/daily.js`。
+- **API**：`POST /api/runs`（body 加 `mode: 'daily'` 與 `day`）、`POST /api/perks/buy`、`GET /api/daily`、`POST /api/daily/start`、`GET /api/leaderboard?mode=daily`。
+
 ## 帳號與全球排行榜
 
 - **匿名帳號**：首次進站自動向伺服器註冊一組 id + secret，存在瀏覽器 localStorage，不需要密碼或信箱。改名字會同步。換瀏覽器或清除資料就是新帳號（抒壓小遊戲的定位，刻意不做登入）。
 - **兩個榜**：單人（成績由瀏覽器回報）與合作（伺服器結算時自己記錄，無法竄改）；各有「全部」與「本週」。
 - **結算畫面**顯示這局的全球名次；選單的「全球排行榜」可看前 20 名與自己的最佳成績、名次、局數。
-- **API**：`POST /api/register`、`POST /api/rename`、`POST /api/runs`（單人）、`GET /api/leaderboard?mode=solo|coop&period=all|week`、`GET /api/me`。
+- **API**：`POST /api/register`、`POST /api/rename`、`POST /api/runs`（單人 / 每日）、`GET /api/leaderboard?mode=solo|coop|daily&period=all|week`、`GET /api/me`（含星塵與永久強化）。
 
 ### 資料儲存
 

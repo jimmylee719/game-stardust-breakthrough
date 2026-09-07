@@ -1,11 +1,11 @@
 // 遊戲邏輯核心（權威模擬）。
 // 規則：不碰 DOM、Canvas、Audio、window、setTimeout。所有視聽回饋透過 fx 介面通知外界。
 // 這個模組同時在瀏覽器（單機）與伺服器（多人）執行。
-import { TAU, rand, randInt, clamp, dist2, angleDiff } from '../../shared/math.js';
+import { TAU, rand, randInt, rnd, clamp, dist2, angleDiff } from '../../shared/math.js';
 import {
   WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS,
   UPGRADES, UPGRADE_EVERY_WAVES, WAVE_MODES, MODE_SCHEDULE, MODE_CHANCE_AFTER, MODE_CHANCE,
-  DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName,
+  DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName, applyPerks,
 } from '../../shared/constants.js';
 
 // ---------- fx 介面（預設全部 no-op，讓邏輯可在無視聽環境執行） ----------
@@ -24,7 +24,7 @@ export function createWorld() {
     scene: 'menu',           // menu | lobby | play | pause | upgrade | gameover
     time: 0, wave: 0, waveTimer: 1.5, score: 0, combo: 0, comboTimer: 0,
     players: [], bullets: [], enemies: [], enemyBullets: [], pickups: [], lasers: [],
-    abandoned: false,
+    abandoned: false, mods: {},   // mods：每日挑戰規則 {fast, elite, noPickup, glass, lancers, swarm, mines}
     boss: null, bossWarn: 0, upgradeOffered: false, upgradeDue: false,
     waveMode: null, modeTimer: 0, modeSpawnCd: 0, beacon: null, lastMode: null,
     pendingUpgrades: new Map(),
@@ -33,7 +33,7 @@ export function createWorld() {
   };
 }
 
-export function addPlayer(world, { id, name, local = false, token = null, acctId = null }) {
+export function addPlayer(world, { id, name, local = false, token = null, acctId = null, perks = null }) {
   const pid = id ?? world.nextId++;
   const idx = world.players.length;
   const p = {
@@ -49,7 +49,10 @@ export function addPlayer(world, { id, name, local = false, token = null, acctId
     kills: 0,
     input: { ix: 0, iy: 0, angle: 0, fire: false, dash: false },
     inputQueue: [], lastSeq: 0, netInput: false,
+    luck: 0, perks: [],
   };
+  applyPerks(p, perks);
+  if (world.mods.glass) { p.maxHp = Math.round(p.maxHp / 2); p.hp = p.maxHp; p.damage *= 1.5; }
   world.players.push(p);
   return p;
 }
@@ -62,12 +65,13 @@ export function joinMidGame(world, opts) {
 }
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
-export function startRun(world, { startWave = 0 } = {}) {
-  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId }));
+export function startRun(world, { startWave = 0, mods = null } = {}) {
+  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
+  world.mods = Object.fromEntries((mods || []).map(m => [typeof m === 'string' ? m : m.id, true]));
   roster.forEach(r => addPlayer(world, r));
-  world.wave = startWave;
+  world.wave = world.mods.skip ? Math.max(startWave, 3) : startWave;
   world.upgradeOffered = true;
   world.scene = 'play';
 }
@@ -122,18 +126,19 @@ function spawnEnemy(world, type, x, y, scale = 1, opts = {}) {
   const w = world.wave, n = nPlayers(world);
   const elite = !!opts.elite;
   const sizeMul = 1 + Math.min(DIFFICULTY.sizeCap, w * DIFFICULTY.sizePerWave);
-  const hpMul = (1 + w * DIFFICULTY.hpPerWave) * (1 + (n - 1) * 0.35) * (elite ? 3 : 1);
+  const hpMul = (1 + w * DIFFICULTY.hpPerWave) * (1 + (n - 1) * 0.35) * (elite ? 3 : 1) * (world.mods.swarm ? 0.75 : 1);
+  const spdMod = world.mods.fast ? 1.3 : 1;
   const e = {
     id: world.nextId++, type, x, y, vx: 0, vy: 0,
     r: t.r * scale * sizeMul * (elite ? 1.5 : 1),
     hp: t.hp * hpMul * scale, maxHp: t.hp * hpMul * scale,
-    speed: t.speed * (1 + w * DIFFICULTY.speedPerWave) * (elite ? 0.9 : 1),
+    speed: t.speed * (1 + w * DIFFICULTY.speedPerWave) * (elite ? 0.9 : 1) * spdMod,
     color: t.color, score: Math.round(t.score * scale * (elite ? 4 : 1)),
     kind: t.kind, contact: t.contact * (elite ? 1.5 : 1), split: t.split && scale === 1, elite,
     shootCd: rand(1, 2.5), wobble: rand(0, TAU), hitFlash: 0, squash: 0, rot: rand(0, TAU), rotV: rand(-1.5, 1.5),
     tier: opts.tier ?? 0,
     // AI 狀態
-    flank: (Math.random() < 0.5 ? -1 : 1) * rand(0.4, 1),   // 包抄方向與強度
+    flank: (rnd() < 0.5 ? -1 : 1) * rand(0.4, 1),   // 包抄方向與強度
     lunge: 0, lungeCd: rand(AI.dartLungeCd[0], AI.dartLungeCd[1]),
     dodgeCd: rand(0, 1), mineCd: rand(AI.mineCd[0], AI.mineCd[1]),
     laserCd: rand(1.5, 3), laserId: null,
@@ -144,24 +149,25 @@ function spawnEnemy(world, type, x, y, scale = 1, opts = {}) {
   return e;
 }
 function pickType(world) {
-  const w = world.wave, roll = Math.random();
+  const w = world.wave, roll = rnd();
   let type = 'drifter';
   if (w >= 2 && roll < 0.25) type = 'dart';
   if (w >= 2 && roll > 0.8) type = 'shooter';
   if (w >= 4 && roll > 0.7 && roll <= 0.8) type = 'splitter';
-  if (w >= DIFFICULTY.lancerFromWave && roll > 0.88 && roll <= 0.94) type = 'lancer';
+  const lancerFrom = world.mods.lancers ? 2 : DIFFICULTY.lancerFromWave, lancerLo = world.mods.lancers ? 0.82 : 0.88;
+  if (w >= lancerFrom && roll > lancerLo && roll <= 0.94) type = 'lancer';
   if (w >= 5 && roll > 0.94) type = 'tank';
   return type;
 }
 function spawnWithElite(world, type, x, y) {
-  const elite = world.wave >= DIFFICULTY.eliteFromWave && Math.random() < DIFFICULTY.eliteChance(world.wave);
+  const elite = world.wave >= DIFFICULTY.eliteFromWave && rnd() < DIFFICULTY.eliteChance(world.wave) * (world.mods.elite ? 3 : 1);
   return spawnEnemy(world, type, x, y, 1, { elite });
 }
 
 function chooseMode(world) {
   const w = world.wave;
   if (MODE_SCHEDULE[w]) return MODE_SCHEDULE[w];
-  if (w >= MODE_CHANCE_AFTER && Math.random() < MODE_CHANCE) {
+  if (w >= MODE_CHANCE_AFTER && rnd() < MODE_CHANCE) {
     const keys = Object.keys(WAVE_MODES).filter(k => k !== world.lastMode);
     return keys[randInt(0, keys.length - 1)];
   }
@@ -177,9 +183,9 @@ function nextWave(world, fx) {
   if (mode) { startMode(world, mode, fx); return; }
   fx.sfx('wave');
   fx.text(world.W / 2, world.H / 2 - 60, `第 ${world.wave} 波`, '#fff', 36, 1.6);
-  const n = Math.round((DIFFICULTY.baseCount + world.wave * DIFFICULTY.countPerWave) * (1 + (nPlayers(world) - 1) * 0.5));
+  const n = Math.round((DIFFICULTY.baseCount + world.wave * DIFFICULTY.countPerWave) * (1 + (nPlayers(world) - 1) * 0.5) * (world.mods.swarm ? 1.5 : 1));
   // 夾擊隊形：從兩個相對的邊同時進場，逼玩家兩面應戰
-  const pincer = world.wave >= DIFFICULTY.pincerFromWave && Math.random() < 0.5 ? randInt(0, 1) : -1;
+  const pincer = world.wave >= DIFFICULTY.pincerFromWave && rnd() < 0.5 ? randInt(0, 1) : -1;
   if (pincer >= 0) fx.text(world.W / 2, world.H / 2 - 20, '偵測到夾擊隊形', '#ff8c42', 18, 1.6);
   for (let i = 0; i < n; i++) {
     const type = pickType(world);
@@ -228,9 +234,9 @@ function updateMode(world, dt, fx) {
       world.modeSpawnCd = 0.22 / intensity;
       const x = rand(20, world.W - 20);
       world.enemyBullets.push({ id: world.nextId++, x, y: -10, vx: rand(-40, 40), vy: rand(220, 330) * intensity, life: 6, r: rand(5, 9) });
-      if (Math.random() < 0.15) {
+      if (rnd() < 0.15) {
         const p = nearestPlayer(world, world.W / 2, world.H / 2);
-        if (p) { const fromLeft = Math.random() < 0.5; const sx = fromLeft ? -10 : world.W + 10, sy = rand(0, world.H); const a = Math.atan2(p.y - sy, p.x - sx); world.enemyBullets.push({ id: world.nextId++, x: sx, y: sy, vx: Math.cos(a) * 300, vy: Math.sin(a) * 300, life: 6, r: 6 }); }
+        if (p) { const fromLeft = rnd() < 0.5; const sx = fromLeft ? -10 : world.W + 10, sy = rand(0, world.H); const a = Math.atan2(p.y - sy, p.x - sx); world.enemyBullets.push({ id: world.nextId++, x: sx, y: sy, vx: Math.cos(a) * 300, vy: Math.sin(a) * 300, life: 6, r: 6 }); }
       }
     }
     if (world.modeTimer <= 0) finishMode(world, fx, true);
@@ -240,7 +246,7 @@ function updateMode(world, dt, fx) {
     world.modeSpawnCd -= dt;
     if (world.modeSpawnCd <= 0) {
       world.modeSpawnCd = Math.max(0.5, 1.3 - world.wave * 0.04) / (1 + (nPlayers(world) - 1) * 0.4);
-      spawnWithElite(world, Math.random() < 0.7 ? 'drifter' : 'dart');
+      spawnWithElite(world, rnd() < 0.7 ? 'drifter' : 'dart');
     }
     if (world.modeTimer <= 0) finishMode(world, fx, b.alive);
   } else if (mode === 'asteroids') {
@@ -252,7 +258,7 @@ function updateMode(world, dt, fx) {
     world.modeSpawnCd -= dt;
     if (world.modeSpawnCd <= 0) {
       world.modeSpawnCd = Math.max(0.55, 1.4 - world.wave * 0.04) / (1 + (nPlayers(world) - 1) * 0.4);
-      const roll = Math.random();
+      const roll = rnd();
       spawnWithElite(world, roll < 0.55 ? 'drifter' : roll < 0.8 ? 'dart' : 'shooter');
     }
     if (!b.alive) finishMode(world, fx, false);
@@ -323,7 +329,7 @@ function updateBoss(world, dt, fx) {
 
   if (b.dying > 0) {
     b.dying -= dt;
-    if (Math.random() < 0.6) { fx.burst(b.x + rand(-b.r, b.r), b.y + rand(-b.r, b.r), Math.random() < 0.5 ? '#fff' : b.color, 10, 240, 0.5, 5); fx.noise(0.1, 0.1); }
+    if (rnd() < 0.6) { fx.burst(b.x + rand(-b.r, b.r), b.y + rand(-b.r, b.r), rnd() < 0.5 ? '#fff' : b.color, 10, 240, 0.5, 5); fx.noise(0.1, 0.1); }
     fx.shake(8);
     if (b.dying <= 0) killBoss(world, fx);
     return;
@@ -437,7 +443,7 @@ function updateBoss(world, dt, fx) {
     case 'laser': {
       // 掃射雷射：預警 1 秒後從玩家一側掃到另一側
       if (!b.laserId) {
-        const sweep = (Math.random() < 0.5 ? 1 : -1) * AI.bossLaserSweep;
+        const sweep = (rnd() < 0.5 ? 1 : -1) * AI.bossLaserSweep;
         const L = spawnLaser(world, b.x, b.y, aimA - sweep * 0.5, { warn: AI.bossLaserWarn, fire: AI.bossLaserFire + b.phase * 0.2, len: 2200, w: AI.bossLaserWidth, dmg: AI.bossLaserDmg, sweep: sweep / (AI.bossLaserFire + b.phase * 0.2), boss: true, track: false, color: b.color });
         b.laserId = L.id;
         fx.beep(90, 0.9, 'sawtooth', 0.1, 260); fx.text(b.x, b.y - b.r - 20, '雷射充能', '#ff8c42', 22, 0.9);
@@ -447,7 +453,7 @@ function updateBoss(world, dt, fx) {
     case 'summon':
       if (b.atkT <= 0) {
         const n = 2 + b.tier;
-        for (let i = 0; i < n; i++) { const a = i * TAU / n + b.t; spawnEnemy(world, Math.random() < 0.5 ? 'dart' : 'drifter', b.x + Math.cos(a) * (b.r + 30), b.y + Math.sin(a) * (b.r + 30)); }
+        for (let i = 0; i < n; i++) { const a = i * TAU / n + b.t; spawnEnemy(world, rnd() < 0.5 ? 'dart' : 'drifter', b.x + Math.cos(a) * (b.r + 30), b.y + Math.sin(a) * (b.r + 30)); }
         fx.burst(b.x, b.y, '#f15bb5', 24, 280, 0.5, 3);
         fx.beep(330, 0.3, 'triangle', 0.08, 300);
         b.atk = 'idle'; b.atkT = 2;
@@ -498,8 +504,9 @@ function spawnBullet(world, p, x, y, a, dmgMul = 1) {
     pierce: p.pierce, bounce: p.bounce, homing: p.homing, size: p.bulletSize, hit: new Set(),
   });
 }
-function spawnPickup(world, x, y, force = false) {
-  const roll = force ? Math.random() * 0.34 : Math.random();
+function spawnPickup(world, x, y, force = false, luck = 0) {
+  if (world.mods.noPickup) return;
+  const roll = force ? rnd() * 0.34 : rnd() * (1 - Math.min(0.5, luck));   // 幸運：把亂數壓進掉落區間
   let kind = null;
   if (roll < 0.10) kind = 'heal';
   else if (roll < 0.17) kind = 'spread';
@@ -558,7 +565,7 @@ function killEnemy(world, idx, killer, fx) {
   if (e.type === 'rock' && e.tier > 0) {
     for (let i = 0; i < 2; i++) spawnEnemy(world, 'rock', e.x + rand(-10, 10), e.y + rand(-10, 10), e.tier === 2 ? 0.55 : 0.3, { tier: e.tier - 1, dir: Math.atan2(e.vy, e.vx) + (i ? 0.9 : -0.9) });
   }
-  spawnPickup(world, e.x, e.y, e.elite);
+  spawnPickup(world, e.x, e.y, e.elite, killer ? killer.luck : 0);
   if (big) fx.slowmo(0.35);
   if (killer) {
     if (killer.lifesteal > 0 && !killer.dead) killer.hp = Math.min(killer.maxHp, killer.hp + killer.lifesteal);
@@ -733,12 +740,12 @@ export function update(world, dt, fx = NULL_FX) {
         const e = world.enemies[j];
         if (!e || segDist2(e.x, e.y, x1, y1, x2, y2) > (e.r + 6) ** 2) continue;
         e.hp -= dps * dt; e.hitFlash = 0.05;
-        if (Math.random() < 0.25) fx.burstDir(e.x, e.y, '#b8ffff', 2, p.angle + Math.PI, 1.2, 160, 0.2, 2);
+        if (rnd() < 0.25) fx.burstDir(e.x, e.y, '#b8ffff', 2, p.angle + Math.PI, 1.2, 160, 0.2, 2);
         if (e.hp <= 0) killEnemy(world, j, p, fx);
       }
       const bb = world.boss;
       if (bb && !bb.entering && bb.dying <= 0 && segDist2(bb.x, bb.y, x1, y1, x2, y2) < (bb.r + 6) ** 2) { damageBoss(world, dps * dt, bb.x, bb.y, fx); }
-      if (Math.random() < 0.3) fx.sfx('hit');
+      if (rnd() < 0.3) fx.sfx('hit');
       p.vx -= Math.cos(p.angle) * 40 * dt; p.vy -= Math.sin(p.angle) * 40 * dt;
     }
     // 射擊
@@ -888,7 +895,7 @@ export function update(world, dt, fx = NULL_FX) {
             e.shootCd = rand(1.3, 2.2);
             // 預判射擊：從第 leadFromWave 波起瞄準玩家的未來位置
             let ax = dx, ay = dy;
-            const lead = wave >= DIFFICULTY.leadFromWave && tgt.vx !== undefined && Math.random() < 0.7;
+            const lead = wave >= DIFFICULTY.leadFromWave && tgt.vx !== undefined && rnd() < 0.7;
             if (lead) { const tl = d / 320; ax = tgt.x + tgt.vx * tl - e.x; ay = tgt.y + tgt.vy * tl - e.y; }
             const a = Math.atan2(ay, ax);
             const cnt = e.elite ? 5 : randInt(1, DIFFICULTY.shooterVolley(wave));
@@ -897,7 +904,7 @@ export function update(world, dt, fx = NULL_FX) {
             fx.beep(lead ? 520 : 400, 0.1, 'sine', 0.04, -200);
           }
           // 佈雷：在身後留下感應地雷
-          if (wave >= DIFFICULTY.mineFromWave) {
+          if (wave >= DIFFICULTY.mineFromWave || world.mods.mines) {
             e.mineCd -= dt;
             if (e.mineCd <= 0) { e.mineCd = rand(AI.mineCd[0], AI.mineCd[1]); world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: 0, vy: 0, life: AI.mineLife, r: 10, kind: 'mine' }); fx.beep(200, 0.15, 'triangle', 0.05, -100); }
           }
@@ -1024,10 +1031,10 @@ export function update(world, dt, fx = NULL_FX) {
     L.angle += L.sweep * dt;
     const x2 = L.x + Math.cos(L.angle) * L.len, y2 = L.y + Math.sin(L.angle) * L.len;
     for (const q of activePlayers(world)) {
-      if (segDist2(q.x, q.y, L.x, L.y, x2, y2) < (q.r + L.w * 0.5) ** 2) { hurtPlayer(world, q, L.dmg, fx); q.vx += Math.cos(L.angle + Math.PI / 2) * 120 * (Math.random() < 0.5 ? 1 : -1); }
+      if (segDist2(q.x, q.y, L.x, L.y, x2, y2) < (q.r + L.w * 0.5) ** 2) { hurtPlayer(world, q, L.dmg, fx); q.vx += Math.cos(L.angle + Math.PI / 2) * 120 * (rnd() < 0.5 ? 1 : -1); }
     }
     if (beacon && segDist2(beacon.x, beacon.y, L.x, L.y, x2, y2) < (beacon.r + L.w * 0.5) ** 2) { beacon.hp -= 30 * dt; beacon.hitFlash = 0.1; }
-    if (Math.random() < 0.5) { const t = rand(0.1, 1); fx.burst(L.x + (x2 - L.x) * t, L.y + (y2 - L.y) * t, L.color, 1, 60, 0.25, 2); }
+    if (rnd() < 0.5) { const t = rand(0.1, 1); fx.burst(L.x + (x2 - L.x) * t, L.y + (y2 - L.y) * t, L.color, 1, 60, 0.25, 2); }
     if (L.t <= 0) world.lasers.splice(i, 1);
   }
 

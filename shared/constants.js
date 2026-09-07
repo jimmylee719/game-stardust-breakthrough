@@ -122,6 +122,37 @@ export const UPGRADES = [
   { id: 'bigshot',   icon: '🔵', name: '巨型彈體', max: 2, desc: () => `子彈體積 +50%，更容易命中`, apply: p => { p.bulletSize += 0.5; } },
 ];
 
+/**
+ * 局外成長：永久強化（機庫）。用「星塵」購買，每局開始套用到玩家身上。
+ * cost[等級-1] 為該級價格；apply(p, level) 只能改玩家物件（伺服器也會執行）。
+ */
+export const PERKS = [
+  { id: 'armor',  icon: '🛡️', name: '裝甲塗層', max: 3, cost: [200, 400, 800],  desc: l => `最大生命 +${l * 10}`, apply: (p, l) => { p.maxHp += 10 * l; p.hp = p.maxHp; } },
+  { id: 'shield', icon: '🔵', name: '起始護盾', max: 1, cost: [300],            desc: () => '每局開局自帶 1 層護盾', apply: (p, l) => { p.shield += l; } },
+  { id: 'magnet', icon: '🧭', name: '牽引器',   max: 2, cost: [250, 500],       desc: l => `道具吸附範圍 +${l * 30}%`, apply: (p, l) => { p.magnetR *= 1 + 0.3 * l; } },
+  { id: 'dash',   icon: '⚡', name: '推進冷卻', max: 2, cost: [350, 700],       desc: l => `衝刺冷卻 -${l * 10}%`, apply: (p, l) => { p.dashCdMax *= 1 - 0.1 * l; } },
+  { id: 'luck',   icon: '🍀', name: '幸運星',   max: 2, cost: [400, 800],       desc: l => `道具掉落率 +${l * 25}%`, apply: (p, l) => { p.luck = 0.25 * l; } },
+  { id: 'salvo',  icon: '💥', name: '預備彈頭', max: 1, cost: [600],            desc: () => '開局子彈傷害 +10%', apply: (p, l) => { p.damage *= 1 + 0.1 * l; } },
+  { id: 'dust',   icon: '✨', name: '星塵收集', max: 2, cost: [500, 1000],      desc: l => `每局獲得星塵 +${l * 20}%`, apply: () => {} },
+];
+/** unlocks 是 id 陣列（重複代表等級）→ {id: level} */
+export function perkLevels(unlocks) {
+  const out = {};
+  for (const id of unlocks || []) out[id] = (out[id] || 0) + 1;
+  return out;
+}
+/** 把永久強化套用到剛建立的玩家 */
+export function applyPerks(p, unlocks) {
+  const lv = perkLevels(unlocks);
+  for (const k of PERKS) if (lv[k.id]) k.apply(p, Math.min(lv[k.id], k.max));
+  p.perks = unlocks ? unlocks.slice() : [];
+}
+/** 一局可獲得的星塵：分數 / 25 + 每波 5，星塵收集加成後上限 2000 */
+export function dustFor(score, wave, unlocks) {
+  const lv = perkLevels(unlocks).dust || 0;
+  return Math.min(2000, Math.round((Math.floor(score / 25) + wave * 5) * (1 + 0.2 * lv)));
+}
+
 /** 名字清理：去頭尾空白、限制長度、只保留可見字元 */
 export function sanitizeName(raw) {
   const s = String(raw || '').replace(/[ -]/g, '').trim().slice(0, NAME_MAX_LEN);
