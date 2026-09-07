@@ -2,6 +2,8 @@
 
 2D 合作生存射擊遊戲。純 HTML5 Canvas + Web Audio，無任何前端依賴。
 
+**線上版：https://game-stardust-breakthrough-production.up.railway.app**（Railway，新加坡節點，最多 4 人一房）
+
 ## 執行
 
 需要 Node.js 18 以上。
