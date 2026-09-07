@@ -13,11 +13,12 @@ import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnl
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS } from '../../shared/daily.js';
 import './themes.js';   // 套用霓虹主題（唯一風格）
+import { track } from './analytics.js';
 import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe, getAccount, profile, buyPerk, fetchDaily, startDaily } from './account.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
-const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily');
+const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily'), helpEl = $('help'), privacyEl = $('privacy');
 const nameInput = $('name'), codeInput = $('code');
 const errEl = $('err'), bestEl = $('best');
 
@@ -37,10 +38,11 @@ let lastResult = null;   // 結算畫面用：{ rank, mode }
 let leftTeam = false;    // 多人：主動離開隊伍後的本機結算畫面
 let soloSubmitted = false;
 let ship = localStorage.getItem('stardust_ship') || 'falcon';   // 出擊用的機體
-let runKind = 'solo';    // solo | daily（單機模式的成績歸類）
+let runKind = 'solo';
+let runStartedAt = 0;   // 事件記錄用    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
 const me = () => world.players.find(p => p.id === myId);
-const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden || !lbEl.hidden || !hangarEl.hidden || !dailyEl.hidden;
+const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden || !lbEl.hidden || !hangarEl.hidden || !dailyEl.hidden || !helpEl.hidden || !privacyEl.hidden;
 
 // ---------- 小工具 ----------
 function toast(msg, ms = 2500) { toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms); }
@@ -87,6 +89,8 @@ function beginSolo(startWave = 0, daily = null) {
   addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false;
   startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily });
+  runStartedAt = performance.now();
+  track('run_start', { mode: runKind, ship: currentShip(), wave0: world.wave, boss: startWave > 0 });
   menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true; hangarEl.hidden = true; dailyEl.hidden = true;
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
 }
@@ -127,6 +131,10 @@ function renderHangar() {
     catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', 'max level': '已達上限', offline: '目前離線，無法購買' }[e.message] || e.message; }
   });
 }
+$('open-help').addEventListener('click', () => { helpEl.hidden = false; });
+$('help-close').addEventListener('click', () => { helpEl.hidden = true; });
+$('open-privacy').addEventListener('click', () => { privacyEl.hidden = false; });
+$('privacy-close').addEventListener('click', () => { privacyEl.hidden = true; });
 $('open-hangar').addEventListener('click', async () => { hangarEl.hidden = false; renderHangar(); await fetchMe(); renderHangar(); });
 $('hangar-close').addEventListener('click', () => { hangarEl.hidden = true; renderDust(); });
 
@@ -182,7 +190,7 @@ function beginOnline(code) {
       $('lobby-start').textContent = m.players.length === 1 ? '單獨出擊（可等朋友加入）' : `全員出擊（${m.players.length} 人）`;
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
-    onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
+    onStarted() { runStartedAt = performance.now(); track('run_start', { mode: 'coop', ship: currentShip() }); resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
     onResult(m) { const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
@@ -247,9 +255,14 @@ function closePause() {
 $('pause-resume').addEventListener('click', closePause);
 $('pause-leave').addEventListener('click', leaveGame);
 /** 單人：這局結束並上傳成績；多人：離開隊伍，留在結算畫面 */
+function runEndProps(reason) {
+  const p = me() || {};
+  return { mode: runKind, ship: p.ship || currentShip(), wave: world.wave, score: world.score, reason, dur: Math.round((performance.now() - runStartedAt) / 1000), kills: p.kills || 0, ups: Object.keys(p.upgrades || {}), syn: Object.keys(p.syn || {}) };
+}
 function finishSoloRun() {
   if (soloSubmitted) return;
   soloSubmitted = true;
+  track('run_end', runEndProps(world.abandoned ? 'abandon' : world.won ? (world.endless ? 'endless' : 'victory') : 'dead'));
   if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
   const kind = runKind, day = dailyInfo?.key || null;
   submitRun(world.score, world.wave, { mode: kind, day }).then(r => {
@@ -271,6 +284,7 @@ function leaveGame() {
   // 多人：通知伺服器離隊（隊友繼續打），本機切到結算畫面
   const n = net; net = null; mode = 'solo';
   n.send({ t: 'leave' }); n.close();
+  track('run_end', runEndProps('left'));
   predictor.reset();
   world.scene = 'gameover'; world.abandoned = true; leftTeam = true; lastResult = null;
   history.replaceState(null, '', location.pathname);
@@ -280,7 +294,7 @@ function leaveGame() {
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
   onKeyDown(code) {
-    if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { if (!lbEl.hidden) lbEl.hidden = true; else if (!hangarEl.hidden) hangarEl.hidden = true; else if (!dailyEl.hidden) dailyEl.hidden = true; } return; }
+    if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { if (!lbEl.hidden) lbEl.hidden = true; else if (!hangarEl.hidden) hangarEl.hidden = true; else if (!dailyEl.hidden) dailyEl.hidden = true; else if (!helpEl.hidden) helpEl.hidden = true; else if (!privacyEl.hidden) privacyEl.hidden = true; } return; }
     if (code === 'Escape') {
       if (!lbEl.hidden) { lbEl.hidden = true; return; }
       if (world.scene === 'victory') { victoryChoice(false); return; }
@@ -320,6 +334,7 @@ function victoryChoice(endless) {
   else if (hostId === myId) net?.send({ t: endless ? 'endless' : 'finish' });
 }
 function pickUpgrade(i) {
+  const c = world.pendingUpgrades.get(myId)?.[i]; if (c) track('upgrade', { id: c.id, wave: world.wave });
   if (mode === 'solo') chooseUpgrade(world, myId, i, fx);
   else net?.chooseUpgrade(i);
 }
@@ -347,7 +362,7 @@ function loop(now) {
     const mine = me();
     if (mine && !mine.downed) predictor.applyTo(mine);
     if (net.curr && (world.scene === 'play' || world.scene === 'upgrade') && !lobbyEl.hidden) lobbyEl.hidden = true;
-    if (prevScene !== 'gameover' && world.scene === 'gameover' && world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
+    if (prevScene !== 'gameover' && world.scene === 'gameover') { if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); } track('run_end', { ...runEndProps(world.won ? 'victory' : 'dead'), mode: 'coop' }); }
     updateEffects(rawDt);
     renderer.updateStars(rawDt, mine);
   } else if (world.scene === 'play') {

@@ -13,8 +13,13 @@ import { snapshotWorld } from '../shared/snapshot.js';
 import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { openDb } from './db.js';
+import { computeStats } from './stats.js';
 
 const db = await openDb();
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
+/** 伺服器自己記的事件（房間、合作局） */
+function logEvent(name, props = {}, acct = null) { db.addEvents([{ at: Date.now(), acct, sid: 'server', name, props }]).catch(() => {}); }
+const EVENT_NAMES = new Set(['session', 'run_start', 'run_end', 'upgrade', 'daily_start', 'perk_buy']);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -85,6 +90,7 @@ async function handleApi(req, res, url) {
       const me = await db.auth(String(b.id || ''), String(b.secret || ''));
       if (!me) return json(res, 401, { error: 'unauthorized' });
       const r = await db.buyPerk(me.id, String(b.perk || ''));
+      if (r.ok) logEvent('perk_buy', { perk: String(b.perk) }, me.id);
       return json(res, r.error ? 400 : 200, r);
     }
     if (req.method === 'GET' && url.pathname === '/api/daily') {
@@ -104,6 +110,7 @@ async function handleApi(req, res, url) {
       const prof = await db.profile(me.id);
       if (prof?.dailyStarted === c.key || await db.dailyRun(me.id, c.key)) return json(res, 400, { error: 'daily already played' });
       await db.dailyStart(me.id, c.key);
+      logEvent('daily_start', { key: c.key }, me.id);
       return json(res, 200, { ok: true, key: c.key, seed: c.seed, mods: c.mods.map(m => m.id) });
     }
     if (req.method === 'POST' && url.pathname === '/api/runs/delete') {
@@ -118,6 +125,24 @@ async function handleApi(req, res, url) {
       const period = mode === 'daily' ? 'day' : url.searchParams.get('period') === 'week' ? 'week' : 'all';
       const day = mode === 'daily' ? dayKey() : null;
       return json(res, 200, { mode, period, day, rows: await db.top(mode, period, 20, day) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/events') {
+      // 客戶端批次事件：只收白名單事件名、每筆 props 限 2KB、一次最多 50 筆
+      const b = await readBody(req);
+      const sid = String(b.sid || '').slice(0, 24);
+      const list = (Array.isArray(b.events) ? b.events : []).slice(0, 50)
+        .filter(e => e && EVENT_NAMES.has(e.name) && typeof e.props === 'object' && JSON.stringify(e.props).length <= 2048)
+        .map(e => ({ at: Date.now(), acct: e.acct ? String(e.acct).slice(0, 32) : null, sid, name: e.name, props: e.props }));
+      if (list.length) await db.addEvents(list);
+      return json(res, 200, { ok: true, n: list.length });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/stats') {
+      // 管理用：需要 ADMIN_KEY（環境變數）；沒設定時只允許本機
+      const key = url.searchParams.get('key') || '';
+      const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(req.headers.host || '');
+      if (ADMIN_KEY ? key !== ADMIN_KEY : !local) return json(res, 401, { error: 'unauthorized' });
+      const days = Math.max(1, Math.min(365, Number(url.searchParams.get('days')) || 30));
+      return json(res, 200, computeStats(await db.events(days)));
     }
     if (req.method === 'GET' && url.pathname === '/api/me') {
       const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
@@ -165,6 +190,7 @@ function createRoom(code) {
   room.fx = makeRecorder(room.events);
   room.interval = setInterval(() => tickRoom(room), 1000 / TICK_RATE);
   rooms.set(code, room);
+  logEvent('room', { kind: 'create' });
   console.log(`[room ${code}] created`);
   return room;
 }
@@ -181,6 +207,7 @@ async function recordCoopRun(room) {
   const w = room.world;
   if (room.recorded) return;
   room.recorded = true;
+  for (const p of w.players) logEvent('run_end', { mode: 'coop', ship: p.ship, wave: w.wave, score: w.score, reason: w.won ? 'victory' : 'dead', dur: Math.round(w.time), kills: p.kills, ups: Object.keys(p.upgrades), syn: Object.keys(p.syn), players: w.players.length + room.departed.length }, p.acctId || null);
   if (w.score < MIN_RUN_SCORE) { broadcast(room, { t: 'result', rank: null, score: w.score, wave: w.wave, dustBy: {} }); return; }
   // 隊伍名單：仍在場的玩家 + 中途離隊的玩家（離隊者的擊殺數也計入）
   const party = [...w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills })), ...room.departed];
@@ -261,6 +288,7 @@ wss.on('connection', ws => {
         send({ t: 'welcome', id, code: room.code, token, inProgress: inProgress(room), ship });
         broadcast(room, lobbyMsg(room));
         if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
+        if (room.clients.size > 1) logEvent('room', { kind: inProgress(room) ? 'midjoin' : 'join', players: room.clients.size }, acct?.id || null);
         console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''} ship=${ship}`);
       })();
       return;
@@ -279,6 +307,7 @@ wss.on('connection', ws => {
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
           startRun(room.world, { startWave: m.boss ? 4 : 0 });
           room.events.length = 0; room.departed = []; room.recorded = false;
+          for (const p of room.world.players) logEvent('run_start', { mode: 'coop', ship: p.ship, wave0: m.boss ? 4 : 0, players: room.world.players.length }, p.acctId || null);
           broadcast(room, { t: 'started' });
           console.log(`[room ${room.code}] run started with ${room.world.players.length} players${m.boss ? ' (boss rush)' : ''}`);
         }
@@ -297,6 +326,7 @@ wss.on('connection', ws => {
         const w = room.world, cur = current();
         if (cur && inProgress(room)) {
           room.departed.push({ id: cur.acctId || null, name: cur.name, kills: cur.kills, left: true });
+          logEvent('run_end', { mode: 'coop', ship: cur.ship, wave: w.wave, score: w.score, reason: 'left', dur: Math.round(w.time), kills: cur.kills, ups: Object.keys(cur.upgrades), syn: Object.keys(cur.syn) }, cur.acctId || null);
           dropPendingUpgrade(w, cur.id);
           w.players.splice(w.players.indexOf(cur), 1);
           room.fx.text(w.W / 2, w.H / 2 - 120, `${cur.name} 離開了隊伍`, cur.color, 22, 2);

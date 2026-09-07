@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>星塵突圍 · 營運數據</title>
+<style>
+  :root { --accent: #4cc9f0; --gold: #ffd166; --danger: #ff3860; --good: #90f1a8; --text: #fff; --bg: #03040a; --panel: rgba(8,12,34,.85); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Noto Sans TC", system-ui, sans-serif; padding: 24px; }
+  h1 { font-size: 26px; letter-spacing: .1em; margin-bottom: 4px; }
+  .sub { color: rgba(255,255,255,.55); font-size: 13px; margin-bottom: 18px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; align-items: center; }
+  input, select, button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); color: #fff; }
+  button { cursor: pointer; background: var(--accent); color: #03040a; font-weight: 700; border: none; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .tile { background: var(--panel); border: 1px solid rgba(76,201,240,.25); border-radius: 12px; padding: 12px 14px; }
+  .tile .v { font-size: 26px; font-weight: 800; color: var(--gold); }
+  .tile .k { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 15px; letter-spacing: .05em; color: var(--accent); margin-bottom: 10px; }
+  .card p.note { font-size: 12px; color: rgba(255,255,255,.5); margin-top: 8px; }
+  canvas { width: 100%; height: 180px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); }
+  th { color: rgba(255,255,255,.55); font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .err { color: #ff8c9c; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>星塵突圍 · 營運數據</h1>
+<div class="sub">事件來源：瀏覽器批次上報 + 伺服器房間紀錄。台灣時間。<span id="gen"></span></div>
+<div class="row">
+  <input id="key" type="password" placeholder="ADMIN_KEY（本機不用）" style="width:240px">
+  <select id="days"><option value="7">近 7 天</option><option value="30" selected>近 30 天</option><option value="90">近 90 天</option><option value="365">近一年</option></select>
+  <button id="load">載入</button>
+  <span id="err" class="err"></span>
+</div>
+<div id="tiles" class="tiles"></div>
+<div class="grid">
+  <div class="card"><h2>每日活躍（玩家 / 局數 / 開啟次數）</h2><canvas id="c-days"></canvas></div>
+  <div class="card"><h2>流失波次：有多少局在第 n 波結束</h2><canvas id="c-death"></canvas><p class="note">柱狀最高的那一波就是最多人卡住的地方；只計算真的陣亡的局。</p></div>
+  <div class="card"><h2>到達率：撐到第 n 波的局數比例</h2><canvas id="c-reach"></canvas></div>
+  <div class="card"><h2>模式</h2><table id="t-modes"></table></div>
+  <div class="card"><h2>機體表現</h2><table id="t-ships"></table></div>
+  <div class="card"><h2>升級選取次數</h2><table id="t-ups"></table></div>
+  <div class="card"><h2>組合技啟動（局數）</h2><table id="t-syn"></table></div>
+  <div class="card"><h2>結束原因與其他</h2><table id="t-misc"></table></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const key = localStorage.getItem('stardust_admin_key') || ''; $('key').value = key;
+function bars(canvas, labels, series, colors) {
+  const dpr = devicePixelRatio || 1, W = canvas.clientWidth, H = 180;
+  canvas.width = W * dpr; canvas.height = H * dpr; const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+  const max = Math.max(1, ...series.flat()), n = labels.length, pad = 22, bw = (W - pad * 2) / n, sw = bw / series.length * 0.8;
+  ctx.font = '10px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.textAlign = 'center';
+  labels.forEach((l, i) => { if (n <= 32 || i % Math.ceil(n / 16) === 0) ctx.fillText(l, pad + bw * (i + 0.5), H - 4); });
+  series.forEach((s, k) => { ctx.fillStyle = colors[k]; s.forEach((v, i) => { const h = (H - 30) * v / max; ctx.fillRect(pad + bw * i + bw * 0.1 + sw * k, H - 16 - h, sw, h); }); });
+  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.textAlign = 'left'; ctx.fillText('max ' + max, 4, 10);
+}
+const tr = (cells, cls) => `<tr>${cells.map((c, i) => `<td class="${i ? 'n' : ''}">${c}</td>`).join('')}</tr>`;
+const th = cells => `<tr>${cells.map(c => `<th>${c}</th>`).join('')}</tr>`;
+async function load() {
+  $('err').textContent = '';
+  localStorage.setItem('stardust_admin_key', $('key').value);
+  const r = await fetch(`/api/stats?days=${$('days').value}&key=${encodeURIComponent($('key').value)}`);
+  if (!r.ok) { $('err').textContent = r.status === 401 ? '金鑰錯誤（正式站需要 ADMIN_KEY）' : 'HTTP ' + r.status; return; }
+  const s = await r.json();
+  $('gen').textContent = ' 產生於 ' + new Date(s.generatedAt).toLocaleString('zh-TW') + '，共 ' + s.events + ' 筆事件。';
+  const tiles = [
+    [s.players.all, '有帳號的玩家'], [s.players.d7, '近 7 天活躍'], [s.players.d30, '近 30 天活躍'], [s.players.retentionPct + '%', `回訪率（玩過 2 天以上 ${s.players.retained2days} 人）`],
+    [s.runs.total, '完成的局數'], [s.runs.avgWave, '平均撐到第幾波'], [s.runs.medianWave, '中位數波次'], [s.runs.victories, '通關（20 波）次數'],
+    [s.device.touch + ' / ' + s.device.desktop, '手機 / 電腦 開啟次數'], [s.perkBuys, '機庫購買次數'], [s.dailyStarts, '每日挑戰開始次數'], [s.rooms.created + ' / ' + s.rooms.joins, '建立房間 / 加入'],
+  ];
+  $('tiles').innerHTML = tiles.map(([v, k]) => `<div class="tile"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  bars($('c-days'), s.days.map(d => d.day.slice(5)), [s.days.map(d => d.players), s.days.map(d => d.runs), s.days.map(d => d.sessions)], ['#ffd166', '#4cc9f0', 'rgba(255,255,255,.35)']);
+  bars($('c-death'), s.deathHist.map(d => d.wave), [s.deathHist.map(d => d.runs)], ['#ff3860']);
+  bars($('c-reach'), s.reach.map(d => d.wave), [s.reach.map(d => d.pct)], ['#90f1a8']);
+  $('t-modes').innerHTML = th(['模式', '局數', '平均波', '中位波', '平均分', '平均秒']) + Object.entries(s.modes).map(([m, v]) => tr([{ solo: '單人', daily: '每日', coop: '合作' }[m] || m, v.runs, v.avgWave, v.medianWave, v.avgScore, v.avgDur])).join('');
+  $('t-ships').innerHTML = th(['機體', '局數', '平均波', '平均分']) + s.ships.map(x => tr([x.icon + ' ' + x.name, x.runs, x.avgWave, x.avgScore])).join('');
+  $('t-ups').innerHTML = th(['升級', '被選次數']) + s.upgrades.map(u => tr([u.icon + ' ' + u.name, u.picks])).join('');
+  $('t-syn').innerHTML = th(['組合技', '啟動局數']) + s.synergies.map(u => tr([u.icon + ' ' + u.name, u.runs])).join('');
+  const rn = { dead: '陣亡', abandon: '撤退（Esc）', victory: '通關結算', endless: '無盡模式終結', left: '離開隊伍' };
+  $('t-misc').innerHTML = th(['項目', '數']) + Object.entries(s.runs.reasons).map(([k, v]) => tr([rn[k] || k, v])).join('') + tr(['開局未完成（開始 - 結束）', Math.max(0, s.runs.started - s.runs.total)]) + tr(['中途加入次數', s.rooms.midJoins]);
+}
+$('load').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>

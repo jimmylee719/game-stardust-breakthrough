@@ -48,6 +48,10 @@ async function createPg(url) {
     CREATE INDEX IF NOT EXISTS runs_mode_score ON runs (mode, score DESC);
     CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at);
     CREATE INDEX IF NOT EXISTS runs_day ON runs (mode, day);
+    CREATE TABLE IF NOT EXISTS events (
+      id SERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), acct TEXT, sid TEXT, name TEXT NOT NULL, props JSONB NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS events_at ON events (at);
   `);
   const since = (period, day) => period === 'week' ? `AND created_at > now() - interval '7 days'` : period === 'day' ? `AND day = '${day.replace(/[^0-9-]/g, '')}'` : '';
   const rankOf = async (mode, score, day) => (await pool.query(`SELECT COUNT(*)::int + 1 AS rank FROM runs WHERE mode=$1 AND score > $2 ${mode === 'daily' && day ? `AND day='${day.replace(/[^0-9-]/g, '')}'` : ''}`, [mode, score])).rows[0].rank;
@@ -108,12 +112,22 @@ async function createPg(url) {
       if (!r.rows[0]) return null;
       return { ...r.rows[0], rank: await rankOf('daily', r.rows[0].score, day) };
     },
+    async addEvents(list) {
+      if (!list.length) return;
+      const vals = [], params = [];
+      list.forEach((e, i) => { vals.push(`($${i * 5 + 1},$${i * 5 + 2},$${i * 5 + 3},$${i * 5 + 4},$${i * 5 + 5})`); params.push(new Date(e.at), e.acct, e.sid, e.name, JSON.stringify(e.props)); });
+      await pool.query(`INSERT INTO events (at, acct, sid, name, props) VALUES ${vals.join(',')}`, params);
+    },
+    async events(sinceDays = 30, limit = 100000) {
+      const r = await pool.query('SELECT at, acct, sid, name, props FROM events WHERE at > now() - ($1 || \' days\')::interval ORDER BY at DESC LIMIT $2', [String(sinceDays), limit]);
+      return r.rows.map(x => ({ at: new Date(x.at).getTime(), acct: x.acct, sid: x.sid, name: x.name, props: x.props || {} }));
+    },
   };
 }
 
 // ---------- JSON 檔 ----------
 function createFileStore() {
-  let data = { players: {}, runs: [], nextRun: 1 };
+  let data = { players: {}, runs: [], nextRun: 1, events: [] };
   try { data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch {}
   let saveTimer = null;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); fs.writeFileSync(DATA_FILE, JSON.stringify(data)); } catch (e) { console.error('store save failed', e.message); } }, 200); };
@@ -168,6 +182,8 @@ function createFileStore() {
       const r = data.runs.find(r => r.mode === 'daily' && r.day === day && r.ids.includes(id));
       return r ? { id: r.id, score: r.score, wave: r.wave, rank: rankOf('daily', r.score, day) } : null;
     },
+    async addEvents(list) { data.events ??= []; data.events.push(...list); if (data.events.length > 50000) data.events.splice(0, data.events.length - 50000); save(); },
+    async events(sinceDays = 30, limit = 100000) { const since = Date.now() - sinceDays * 24 * 3600 * 1000; return (data.events || []).filter(e => e.at > since).slice(-limit); },
   };
 }
 

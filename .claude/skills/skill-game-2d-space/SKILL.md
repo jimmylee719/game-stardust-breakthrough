@@ -46,7 +46,8 @@ description: >-
 | `public/js/account.js` | 匿名帳號（localStorage id+secret）、成績上傳、排行榜 |
 | `public/js/main.js` | 選單、大廳、Esc 選單、排行榜 UI、主迴圈；`window.__dbg()` 給自動化用 |
 | `server/index.js` | 靜態檔、`/health`、REST API、WS 房間（4 碼房號、最多 4 人、中途加入、token 重連、離隊） |
-| `server/db.js` | `DATABASE_URL` → PostgreSQL；否則 JSON 檔（`DATA_DIR`） |
+| `server/db.js` | `DATABASE_URL` → PostgreSQL；否則 JSON 檔（`DATA_DIR`）；含 `events` 表 |
+| `server/stats.js` / `public/admin.html` / `public/js/analytics.js` | 事件聚合（純函式）、儀表板（需 `ADMIN_KEY`）、客戶端批次上報（sendBeacon） |
 | `test/sim.js` `syn.js` `net.js` `api.js` | 無頭模擬、組合技 / 通關規則、WS 端對端、REST + 合作成績 |
 
 ## 3. 開發流程（照做）
@@ -99,6 +100,7 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - 連鎖爆炸會在迴圈中移除敵人：反向迭代且 `if (!o) continue`。
 - 觸控：`touchstart` 時清掉 `e.touches` 裡已不存在的手指，避免搖桿卡住。
 - 測試機器人要對移動中的敵人**預判射擊**，否則零分局不會被記錄，合作成績測試會等到逾時。
+- 事件名稱要在 `server/index.js` 的 `EVENT_NAMES` 白名單，新增事件記得同步加；`computeStats` 在 `server/stats.js` 用 JS 聚合，Postgres 與 JSON 檔共用。
 - 我方在正式榜留過測試資料：線上驗證用能刪除的帳號，或先在本機 `DATA_DIR` 隔離。
 
 ## 7. 遊玩說明（給使用者 / README 用）
@@ -113,6 +115,8 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 2. ~~結算一鍵分享圖~~（使用者決定不做）
 3. ✅ 機體選擇（4 種起始機）
 4. ✅ 升級協同（7 組組合技）、20 波通關 + 無盡模式
-5. 遊玩事件記錄（局數、平均波次、流失點）
+5. ✅ 遊玩事件記錄 + `/admin.html` 儀表板（`ADMIN_KEY`）
+
+下一輪先看儀表板的流失波次與機體表現再決定調什麼；使用者已明確不做分享圖。
 
 其他候選：背景音樂、MessagePack 壓縮快照、手動部署避免清房、付費外觀（`themes.js` 的重映射機制已保留）。

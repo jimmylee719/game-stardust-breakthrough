@@ -32,13 +32,7 @@
     <div id="err" class="err"></div>
     <div id="best" class="best"></div>
     <button id="open-lb" class="small">🏆 全球排行榜</button>
-    <ul class="help">
-      <li>WASD 移動 · 滑鼠 瞄準 · 左鍵 射擊 · Shift 衝刺</li>
-      <li>每 2 波三選一強化 · 每 5 波 BOSS · 特殊波次：小行星帶 / 彈幕求生 / 懸賞獵殺 / 防衛信標 / 護送運輸艦</li>
-      <li>隊友倒地時靠近 3 秒救援 · 斷線 15 秒內自動重連</li>
-      <li>每局獲得星塵，到機庫買永久強化 · 每日挑戰一天一次，全球同一組規則</li>
-      <li>Esc 選單（離開即結算成績） · M 靜音 · 結算畫面 L 看排行榜</li>
-    </ul>
+    <div class="links"><button id="open-help" class="small">📖 遊玩說明</button><button id="open-privacy" class="small">🔒 隱私說明</button></div>
   </div>
 </div>
 
@@ -76,6 +70,50 @@
     <div id="lb-me" class="lb-me"></div>
     <ol id="lb-rows" class="lb-rows"><li class="muted">載入中…</li></ol>
     <button id="lb-close" class="small">關閉</button>
+  </div>
+</div>
+<div id="help" class="overlay" hidden>
+  <div class="panel wide doc">
+    <button id="help-close" class="x" aria-label="關閉">✕</button>
+    <h2>遊玩說明</h2>
+    <h3>操作</h3>
+    <ul>
+      <li><b>電腦</b>：WASD / 方向鍵 移動 · 滑鼠 瞄準 · 左鍵 射擊 · Shift 或 空白鍵 衝刺 · Esc 選單 · M 靜音 · 升級用 1 / 2 / 3 或點卡片</li>
+      <li><b>手機</b>：橫向遊玩。左半螢幕拖曳 = 移動；右半螢幕拖曳 = 瞄準開火，不按時自動瞄準最近的敵人；右下圓鈕 衝刺；右上 ☰ 選單</li>
+    </ul>
+    <h3>節奏</h3>
+    <ul>
+      <li>每 2 波三選一強化，Boss 擊破後必給。兩個特定升級各 1 級會啟動<b>組合技</b>，卡片上會用橘字提示</li>
+      <li>每 5 波一隻 Boss；擊破第 20 波的殲滅者 Ω 即<b>突圍成功</b>，可繼續無盡模式或結算</li>
+      <li>特殊波次：小行星帶、彈幕求生、懸賞獵殺、防衛信標、護送運輸艦</li>
+      <li>看到紫色虛線就離開那條線（雷射兵）；橘色地雷靠近會炸；懸賞目標要在 25 秒內追殺</li>
+    </ul>
+    <h3>道具</h3>
+    <ul><li>+HP、散射、連射、護盾、炸彈（清場）、雷射（5 秒貫穿光束）</li></ul>
+    <h3>多人（最多 4 人）</h3>
+    <ul>
+      <li>建立房間 → 分享 4 碼房號或邀請連結 → 房主全員出擊。遊戲中也能用房號加入</li>
+      <li>隊友倒地時靠近 3 秒救援；斷線 15 秒內自動重連；Esc 離開隊伍後擊殺數仍計入隊伍成績</li>
+    </ul>
+    <h3>局外成長</h3>
+    <ul>
+      <li>每局依分數與波次獲得<b>星塵</b>，到機庫解鎖機體與永久強化，每局開局自動套用</li>
+      <li><b>每日挑戰</b>：全球同一組敵人與規則，一個帳號一天一次，獨立榜單</li>
+      <li>Esc 離開即結算；結算畫面按 L 看排行榜</li>
+    </ul>
+  </div>
+</div>
+<div id="privacy" class="overlay" hidden>
+  <div class="panel doc">
+    <button id="privacy-close" class="x" aria-label="關閉">✕</button>
+    <h2>隱私說明</h2>
+    <ul>
+      <li>這是純娛樂用的小遊戲，<b>不需要註冊、不收集姓名、Email、電話或任何個人資料</b>。</li>
+      <li>首次進站會在你的瀏覽器產生一組隨機的匿名編號，用來記錄成績、星塵與解鎖；清除瀏覽器資料就等於換一個新身分，我們無法把它對應到任何人。</li>
+      <li>你輸入的飛行員代號只用於排行榜與隊友頭上的名牌顯示。</li>
+      <li>為了調整難度與平衡，會記錄<b>匿名的遊玩事件</b>（例如撐到第幾波、選了哪些升級、用哪台機體、手機或電腦）。這些資料只和上述匿名編號綁定，不含任何可識別個人的資訊，也不會提供給第三方。</li>
+      <li>沒有廣告、沒有追蹤 Cookie、不使用第三方分析服務。</li>
+    </ul>
   </div>
 </div>
 <div id="hangar" class="overlay" hidden>

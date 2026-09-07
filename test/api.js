@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 const PORT = 19765 + Math.floor(Math.random() * 1000);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stardust-'));
 // 讓測試用獨立的資料檔（DATA_DIR 指到暫存目錄）
-const server = spawn(process.execPath, [path.resolve('server/index.js')], { env: { ...process.env, PORT: String(PORT), DATABASE_URL: '', DATA_DIR: tmp }, stdio: ['ignore', 'pipe', 'inherit'] });
+const server = spawn(process.execPath, [path.resolve('server/index.js')], { env: { ...process.env, PORT: String(PORT), DATABASE_URL: '', DATA_DIR: tmp, ADMIN_KEY: 'test-key' }, stdio: ['ignore', 'pipe', 'inherit'] });
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const fail = msg => { console.error('FAIL:', msg); server.kill(); process.exit(1); };
 await new Promise(resolve => server.stdout.on('data', d => { if (String(d).includes('server →')) resolve(); }));
@@ -121,6 +121,25 @@ if (!A.result.dustBy || !(A.result.dustBy[a.id] > 0)) fail('合作局應發星�
 const coop = await get('/api/leaderboard?mode=coop&period=all');
 if (coop.rows.length !== 1 || coop.rows[0].party.length !== 2 || !coop.rows[0].party.some(p => p.id === a.id)) fail('合作榜應有一筆兩人成績並帶帳號 id: ' + JSON.stringify(coop.rows));
 console.log('coop leaderboard:', coop.rows[0].party.map(p => p.name).join(' + '), coop.rows[0].score);
+
+// 事件記錄與統計：客戶端批次上報（白名單過濾）→ /api/stats 需要 ADMIN_KEY → 聚合出流失波次、機體、升級
+const ev = await post('/api/events', { sid: 's1', events: [
+  { name: 'session', props: { device: 'touch' }, acct: a.id },
+  { name: 'run_start', props: { mode: 'solo', ship: 'wasp', wave0: 0 }, acct: a.id },
+  { name: 'upgrade', props: { id: 'pierce', wave: 2 }, acct: a.id },
+  { name: 'run_end', props: { mode: 'solo', ship: 'wasp', wave: 7, score: 1234, reason: 'dead', dur: 180, kills: 40, ups: ['pierce'], syn: ['wall'] }, acct: a.id },
+  { name: 'hack', props: { x: 1 } },
+  { name: 'run_end', props: { big: 'x'.repeat(3000) } },
+] });
+if (ev.n !== 4) fail('事件白名單 / 大小過濾錯誤，收了 ' + ev.n + ' 筆');
+const noKey = await fetch(base + '/api/stats').then(r => r.status);
+if (noKey !== 401) fail('/api/stats 沒有金鑰應 401（本機以外）：' + noKey);
+const st = await get('/api/stats?key=test-key');
+if (st.runs.total < 3 || !st.deathHist.find(d => d.wave === 7 && d.runs >= 1)) fail('流失統計錯誤 ' + JSON.stringify({ total: st.runs.total, d7: st.deathHist[7] }));
+if (st.ships.find(x => x.id === 'wasp').runs < 1 || st.upgrades.find(u => u.id === 'pierce').picks !== 1 || st.synergies.find(x => x.id === 'wall').runs !== 1) fail('機體 / 升級 / 組合技統計錯誤');
+if (st.device.touch !== 1 || st.perkBuys < 2 || st.dailyStarts !== 1 || st.rooms.created < 1) fail('裝置 / 購買 / 每日 / 房間統計錯誤 ' + JSON.stringify({ device: st.device, perkBuys: st.perkBuys, dailyStarts: st.dailyStarts, rooms: st.rooms }));
+const coopEnds = st.runs.reasons;
+console.log('stats ok: runs', st.runs.total, '| reasons', JSON.stringify(coopEnds), '| death@7', st.deathHist[7].runs, '| ships', st.ships.map(x => x.id + ':' + x.runs).join(' '));
 
 console.log('PASS');
 A.ws.close(); B.ws.close(); server.kill(); process.exit(0);
