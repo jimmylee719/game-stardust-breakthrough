@@ -34,7 +34,7 @@ description: >-
 | 檔案 | 責任 |
 |---|---|
 | `shared/math.js` | `TAU rand randInt clamp dist2 lerp angleDiff` |
-| `shared/constants.js` | 全部數值與升級定義、`sanitizeName()` |
+| `shared/constants.js` | 全部數值：`PLAYER_BASE ENEMY_TYPES DIFFICULTY AI BOSS_* WAVE_MODES MODE_SCHEDULE UPGRADES SYNERGIES SHIPS PERKS WIN_WAVE MIN_RUN_SCORE`，以及 `applyShip applyPerks activeSynergies synergyIfPicked dustFor sanitizeName` |
 | `shared/snapshot.js` | 快照序列化與雙快照插值（`INTERP_DELAY` 兩個 tick） |
 | `shared/daily.js` | 每日挑戰：`dayKey()`（台灣時間）、`dailyChallenge(key)` 由種子選兩個規則 |
 | `shared/math.js` 的 `seedRandom` | 可換種子的亂數；`game.js` 一律用 `rnd()/rand()`，**不要直接呼叫 `Math.random`**（每日挑戰要固定種子） |
@@ -43,9 +43,9 @@ description: >-
 | `public/js/effects.js` | 粒子、浮字、震動、慢動作、定格、色差；**震動與慢動作以真實時間衰減**（`decayEffects`） |
 | `public/js/input.js` | 鍵鼠 + 觸控雙搖桿（自動瞄準 / 自動開火）、`buildInput()` |
 | `public/js/net.js` / `predict.js` | 連線、重連、事件播放；客戶端預測與和解 |
-| `public/js/account.js` | 匿名帳號（localStorage id+secret）、成績上傳、排行榜 |
-| `public/js/main.js` | 選單、大廳、Esc 選單、排行榜 UI、主迴圈；`window.__dbg()` 給自動化用 |
-| `server/index.js` | 靜態檔、`/health`、REST API、WS 房間（4 碼房號、最多 4 人、中途加入、token 重連、離隊） |
+| `public/js/account.js` | 匿名帳號（localStorage id+secret）、`profile` 快取（星塵 / 解鎖）、`submitRun`（solo / daily）、`buyPerk`、`fetchDaily` / `startDaily`、排行榜 |
+| `public/js/main.js` | 選單（單人 / Boss / 每日 / 機庫 / 遊玩說明 / 隱私說明 彈出頁）、大廳、Esc 選單與 `leaveGame`、勝利畫面 `victoryChoice`、排行榜 UI、主迴圈；`window.__dbg()` 給自動化用 |
+| `server/index.js` | 靜態檔、`/health`、REST API（register / rename / runs / runs/delete / leaderboard / me / perks/buy / daily / daily/start / events / stats）、WS 房間（4 碼房號、最多 4 人、中途加入、token 重連、離隊、endless / finish） |
 | `server/db.js` | `DATABASE_URL` → PostgreSQL；否則 JSON 檔（`DATA_DIR`）；含 `events` 表 |
 | `server/stats.js` / `public/admin.html` / `public/js/analytics.js` | 事件聚合（純函式）、儀表板（需 `ADMIN_KEY`）、客戶端批次上報（sendBeacon） |
 | `test/sim.js` `syn.js` `net.js` `api.js` | 無頭模擬、組合技 / 通關規則、WS 端對端、REST + 合作成績 |
@@ -53,13 +53,23 @@ description: >-
 ## 3. 開發流程（照做）
 
 ```bash
-npm start                    # http://localhost:8765
-npm test                     # sim + net + api 全跑，最後一行要 PASS
+npm start                    # http://localhost:8765 （本機開 /admin.html 不需要金鑰）
+npm test                     # sim + syn + net + api 全跑，每套最後一行要 PASS
 node test/sim.js --wave=8 --god --seconds=120 --verbose   # 指定波、無敵、看波次日誌與雷射/地雷統計
+node test/sim.js --wave=19 --god --endless               # 打到第 20 波 Boss 通關後繼續無盡
 node test/sim.js --players=3 --seconds=150               # 多人平衡
+node test/syn.js                                         # 七組組合技效果與通關規則
 ```
 
-新功能的順序：**constants → game.js → snapshot.js → render.js → 測試 → README → commit → push（自動部署）→ curl 線上 `/health`**。
+**測試要能擋住 commit**：`npm test | grep PASS` 只要有輸出就是 exit 0，曾因此把失敗的測試推上線。正確寫法：
+
+```bash
+npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep -q "FAIL\|CRASH" "$TEMP/t.out"; then exit 1; fi
+```
+
+新功能的順序：**constants → game.js → snapshot.js → render.js → 測試 → README + 本 skill → commit → push（自動部署）→ 等線上檔案出現新字串再 curl `/health`**。
+本 skill 有兩份必須一起改：專案內 `.claude/skills/skill-game-2d-space/SKILL.md`（進 git）與 `~/.claude/skills/skill-game-2d-space/SKILL.md`（全域），改完 `diff` 確認一致。
+等部署的寫法：`until curl -s URL/shared/constants.js | grep -a -q "新字串"; do sleep 15; done`，放 `run_in_background`。
 
 瀏覽器驗證用 `.claude/launch.json` 的 `stardust` 預覽伺服器，再用 `window.__dbg()` 直接塞敵人 / 改 `world` 狀態截圖；
 按鈕用 `document.getElementById('solo').click()`，鍵盤用 `window.dispatchEvent(new KeyboardEvent('keydown', {code:'Escape'}))`。
@@ -77,13 +87,16 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - 排行榜：單人（客戶端回報）、合作（伺服器記錄）、每日（今日榜）、全部 / 本週；`MIN_RUN_SCORE = 10`；玩家可刪自己的單人成績。
 - 組合技：`SYNERGIES`（7 組，`needs` 兩個升級 id），`chooseUpgrade` 後用 `activeSynergies` 更新 `p.syn`，效果散在 game.js 依 `p.syn.<id>` 判斷；升級卡提示用 `synergyIfPicked`。通關：`WIN_WAVE = 20`，`killBoss` 內 `world.won` → scene `victory`（每日直接 gameover）；`continueEndless` / `finishRun`，伺服器訊息 `endless` / `finish`（房主）。`inProgress` 要包含 `victory`。
 - 機體：`SHIPS`（falcon / wasp / bastion / carrier），`applyShip` 在 `addPlayer` 內、永久強化之前套用；客戶端 join 帶 `ship`，伺服器用 `shipUnlocked(ship, unlocks)` 驗證後才建玩家（join 改成先 `await db.auth`）；解鎖走 `/api/perks/buy` 的 `ship:<id>`；`render.js` 的 `shipPath(ship)` 畫船身。
+- 選單 UI：單人出擊與 Boss 挑戰等寬；底部只有「📖 遊玩說明」「🔒 隱私說明」兩個按鈕，各自彈出 `.panel.doc`（右上 `.x` 關閉、Esc 也關）。隱私說明承諾：不需註冊、不收個資、只有匿名編號與匿名遊玩事件、無廣告 / 追蹤 Cookie / 第三方分析——**新增任何收集行為前要先改這段文字**。
+- 遊玩事件（`analytics.js` → `POST /api/events`，白名單 `EVENT_NAMES`）：`session{device}`、`run_start{mode,ship,wave0}`、`run_end{mode,ship,wave,score,reason: dead|abandon|victory|endless|left,dur,kills,ups,syn}`、`upgrade{id,wave}`；伺服器記 `room{kind}`、合作局 `run_start/run_end`、`perk_buy`、`daily_start`。儀表板 `/admin.html` 讀 `GET /api/stats?key=&days=`。
 - 局外成長：星塵 = `dustFor(score, wave, unlocks)`（分數/25 + 波×5，上限 2000，任何分數都給）；機庫 `PERKS`（7 種永久強化，`applyPerks` 在 `addPlayer` 套用，伺服器在 join 時依帳號套用）；每日挑戰 `DAILY_MODS`（`world.mods` 由 `startRun({mods})` 設定，只在單機模式跑，伺服器房間不做每日）。一天一次由伺服器用 `players.daily_started` + 當日 runs 記錄擋。
 
 ## 5. 部署與資料
 
 - Railway：`railway.json`（Nixpacks）、`/health` 健康檢查、Node 22 pinned（`.nvmrc` + `engines`）、綁 `0.0.0.0`、WS 每 25 s ping。也有 `Dockerfile`。
 - **每次 push main 會自動重新部署並清掉所有進行中的房間**——要驗證線上多人時先部署再測；商業化前改成手動部署或維護時段。
-- Postgres：Railway 專案 `+ New → Database → Add PostgreSQL`，自動注入 `DATABASE_URL`；`/health` 的 `db` 由 `file` 變 `postgres` 即成功，資料表自動建立。
+- Postgres：Railway 專案 `+ New → Database → Add PostgreSQL`，自動注入 `DATABASE_URL`；`/health` 的 `db` 由 `file` 變 `postgres` 即成功，資料表與新欄位由 `db.js` 的 `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` 自動建立（加欄位就寫在那裡）。
+- 環境變數：`PORT`（Railway 自動）、`DATABASE_URL`、`DATA_DIR`（JSON 檔位置，測試用暫存目錄隔離）、`ADMIN_KEY`（**已在 Railway 設好**，儀表板 https://game-stardust-breakthrough-production.up.railway.app/admin.html 載入成功；沒設定時只有 localhost 能看 `/api/stats`）。
 - 線上驗證指令：
   ```bash
   curl -s https://game-stardust-breakthrough-production.up.railway.app/health
@@ -102,6 +115,8 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - 測試機器人要對移動中的敵人**預判射擊**，否則零分局不會被記錄，合作成績測試會等到逾時。
 - 事件名稱要在 `server/index.js` 的 `EVENT_NAMES` 白名單，新增事件記得同步加；`computeStats` 在 `server/stats.js` 用 JS 聚合，Postgres 與 JSON 檔共用。
 - 我方在正式榜留過測試資料：線上驗證用能刪除的帳號，或先在本機 `DATA_DIR` 隔離。
+- 無頭測試要**看事件不要看時機**：敵人會被互推到玩家身上吃掉護盾、震撼彈擊退會把目標推出射程，靠幀數等結果會偶發失敗；改成檢查 `fx.text` 收到的事件、把目標固定住或放在射程內。連跑 5 次確認穩定再 commit。
+- Bash 裡的 `\`` 反引號和 `$` 在雙引號字串內會被展開（README 的 `code` 標記被吃掉過）：含這些字元的內容一律走 `.cjs` 檔或 Write 工具。
 
 ## 7. 遊玩說明（給使用者 / README 用）
 
@@ -109,7 +124,15 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - 手機：橫向；左半螢幕拖曳移動，右半螢幕拖曳瞄準開火（不按就自動瞄準最近敵人），右下衝刺鈕，右上 ☰ 選單。
 - 多人：輸入名字 → 建立房間 → 分享 4 碼房號或 `?room=CODE` 邀請連結 → 房主「全員出擊」（可勾 Boss 挑戰）。看到紫色虛線就離開那條線；橘色地雷靠近會炸；懸賞目標要在 25 秒內追殺。
 
-## 8. 成長路線（依序執行中）
+## 8. 產品決策（使用者已定，不要再問）
+
+- 視覺鎖定霓虹，不做主題切換、不上傳圖檔。
+- 抒壓小遊戲：不做登入、不做名字髒話過濾。
+- **不做結算分享圖**。
+- 每日挑戰只在單機跑（伺服器多房共用亂數，固定種子會互相干擾）。
+- 之後的調整依儀表板數據（流失波次、回訪率、機體平均波次）決定，不憑感覺加內容。
+
+## 9. 成長路線（已全部完成，2026-09-07）
 
 1. ✅ 局外成長（星塵 + 機庫）+ 每日挑戰
 2. ~~結算一鍵分享圖~~（使用者決定不做）
