@@ -67,6 +67,21 @@ legacy/
 - **沒有 setTimeout**：所有延遲用世界時間排程（`world.timers`），確定性且可在伺服器重播。
 - **只對本機的效果**：定格、色差、準星動畫透過 `fx.local(player)` 只對本機玩家觸發，隊友擊殺不會震你的畫面。
 
+## 部署到 Railway
+
+專案已附 `railway.json`（Nixpacks 建置、`npm start` 啟動、`/health` 健康檢查、失敗自動重啟），
+伺服器讀取 `PORT` 環境變數並綁定 0.0.0.0，WebSocket 每 25 秒 ping 保活。
+
+1. 到 https://railway.com 用 GitHub 登入。
+2. New Project → Deploy from GitHub repo → 選 `game-stardust-breakthrough`。
+3. 等建置完成後，到 Service → Settings → Networking → Generate Domain，取得 `https://xxx.up.railway.app`。
+4. Settings → Region 建議選 Singapore（台灣延遲最低）。
+5. 開網址、建立房間，把邀請連結傳給朋友。
+
+瀏覽器端會自動依 https 使用 wss，不需任何設定。之後每次 push 到 main，Railway 會自動重新部署。
+
+也附了 `Dockerfile`，可原封不動部署到 Fly.io、Google Cloud Run、Koyeb 或自架 VPS。
+
 ## 網路架構
 
 - **伺服器權威**：每個房間持有一個 `world`，伺服器以 30 tick 跑 `game.js` 的 `update()`。客戶端只送 `{ix, iy, angle, fire, dash}`，不送任何結果，無法作弊。

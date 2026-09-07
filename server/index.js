@@ -98,6 +98,8 @@ function tickRoom(room) {
 // ---------- 連線 ----------
 const wss = new WebSocketServer({ server });
 wss.on('connection', ws => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   let room = null, player = null;
   const send = m => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); };
   // startRun 會重建玩家物件，所以永遠用 id 查目前的那一個
@@ -167,9 +169,19 @@ wss.on('connection', ws => {
   });
 });
 
+// WebSocket 保活：雲端反向代理通常會切掉 30 到 60 秒沒流量的連線，每 25 秒 ping 一次；
+// 兩次沒回 pong 視為斷線
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 25000);
+
 // 空房清理保險（正常情況 close 事件就會清）
 setInterval(() => { for (const r of rooms.values()) if (r.clients.size === 0 && Date.now() - r.createdAt > 60000) destroyRoom(r); }, 30000);
 
-server.listen(PORT, () => {
-  console.log(`星塵突圍 server → http://localhost:${PORT}  (ws on same port, tick ${TICK_RATE}Hz)`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`星塵突圍 server → http://localhost:${PORT}  (ws on same port, tick ${TICK_RATE}Hz, node ${process.version})`);
 });

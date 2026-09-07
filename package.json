@@ -12,7 +12,7 @@
     "test:net": "node test/net.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": "22.x"
   },
   "license": "UNLICENSED",
   "dependencies": {
