@@ -51,6 +51,7 @@ public/          瀏覽器端
   js/audio.js      Web Audio 合成音效
   js/input.js      鍵盤滑鼠 → 玩家輸入物件（連線時直接序列化送伺服器）
   js/net.js        WebSocket 客戶端：送輸入、收快照做插值、播放 fx 事件
+  js/predict.js    客戶端預測：本機先算自己的移動，收到快照後校正並重播未確認輸入
   js/main.js       進入點與主迴圈（solo / online 兩種模式）
 server/
   index.js         靜態檔 + WebSocket 房間伺服器：每房一個權威 world，30 tick 廣播快照
@@ -89,11 +90,12 @@ legacy/
 - **伺服器權威**：每個房間持有一個 `world`，伺服器以 30 tick 跑 `game.js` 的 `update()`。客戶端只送 `{ix, iy, angle, fire, dash}`，不送任何結果，無法作弊。
 - **快照 + 插值**：每 tick 廣播 `snapshot.js` 產生的世界快照；客戶端保留前後兩份快照，落後兩個 tick（約 66 毫秒）做線性插值，畫面平滑。
 - **fx 事件**：伺服器端的 `fx` 把每次呼叫記成 `[名稱, 玩家id 或 null, 參數]` 隨快照送出；客戶端只播放全域事件與自己的事件（別人的擊殺不會震你的畫面）。
-- **協定**：JSON。客戶端 → `join / input / start / upgrade / leave`；伺服器 → `welcome / lobby / started / snap / error`。
+- **客戶端預測**：自己的機體不等伺服器，本機用同一個 `stepPlayer()` 以固定 tick 先算；每筆輸入帶序號，伺服器依序處理並在快照回報已處理到哪一號；客戶端以權威狀態為起點重播未確認的輸入，差異用約 0.1 秒的平滑偏移吸收。其他玩家與敵人仍用插值。
+- **協定**：JSON。客戶端 → `join / input(seq) / start / upgrade / leave`；伺服器 → `welcome / lobby / started / snap / error`。
 
 ## 下一步
 
-1. 客戶端預測自己的機體（消除 66 毫秒的操作延遲感）。
-2. 玩家死亡改成倒地可被救起；斷線 10 秒內可用同 id 重連。
-3. 部署到 Fly.io 東京節點（`PORT` 環境變數已支援，`/health` 端點已提供）。
+1. 玩家死亡改成倒地可被救起；斷線 10 秒內可用同 id 重連。
+2. 遊戲中途加入。
+3. 名字髒話過濾。
 4. 快照改二進位（MessagePack）以縮小頻寬。

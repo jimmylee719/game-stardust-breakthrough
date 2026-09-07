@@ -41,6 +41,7 @@ export function addPlayer(world, { id, name, local = false }) {
     lifesteal: 0, explosive: 0, pierce: 0, bounce: 0, homing: 0, bulletSize: 1,
     kills: 0,
     input: { ix: 0, iy: 0, angle: 0, fire: false, dash: false },
+    inputQueue: [], lastSeq: 0, netInput: false,   // 連線模式：帶序號的輸入佇列與最後處理的序號
   };
   world.players.push(p);
   return p;
@@ -55,6 +56,13 @@ export function startRun(world, { startWave = 0 } = {}) {
   world.wave = startWave;
   world.upgradeOffered = startWave > 0;
   world.scene = 'play';
+}
+
+/** 連線模式：把一筆帶序號的輸入排進玩家佇列（伺服器用）。佇列上限防止灌包加速。 */
+export function queueInput(p, seq, input) {
+  p.netInput = true;
+  if (p.inputQueue.length >= 8) p.inputQueue.shift();
+  p.inputQueue.push({ seq, input });
 }
 
 export function togglePause(world) {
@@ -412,6 +420,35 @@ export function chooseUpgrade(world, playerId, idx, fx = NULL_FX) {
   return true;
 }
 
+// ---------- 玩家移動（伺服器模擬與客戶端預測共用，必須是純函式：只改 p） ----------
+export function stepPlayer(world, p, inp, dt, fx = NULL_FX) {
+  const W = world.W, H = world.H;
+  let ix = inp.ix, iy = inp.iy;
+  const len = Math.hypot(ix, iy) || 1; ix /= len; iy /= len;
+
+  p.dashCd = Math.max(0, p.dashCd - dt);
+  if (inp.dash && p.dashCd <= 0 && (ix || iy)) {
+    p.dashing = PLAYER_BASE.dashTime; p.dashCd = p.dashCdMax; p.inv = Math.max(p.inv, 0.25);
+    p.vx = ix * PLAYER_BASE.dashSpeed; p.vy = iy * PLAYER_BASE.dashSpeed;
+    fx.sfx('dash'); fx.burst(p.x, p.y, p.color, 10, 120, 0.4, 2);
+  }
+  if (p.dashing > 0) {
+    p.dashing -= dt;
+    fx.ghost(p.x, p.y, 8, p.color, 0.3);
+  } else {
+    const accel = PLAYER_BASE.accel * p.speedMul, maxSpd = PLAYER_BASE.maxSpeed * p.speedMul;
+    p.vx += ix * accel * dt; p.vy += iy * accel * dt;
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > maxSpd) { p.vx = p.vx / sp * maxSpd; p.vy = p.vy / sp * maxSpd; }
+    if (!ix && !iy) { p.vx *= Math.pow(0.001, dt); p.vy *= Math.pow(0.001, dt); }
+  }
+  p.x = clamp(p.x + p.vx * dt, p.r, W - p.r);
+  p.y = clamp(p.y + p.vy * dt, p.r, H - p.r);
+  p.angle = inp.angle;
+  p.inv = Math.max(0, p.inv - dt);
+  p.rapid = Math.max(0, p.rapid - dt);
+}
+
 // ---------- 主更新 ----------
 export function update(world, dt, fx = NULL_FX) {
   if (world.scene !== 'play') return;
@@ -425,31 +462,16 @@ export function update(world, dt, fx = NULL_FX) {
   for (const p of world.players) {
     if (p.dead) continue;
     const lfx = fx.local(p);
-    const inp = p.input;
-    let ix = inp.ix, iy = inp.iy;
-    const len = Math.hypot(ix, iy) || 1; ix /= len; iy /= len;
-
-    p.dashCd = Math.max(0, p.dashCd - dt);
-    if (inp.dash && p.dashCd <= 0 && (ix || iy)) {
-      p.dashing = PLAYER_BASE.dashTime; p.dashCd = p.dashCdMax; p.inv = Math.max(p.inv, 0.25);
-      p.vx = ix * PLAYER_BASE.dashSpeed; p.vy = iy * PLAYER_BASE.dashSpeed;
-      fx.sfx('dash'); fx.burst(p.x, p.y, p.color, 10, 120, 0.4, 2);
-    }
-    if (p.dashing > 0) {
-      p.dashing -= dt;
-      fx.ghost(p.x, p.y, 8, p.color, 0.3);
+    // 連線玩家：依序消化帶序號的輸入佇列（每 tick 最多 2 筆補進度）；沒有新輸入就不移動。
+    // 單機玩家：直接用 p.input。兩者都走同一個 stepPlayer，客戶端預測也用它。
+    if (p.netInput) {
+      const n = Math.min(2, p.inputQueue.length);
+      for (let i = 0; i < n; i++) { const q = p.inputQueue.shift(); p.input = q.input; p.lastSeq = q.seq; stepPlayer(world, p, q.input, dt, fx); }
+      if (n === 0) { p.inv = Math.max(0, p.inv - dt); p.rapid = Math.max(0, p.rapid - dt); p.dashCd = Math.max(0, p.dashCd - dt); }
     } else {
-      const accel = PLAYER_BASE.accel * p.speedMul, maxSpd = PLAYER_BASE.maxSpeed * p.speedMul;
-      p.vx += ix * accel * dt; p.vy += iy * accel * dt;
-      const sp = Math.hypot(p.vx, p.vy);
-      if (sp > maxSpd) { p.vx = p.vx / sp * maxSpd; p.vy = p.vy / sp * maxSpd; }
-      if (!ix && !iy) { p.vx *= Math.pow(0.001, dt); p.vy *= Math.pow(0.001, dt); }
+      stepPlayer(world, p, p.input, dt, fx);
     }
-    p.x = clamp(p.x + p.vx * dt, p.r, W - p.r);
-    p.y = clamp(p.y + p.vy * dt, p.r, H - p.r);
-    p.angle = inp.angle;
-    p.inv = Math.max(0, p.inv - dt);
-    p.rapid = Math.max(0, p.rapid - dt);
+    const inp = p.input;
 
     // 射擊
     p.fireCd -= dt;

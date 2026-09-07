@@ -9,7 +9,7 @@ export function connect({ name, code, boss, onWelcome, onLobby, onStarted, onErr
   const ws = new WebSocket(`${proto}://${location.host}`);
   const net = {
     ws, id: null, code: null, connected: false,
-    prev: null, curr: null, tPrev: 0, tCurr: 0, pendingEvents: [],
+    prev: null, curr: null, tPrev: 0, tCurr: 0, pendingEvents: [], snapCount: 0,
     send(m) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); },
     sendInput(inp) { net.send({ t: 'input', ...inp }); },
     chooseUpgrade(idx) { net.send({ t: 'upgrade', idx }); },
@@ -31,10 +31,10 @@ export function connect({ name, code, boss, onWelcome, onLobby, onStarted, onErr
     switch (m.t) {
       case 'welcome': net.id = m.id; net.code = m.code; onWelcome?.(m); break;
       case 'lobby': onLobby?.(m); break;
-      case 'started': net.prev = net.curr = null; onStarted?.(m); break;
+      case 'started': net.prev = net.curr = null; net.snapCount = 0; onStarted?.(m); break;
       case 'snap':
         net.prev = net.curr; net.tPrev = net.tCurr;
-        net.curr = m.s; net.tCurr = performance.now();
+        net.curr = m.s; net.tCurr = performance.now(); net.snapCount++;
         if (m.ev) net.pendingEvents.push(...m.ev);
         break;
       case 'error': onError?.(m.msg); break;

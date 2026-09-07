@@ -51,12 +51,15 @@ console.log('first snap: scene', first.scene, '| players', first.players.map(p =
 
 // B 往右走並開火 1 秒
 const t0 = Date.now();
-const iv = setInterval(() => B.send({ t: 'input', ix: 1, iy: 0, angle: 0, fire: true, dash: false }), 33);
+let seq = 0;
+const iv = setInterval(() => B.send({ t: 'input', seq: ++seq, ix: 1, iy: 0, angle: 0, fire: true, dash: false }), 33);
 await wait(1000); clearInterval(iv);
 const lastA = A.snaps[A.snaps.length - 1];
 const bobNow = lastA.players.find(p => p.id === B.id);
 if (!bobNow) fail('A 的快照裡找不到 Bob');
 if (bobNow.x - bobStart.x < 100) fail(`Bob 應向右移動，位移只有 ${(bobNow.x - bobStart.x).toFixed(0)}`);
+if (!(bobNow.seq > 0 && bobNow.seq <= seq)) fail(`快照應回報已處理的輸入序號，得到 ${bobNow.seq}，送出 ${seq}`);
+console.log(`server acked input seq ${bobNow.seq} of ${seq} sent`);
 if (!lastA.bullets.length && !A.events.some(e => e[0] === 'muzzle')) fail('Bob 開火後應出現子彈或槍口事件');
 const rate = A.snaps.length / ((Date.now() - t0 + 300) / 1000);
 console.log(`Bob moved ${(bobNow.x - bobStart.x).toFixed(0)}px right | bullets in snap: ${lastA.bullets.length} | A got ${A.snaps.length} snaps (~${rate.toFixed(0)}/s) | fx events: ${A.events.length}`);

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { createWorld, addPlayer, startRun, update, chooseUpgrade, NULL_FX } from '../public/js/game.js';
+import { createWorld, addPlayer, startRun, update, chooseUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
 import { TICK_RATE, MAX_PLAYERS, sanitizeName } from '../shared/constants.js';
 
@@ -134,7 +134,7 @@ wss.on('connection', ws => {
       case 'input': {
         const clampN = (v, lim) => Math.max(-lim, Math.min(lim, Number(v) || 0));
         const cur = current();
-        if (cur) cur.input = { ix: clampN(m.ix, 1), iy: clampN(m.iy, 1), angle: clampN(m.angle, Math.PI), fire: !!m.fire, dash: !!m.dash };
+        if (cur) queueInput(cur, Number(m.seq) | 0, { ix: clampN(m.ix, 1), iy: clampN(m.iy, 1), angle: clampN(m.angle, Math.PI), fire: !!m.fire, dash: !!m.dash });
         break;
       }
       case 'start':

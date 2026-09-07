@@ -8,6 +8,7 @@ import { attachInput, buildInput, mouse } from './input.js';
 import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effects.js';
 import { ensureAudio, toggleMute, isMuted } from './audio.js';
 import { connect, playEvents } from './net.js';
+import { createPredictor } from './predict.js';
 import { sanitizeName, NAME_MAX_LEN } from '../../shared/constants.js';
 
 const $ = id => document.getElementById(id);
@@ -24,7 +25,8 @@ let myId = 1;
 let fx = createFx(myId);
 let best = +(localStorage.getItem('stardust_best') || 0);
 let uiTime = 0;
-let lastInputSent = 0;
+const predictor = createPredictor(world);
+let lastSnapSeen = -1;
 const me = () => world.players.find(p => p.id === myId);
 const isBoss = location.search.includes('boss'); // ?boss 直接從 Boss 波開始（測試用）
 
@@ -82,7 +84,7 @@ function beginOnline(code) {
       $('lobby-start').textContent = m.players.length === 1 ? '單獨出擊（可等朋友加入）' : `全員出擊（${m.players.length} 人）`;
       if (world.scene === 'gameover' || world.scene === 'menu') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
-    onStarted() { resetEffects(); lobbyEl.hidden = true; world.scene = 'play'; },
+    onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lobbyEl.hidden = true; world.scene = 'play'; },
     onError(msg) { showMenu(msg); },
     onClose() { if (mode === 'online') showMenu('與伺服器的連線已中斷'); },
   });
@@ -144,11 +146,15 @@ function loop(now) {
   const p = me();
 
   if (mode === 'online' && net) {
-    // 送輸入（約 30Hz）
-    if (p && !p.dead && world.scene === 'play' && now - lastInputSent > 1000 / 30) { net.sendInput(buildInput(p)); lastInputSent = now; }
+    // 客戶端預測：收到新快照先校正並重播，再以固定 tick 產生新輸入本機模擬並送出
+    if (p && !p.dead && world.scene === 'play' && net.curr) {
+      if (net.snapCount !== lastSnapSeen) { lastSnapSeen = net.snapCount; predictor.reconcile(net.curr.players.find(q => q.id === myId)); }
+      for (const inp of predictor.step(rawDt, st => buildInput(st))) net.sendInput(inp);
+    }
     const prevScene = world.scene;
     const events = net.applyTo(world, now);
     playEvents(events, fx, myId);
+    predictor.applyTo(me()); // 自己的機體用預測位置，不用落後兩個 tick 的插值
     if (prevScene !== 'gameover' && world.scene === 'gameover' && world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
     updateEffects(rawDt);
     renderer.updateStars(rawDt, me());
@@ -176,4 +182,4 @@ if (codeInput.value) $('join').click(); // 用邀請連結進來：自動加入
 requestAnimationFrame(loop);
 
 // 除錯 / 自動測試用
-window.__dbg = () => ({ world, vfx, me: me(), mode, net });
+window.__dbg = () => ({ world, vfx, me: me(), mode, net, predictor });
