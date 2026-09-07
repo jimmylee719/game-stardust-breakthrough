@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "game",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "serve", "-l", "8765", "-n"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.js"],
       "port": 8765
     }
   ]

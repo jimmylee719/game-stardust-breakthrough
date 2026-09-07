@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>星塵突圍 Stardust Breakout</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="menu" class="overlay" hidden>
+  <div class="panel">
+    <h1>星塵突圍</h1>
+    <div class="sub">STARDUST BREAKOUT</div>
+    <label for="name">飛行員代號</label>
+    <input id="name" type="text" placeholder="輸入你的名字" autocomplete="off" spellcheck="false">
+    <button id="start">出擊</button>
+    <div id="best" class="best"></div>
+    <ul class="help">
+      <li>WASD 移動 · 滑鼠 瞄準 · 左鍵 射擊</li>
+      <li>Shift 衝刺（短暫無敵） · 連續擊殺累積 COMBO 倍率</li>
+      <li>每波清除後三選一強化 · 每 5 波出現 BOSS</li>
+      <li>P 暫停 · M 靜音</li>
+    </ul>
+  </div>
+</div>
+
+<div id="hint">WASD / 方向鍵 移動 · 滑鼠 瞄準射擊 · Shift 衝刺 · P 暫停</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

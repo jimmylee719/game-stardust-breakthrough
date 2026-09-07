@@ -1,0 +1,16 @@
+{
+  "name": "stardust-breakout",
+  "version": "0.2.0",
+  "description": "星塵突圍 Stardust Breakout — 2D co-op arena shooter",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "test": "node test/sim.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
