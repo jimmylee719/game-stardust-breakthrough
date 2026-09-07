@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { TICK_RATE, MAX_PLAYERS, sanitizeName } from '../shared/constants.js';
+import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName } from '../shared/constants.js';
 import { openDb } from './db.js';
 
 const db = await openDb();
@@ -65,9 +65,16 @@ async function handleApi(req, res, url) {
       const me = await db.auth(String(b.id || ''), String(b.secret || ''));
       if (!me) return json(res, 401, { error: 'unauthorized' });
       const score = Math.max(0, Math.min(10_000_000, Number(b.score) | 0)), wave = Math.max(0, Math.min(999, Number(b.wave) | 0));
-      if (score <= 0) return json(res, 400, { error: 'empty run' });
+      if (score < MIN_RUN_SCORE) return json(res, 400, { error: 'score too low' });
       const r = await db.addRun({ mode: 'solo', score, wave, party: [{ id: me.id, name: me.name }] });
       return json(res, 200, r);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/runs/delete') {
+      // 玩家可刪除自己的單人成績（合作成績由伺服器記錄，不可刪）
+      const b = await readBody(req);
+      const me = await db.auth(String(b.id || ''), String(b.secret || ''));
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      return json(res, 200, { ok: await db.deleteOwnRun(Number(b.runId) | 0, me.id) });
     }
     if (req.method === 'GET' && url.pathname === '/api/leaderboard') {
       const mode = MODES.has(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'solo';
@@ -133,7 +140,7 @@ function lobbyMsg(room) {
 function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
 async function recordCoopRun(room) {
   const w = room.world;
-  if (w.score <= 0) return;
+  if (w.score < MIN_RUN_SCORE) return;
   const party = w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills }));
   try {
     const r = await db.addRun({ mode: 'coop', score: w.score, wave: w.wave, party });

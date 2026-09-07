@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { MIN_RUN_SCORE } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'store.json');
@@ -48,8 +49,12 @@ async function createPg(url) {
       const rank = await pool.query(`SELECT COUNT(*)::int + 1 AS rank FROM runs WHERE mode=$1 AND score > $2`, [mode, score]);
       return { id: r.rows[0].id, rank: rank.rows[0].rank };
     },
+    async deleteOwnRun(runId, playerId) {
+      const r = await pool.query('DELETE FROM runs WHERE id=$1 AND mode=$2 AND $3 = ANY(player_ids)', [runId, 'solo', playerId]);
+      return r.rowCount > 0;
+    },
     async top(mode, period, limit = 20) {
-      const r = await pool.query(`SELECT id, score, wave, party, created_at FROM runs WHERE mode=$1 ${since(period)} ORDER BY score DESC, id ASC LIMIT $2`, [mode, limit]);
+      const r = await pool.query(`SELECT id, score, wave, party, created_at FROM runs WHERE mode=$1 AND score >= ${MIN_RUN_SCORE} ${since(period)} ORDER BY score DESC, id ASC LIMIT $2`, [mode, limit]);
       return r.rows.map(row => ({ id: row.id, score: row.score, wave: row.wave, party: row.party, at: row.created_at }));
     },
     async me(id) {
@@ -86,8 +91,13 @@ function createFileStore() {
       data.runs.push(run); if (data.runs.length > 5000) data.runs.splice(0, data.runs.length - 5000);
       save(); return { id: run.id, rank: rankOf(mode, score) };
     },
+    async deleteOwnRun(runId, playerId) {
+      const i = data.runs.findIndex(r => r.id === runId && r.mode === 'solo' && r.ids.includes(playerId));
+      if (i < 0) return false;
+      data.runs.splice(i, 1); save(); return true;
+    },
     async top(mode, period, limit = 20) {
-      return data.runs.filter(r => r.mode === mode && inPeriod(r, period)).sort((a, b) => b.score - a.score || a.id - b.id).slice(0, limit).map(r => ({ id: r.id, score: r.score, wave: r.wave, party: r.party, at: r.at }));
+      return data.runs.filter(r => r.mode === mode && r.score >= MIN_RUN_SCORE && inPeriod(r, period)).sort((a, b) => b.score - a.score || a.id - b.id).slice(0, limit).map(r => ({ id: r.id, score: r.score, wave: r.wave, party: r.party, at: r.at }));
     },
     async me(id) {
       const out = {};
