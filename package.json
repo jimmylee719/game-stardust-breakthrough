@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "test": "node test/sim.js && node test/net.js && node test/api.js",
+    "test": "node test/sim.js && node test/syn.js && node test/net.js && node test/api.js",
+    "test:syn": "node test/syn.js",
     "test:sim": "node test/sim.js",
     "test:net": "node test/net.js",
     "test:api": "node test/api.js"

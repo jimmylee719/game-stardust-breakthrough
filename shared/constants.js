@@ -70,6 +70,29 @@ export const BOSS_NAMES = ['殲滅者 Mk.I', '殲滅者 Mk.II', '殲滅者 Mk.II
 export const BOSS_EVERY = 5;
 export const BOSS_RADIUS = 110;   // 約原本的 2 倍
 
+/** 通關波數：第 20 波的 Boss 擊破即「突圍成功」，可選擇繼續無盡模式 */
+export const WIN_WAVE = 20;
+export const WIN_BONUS = 5000;
+
+/**
+ * 組合技：兩個升級各至少 1 級即啟動（needs 為升級 id）。效果在 game.js 依 p.syn[id] 判斷。
+ */
+export const SYNERGIES = [
+  { id: 'wall',     icon: '🧱', name: '彈幕牆',   needs: ['pierce', 'bounce'],     desc: '子彈撞牆反彈時分裂成兩發' },
+  { id: 'vamp',     icon: '🩸', name: '吸血爆裂', needs: ['lifesteal', 'explosive'], desc: '連鎖爆裂每波及一個敵人回復 2 點生命' },
+  { id: 'swarm',    icon: '🐝', name: '導引蜂群', needs: ['homing', 'drone'],      desc: '僚機射速加倍、子彈強力追蹤' },
+  { id: 'shock',    icon: '⚡', name: '震撼彈',   needs: ['damage', 'bigshot'],    desc: '命中使敵人僵直 0.3 秒並大幅擊退' },
+  { id: 'ember',    icon: '🔥', name: '餘燼',     needs: ['firerate', 'explosive'], desc: '15% 的子彈點燃敵人，3 秒內持續燃燒' },
+  { id: 'ghost',    icon: '👻', name: '幽靈衝刺', needs: ['dash', 'speed'],        desc: '衝刺穿過的敵人受到 40 傷害，衝刺無敵延長' },
+  { id: 'recharge', icon: '🔋', name: '護盾回充', needs: ['maxhp', 'lifesteal'],   desc: '每 20 次擊殺獲得一層護盾' },
+];
+/** 依玩家目前的升級等級算出啟動的組合技 id 陣列 */
+export function activeSynergies(upgrades) { return SYNERGIES.filter(s => s.needs.every(id => (upgrades[id] || 0) > 0)).map(s => s.id); }
+/** 選了 upgradeId 之後會新啟動的組合技（升級卡提示用） */
+export function synergyIfPicked(upgrades, upgradeId) {
+  return SYNERGIES.filter(s => s.needs.includes(upgradeId) && !(upgrades[upgradeId] > 0) && s.needs.every(id => id === upgradeId || (upgrades[id] || 0) > 0));
+}
+
 /** 升級節奏：每幾波給一次三選一（Boss 擊破後必給） */
 export const UPGRADE_EVERY_WAVES = 2;
 

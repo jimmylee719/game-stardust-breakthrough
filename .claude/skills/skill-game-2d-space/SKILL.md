@@ -47,7 +47,7 @@ description: >-
 | `public/js/main.js` | 選單、大廳、Esc 選單、排行榜 UI、主迴圈；`window.__dbg()` 給自動化用 |
 | `server/index.js` | 靜態檔、`/health`、REST API、WS 房間（4 碼房號、最多 4 人、中途加入、token 重連、離隊） |
 | `server/db.js` | `DATABASE_URL` → PostgreSQL；否則 JSON 檔（`DATA_DIR`） |
-| `test/sim.js` `net.js` `api.js` | 無頭模擬、WS 端對端、REST + 合作成績 |
+| `test/sim.js` `syn.js` `net.js` `api.js` | 無頭模擬、組合技 / 通關規則、WS 端對端、REST + 合作成績 |
 
 ## 3. 開發流程（照做）
 
@@ -74,6 +74,7 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 - 特殊波：3 小行星帶、4 彈幕求生、6 懸賞獵殺、8 護送運輸艦、9 防衛信標、12 小行星帶；10 波後 40% 隨機。
 - 合作：倒地 30 s、靠近 3 s 救援；斷線 15 s 內重連；中途加入；Esc 離開 = 單人立即結算上傳、多人離隊（擊殺仍計入隊伍成績）。
 - 排行榜：單人（客戶端回報）、合作（伺服器記錄）、每日（今日榜）、全部 / 本週；`MIN_RUN_SCORE = 10`；玩家可刪自己的單人成績。
+- 組合技：`SYNERGIES`（7 組，`needs` 兩個升級 id），`chooseUpgrade` 後用 `activeSynergies` 更新 `p.syn`，效果散在 game.js 依 `p.syn.<id>` 判斷；升級卡提示用 `synergyIfPicked`。通關：`WIN_WAVE = 20`，`killBoss` 內 `world.won` → scene `victory`（每日直接 gameover）；`continueEndless` / `finishRun`，伺服器訊息 `endless` / `finish`（房主）。`inProgress` 要包含 `victory`。
 - 機體：`SHIPS`（falcon / wasp / bastion / carrier），`applyShip` 在 `addPlayer` 內、永久強化之前套用；客戶端 join 帶 `ship`，伺服器用 `shipUnlocked(ship, unlocks)` 驗證後才建玩家（join 改成先 `await db.auth`）；解鎖走 `/api/perks/buy` 的 `ship:<id>`；`render.js` 的 `shipPath(ship)` 畫船身。
 - 局外成長：星塵 = `dustFor(score, wave, unlocks)`（分數/25 + 波×5，上限 2000，任何分數都給）；機庫 `PERKS`（7 種永久強化，`applyPerks` 在 `addPlayer` 套用，伺服器在 join 時依帳號套用）；每日挑戰 `DAILY_MODS`（`world.mods` 由 `startRun({mods})` 設定，只在單機模式跑，伺服器房間不做每日）。一天一次由伺服器用 `players.daily_started` + 當日 runs 記錄擋。
 
@@ -111,7 +112,7 @@ node test/sim.js --players=3 --seconds=150               # 多人平衡
 1. ✅ 局外成長（星塵 + 機庫）+ 每日挑戰
 2. ~~結算一鍵分享圖~~（使用者決定不做）
 3. ✅ 機體選擇（4 種起始機）
-4. 升級協同（組合技）、20 波通關結局
+4. ✅ 升級協同（7 組組合技）、20 波通關 + 無盡模式
 5. 遊玩事件記錄（局數、平均波次、流失點）
 
 其他候選：背景音樂、MessagePack 壓縮快照、手動部署避免清房、付費外觀（`themes.js` 的重映射機制已保留）。

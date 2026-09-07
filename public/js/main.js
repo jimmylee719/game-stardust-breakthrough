@@ -2,7 +2,7 @@
 // 兩種模式：
 //   solo   — 本機直接跑 game.js 的 update()
 //   online — 連到伺服器房間；伺服器跑 update()，這裡送輸入、收快照插值、播放 fx 事件、預測自己的機體
-import { createWorld, addPlayer, startRun, update, chooseUpgrade, togglePause, abandonRun } from './game.js';
+import { createWorld, addPlayer, startRun, update, chooseUpgrade, togglePause, abandonRun, continueEndless, finishRun } from './game.js';
 import { createRenderer } from './render.js';
 import { attachInput, buildInput, mouse, touch } from './input.js';
 import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effects.js';
@@ -86,7 +86,7 @@ function beginSolo(startWave = 0, daily = null) {
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
   addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false;
-  startRun(world, { startWave, mods: daily ? daily.mods : null });
+  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily });
   menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true; hangarEl.hidden = true; dailyEl.hidden = true;
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
 }
@@ -235,7 +235,7 @@ for (const b of lbEl.querySelectorAll('[data-period]')) b.addEventListener('clic
 
 // ---------- Esc 選單 ----------
 function openPause() {
-  if (world.scene === 'menu' || world.scene === 'gameover') return;
+  if (world.scene === 'menu' || world.scene === 'gameover' || world.scene === 'victory') return;
   if (mode === 'solo') { if (world.scene === 'play') togglePause(world); $('pause-title').textContent = '暫停'; $('pause-sub').textContent = '單人模式已暫停'; }
   else { $('pause-title').textContent = '選單'; $('pause-sub').textContent = '多人模式不會暫停，隊友仍在戰鬥'; }
   pauseEl.hidden = false;
@@ -283,6 +283,7 @@ attachInput(canvas, renderer.toWorld, {
     if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { if (!lbEl.hidden) lbEl.hidden = true; else if (!hangarEl.hidden) hangarEl.hidden = true; else if (!dailyEl.hidden) dailyEl.hidden = true; } return; }
     if (code === 'Escape') {
       if (!lbEl.hidden) { lbEl.hidden = true; return; }
+      if (world.scene === 'victory') { victoryChoice(false); return; }
       if (!pauseEl.hidden) closePause();
       else if (world.scene === 'gameover') showMenu();
       else openPause();
@@ -292,6 +293,7 @@ attachInput(canvas, renderer.toWorld, {
     if (code === 'KeyL' && world.scene === 'gameover') { lb.mode = leftTeam || mode === 'online' ? 'coop' : runKind; openLeaderboard(); return; }
     if (code === 'KeyM') toggleMute();
     if (code === 'KeyP' && mode === 'solo') { if (world.scene === 'pause') closePause(); else openPause(); }
+    if (world.scene === 'victory') { if (code === 'Enter') victoryChoice(true); return; }
     if (code === 'Enter' && world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); }
     if (world.scene === 'upgrade') {
       const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[code];
@@ -301,6 +303,7 @@ attachInput(canvas, renderer.toWorld, {
   onMouseDown(button) {
     ensureAudio();
     if (button !== 0 || overlayOpen()) return;
+    if (world.scene === 'victory') { victoryChoice(true); return; }
     if (world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); return; }
     if (world.scene === 'upgrade') {
       const i = renderer.upgradeCardRects().findIndex(r => mouse.x >= r.x && mouse.x <= r.x + r.w && mouse.y >= r.y && mouse.y <= r.y + r.h);
@@ -309,8 +312,13 @@ attachInput(canvas, renderer.toWorld, {
   },
   onBlur() { if (mode === 'solo' && world.scene === 'play') openPause(); },
   onMenuTap() { if (overlayOpen()) return; if (world.scene === 'gameover') showMenu(); else openPause(); },
-  isTapScene() { return world.scene === 'upgrade' || world.scene === 'gameover' || world.scene === 'menu'; },
+  isTapScene() { return world.scene === 'upgrade' || world.scene === 'gameover' || world.scene === 'menu' || world.scene === 'victory'; },
 });
+/** 勝利畫面：true = 繼續無盡模式，false = 結束並結算（多人只有房主能決定） */
+function victoryChoice(endless) {
+  if (mode === 'solo') { if (endless) { continueEndless(world); toast('無盡模式：敵人會持續變強', 3000); } else { finishRun(world); fx.sfx('gameover'); finishSoloRun(); } }
+  else if (hostId === myId) net?.send({ t: endless ? 'endless' : 'finish' });
+}
 function pickUpgrade(i) {
   if (mode === 'solo') chooseUpgrade(world, myId, i, fx);
   else net?.chooseUpgrade(i);

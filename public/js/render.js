@@ -1,6 +1,6 @@
 // 渲染：把世界狀態與特效畫到 Canvas。固定 1600x900 邏輯座標，等比縮放到視窗並加黑邊。
 import { TAU, rand, randInt, clamp } from '../../shared/math.js';
-import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME } from '../../shared/constants.js';
+import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE } from '../../shared/constants.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts } from './effects.js';
 import { themedContext, getTheme, onThemeChange } from './themes.js';
@@ -104,6 +104,7 @@ export function createRenderer(canvas, world) {
     if (world.scene === 'upgrade') drawUpgrade(time, mouse, me);
     if (world.scene === 'pause') drawOverlay('暫停', '按 P 繼續');
     if (world.scene === 'gameover') drawGameOver(time, best, ui);
+    if (world.scene === 'victory') drawVictory(time, ui);
     if (touch.active) drawTouchControls(ui); else drawReticle(ui);
   }
 
@@ -145,7 +146,8 @@ export function createRenderer(canvas, world) {
     for (const e of world.enemies) {
       ctx.save(); ctx.translate(e.x, e.y);
       ctx.shadowColor = e.color; ctx.shadowBlur = 14;
-      ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.color; ctx.lineWidth = 2.5;
+      ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.burn ? '#ff8c42' : e.stun ? '#ffffff' : e.color; ctx.lineWidth = 2.5;
+      if (e.burn) ctx.shadowColor = '#ff8c42';
       ctx.fillStyle = e.hitFlash > 0 ? 'rgba(255,255,255,.6)' : e.color + '33';
       ctx.rotate(e.type === 'rock' ? e.rot : Math.atan2(e.vy, e.vx));
       if (e.squash > 0) ctx.scale(1 - e.squash * 0.18, 1 + e.squash * 0.28);
@@ -204,7 +206,7 @@ export function createRenderer(canvas, world) {
   function drawBullets() {
     ctx.shadowBlur = 10;
     for (const b of world.bullets) {
-      ctx.shadowColor = b.homing ? '#ffd166' : '#fff'; ctx.strokeStyle = b.homing ? '#fff3c4' : '#fff'; ctx.lineWidth = 3 * b.size; ctx.lineCap = 'round';
+      ctx.shadowColor = b.burn ? '#ff8c42' : b.homing ? '#ffd166' : '#fff'; ctx.strokeStyle = b.burn ? '#ffb070' : b.homing ? '#fff3c4' : '#fff'; ctx.lineWidth = 3 * b.size; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.02, b.y - b.vy * 0.02); ctx.stroke();
     }
     for (const b of world.enemyBullets) {
@@ -381,6 +383,7 @@ export function createRenderer(canvas, world) {
       ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '11px sans-serif'; ctx.fillText('衝刺 (Shift)', bx, by + 50);
       let sx = bx, sy = by + 72;
       const tag = (label, color) => { ctx.fillStyle = color; ctx.font = 'bold 11px sans-serif'; const w = ctx.measureText(label).width + 12; ctx.globalAlpha = .18; roundRect(sx, sy, w, 18, 9); ctx.fill(); ctx.globalAlpha = 1; ctx.fillText(label, sx + 6, sy + 3); sx += w + 6; };
+      for (const id of Object.keys(p.syn || {})) { const s = SYNERGIES.find(x => x.id === id); if (s) tag(`${s.icon} ${s.name}`, '#ff8c42'); }
       if (p.spread > 1) tag(`散射 ×${p.spread}`, '#ffd166');
       if (p.rapid > 0) tag(`連射 ${p.rapid.toFixed(0)}s`, '#ff8c42');
       if (p.shield > 0) tag(`護盾 ×${p.shield}`, '#4cc9f0');
@@ -409,7 +412,7 @@ export function createRenderer(canvas, world) {
     ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = 'bold 32px sans-serif'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 10;
     ctx.fillText(String(world.score).padStart(6, '0'), W - 24, 20); ctx.shadowBlur = 0;
     ctx.font = '12px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText(`最高 ${best}`, W - 24, 58);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText(`WAVE ${world.wave}`, W - 24, 80);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText(world.endless ? `WAVE ${world.wave} · 無盡` : `WAVE ${world.wave} / ${WIN_WAVE}`, W - 24, 80);
     if (world.combo >= 3) {
       const s = 18 + Math.min(world.combo, 30);
       ctx.font = `bold ${s}px sans-serif`; ctx.fillStyle = world.combo >= 10 ? '#ff3860' : '#ffd166'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 14;
@@ -485,7 +488,9 @@ export function createRenderer(canvas, world) {
       ctx.font = '56px sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText(u.icon, r.x + r.w / 2, r.y + 100);
       ctx.font = 'bold 22px sans-serif'; ctx.fillStyle = hov ? '#ffd166' : '#fff'; ctx.fillText(u.name, r.x + r.w / 2, r.y + 160);
       ctx.font = '14px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.8)'; wrapText(u.desc(lv), r.x + r.w / 2, r.y + 200, r.w - 36, 20);
-      if (lv + 1 >= u.max) { ctx.fillStyle = '#ff8c42'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('已達上限（最後一級）', r.x + r.w / 2, r.y + r.h - 24); }
+      const syn = synergyIfPicked(me.upgrades, u.id);
+      if (syn.length) { ctx.fillStyle = '#ff8c42'; ctx.shadowColor = '#ff8c42'; ctx.shadowBlur = 12; ctx.font = 'bold 13px sans-serif'; ctx.fillText(`組合技 ${syn[0].icon} ${syn[0].name}`, r.x + r.w / 2, r.y + r.h - 44); ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '11px sans-serif'; wrapText(syn[0].desc, r.x + r.w / 2, r.y + r.h - 26, r.w - 30, 14); }
+      else if (lv + 1 >= u.max) { ctx.fillStyle = '#ff8c42'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('已達上限（最後一級）', r.x + r.w / 2, r.y + r.h - 24); }
       ctx.restore();
     });
     ctx.restore();
@@ -505,10 +510,23 @@ export function createRenderer(canvas, world) {
     });
     ctx.shadowBlur = 0;
   }
+  function drawVictory(time, ui) {
+    ctx.fillStyle = 'rgba(3,4,10,.72)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 30 + Math.sin(time * 4) * 8; ctx.font = 'bold 64px sans-serif'; ctx.fillText('突圍成功', W / 2, H / 2 - 110); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 40);
+    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '16px sans-serif'; ctx.fillText(`擊破殲滅者 Ω，撐過 ${WIN_WAVE} 波`, W / 2, H / 2);
+    let y = H / 2 + 34;
+    for (const p of world.players) { ctx.fillStyle = p.color; ctx.font = '14px sans-serif'; ctx.fillText(`${p.name}：${p.kills} 擊殺`, W / 2, y); y += 20; }
+    const pulse = 0.7 + 0.3 * Math.sin(time * 4);
+    ctx.fillStyle = `rgba(255,255,255,${pulse})`; ctx.font = '20px sans-serif';
+    const canDecide = !ui.online || ui.isHost;
+    ctx.fillText(canDecide ? 'Enter 繼續無盡模式（敵人持續變強） · Esc 結束並結算' : '等待房主決定：繼續無盡模式或結算', W / 2, y + 40);
+  }
   function drawGameOver(time, best, ui) {
     ctx.fillStyle = 'rgba(3,4,10,.7)'; ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; ctx.fillText(ui.left ? '已離開戰鬥' : world.abandoned ? '撤退' : world.players.length > 1 ? '全員陣亡' : '艦艇損毀', W / 2, H / 2 - 100); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; if (world.won) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; } ctx.fillText(world.won && !world.abandoned ? (world.endless ? '無盡模式終結' : '突圍成功') : ui.left ? '已離開戰鬥' : world.abandoned ? '撤退' : world.players.length > 1 ? '全員陣亡' : '艦艇損毀', W / 2, H / 2 - 100); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 30);
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '16px sans-serif';
     ctx.fillText(`撐到第 ${world.wave} 波 · 最高分 ${best}${world.score >= best && world.score > 0 ? '  🏆 新紀錄！' : ''}`, W / 2, H / 2 + 10);

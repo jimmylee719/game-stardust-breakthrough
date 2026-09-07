@@ -8,7 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
+import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
 import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
@@ -176,7 +176,7 @@ function broadcast(room, msg) {
 function lobbyMsg(room) {
   return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color, ship: p.ship })) };
 }
-function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
+function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause' || s === 'victory'; }
 async function recordCoopRun(room) {
   const w = room.world;
   if (room.recorded) return;
@@ -282,6 +282,12 @@ wss.on('connection', ws => {
           broadcast(room, { t: 'started' });
           console.log(`[room ${room.code}] run started with ${room.world.players.length} players${m.boss ? ' (boss rush)' : ''}`);
         }
+        break;
+      case 'endless':
+        if (player.id === room.hostId && continueEndless(room.world)) console.log(`[room ${room.code}] endless mode`);
+        break;
+      case 'finish':
+        if (player.id === room.hostId) finishRun(room.world);
         break;
       case 'upgrade':
         chooseUpgrade(room.world, player.id, Number(m.idx) | 0, room.fx);
