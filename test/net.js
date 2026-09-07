@@ -15,7 +15,7 @@ function client(name) {
   const c = { ws, name, id: null, code: null, lobby: null, snaps: [], events: [], errors: [], send: m => ws.send(JSON.stringify(m)) };
   ws.on('message', raw => {
     const m = JSON.parse(raw);
-    if (m.t === 'welcome') { c.id = m.id; c.code = m.code; }
+    if (m.t === 'welcome') { c.id = m.id; c.code = m.code; c.token = m.token; c.welcome = m; }
     else if (m.t === 'lobby') c.lobby = m;
     else if (m.t === 'snap') { c.snaps.push(m.s); if (m.ev) c.events.push(...m.ev); }
     else if (m.t === 'error') c.errors.push(m.msg);
@@ -68,10 +68,28 @@ console.log(`Bob moved ${(bobNow.x - bobStart.x).toFixed(0)}px right | bullets i
 const local = A.events.filter(e => e[1] !== null), global = A.events.filter(e => e[1] === null);
 console.log(`events: ${global.length} global, ${local.length} player-scoped`);
 
-// B 離開 → A 的大廳更新為 1 人
-B.ws.close(); await wait(200);
-if (!A.lobby || A.lobby.players.length !== 1) fail('B 離開後 A 的名單應剩 1 人');
-console.log('after Bob left: lobby =', A.lobby.players.map(p => p.name).join(', '));
+// 中途加入：C 在遊戲進行中進房，應直接出現在快照裡
+const C0 = client('Cara'); await C0.open; C0.send({ t: 'join', name: 'Cara', code: A.code }); await wait(300);
+if (!C0.welcome || !C0.welcome.inProgress) fail('中途加入應收到 inProgress=true 的 welcome');
+const withCara = A.snaps[A.snaps.length - 1].players.map(p => p.name);
+if (!withCara.includes('Cara')) fail('中途加入者應出現在其他人的快照裡，得到 ' + withCara.join(','));
+console.log('mid-game join: players now', withCara.join(', '), '| Cara id', C0.id);
+
+// 斷線重連：B 斷線 → 角色標記 offline 保留 → 用 token 重連接回同一個 id
+const bobToken = B.token, bobId = B.id;
+B.ws.close(); await wait(300);
+const offlineSnap = A.snaps[A.snaps.length - 1].players.find(p => p.id === bobId);
+if (!offlineSnap || !offlineSnap.offline) fail('B 斷線後角色應保留並標記 offline');
+const B2 = client('Bob'); await B2.open; B2.send({ t: 'join', name: 'Bob', code: A.code, token: bobToken }); await wait(300);
+if (B2.id !== bobId || !B2.welcome?.resumed) fail(`重連應接回 id ${bobId}，得到 ${B2.id} resumed=${B2.welcome?.resumed}`);
+const backSnap = A.snaps[A.snaps.length - 1].players.find(p => p.id === bobId);
+if (!backSnap || backSnap.offline) fail('重連後角色應恢復 online');
+console.log('reconnect: Bob resumed as id', B2.id, '| offline flag cleared:', !backSnap.offline);
+
+// 真正離開（大廳階段）→ 名單更新
+B2.ws.close(); C0.ws.close(); await wait(300);
+const lobbyNames = A.lobby.players.map(p => p.name);
+console.log('after Bob & Cara left: lobby =', lobbyNames.join(', '), '(offline ghosts hidden)');
 
 // 加入不存在的房間 → error
 const C = client('Carl'); await C.open; C.send({ t: 'join', name: 'Carl', code: 'ZZZZ' }); await wait(150);

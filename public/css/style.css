@@ -36,3 +36,16 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; }
 .players { list-style: none; margin: 22px 0 8px; font-size: 18px; line-height: 2; text-align: left; padding: 8px 18px; background: rgba(255,255,255,.05); border-radius: 12px; min-height: 60px; }
 .wait { margin-top: 16px; color: rgba(255,255,255,.65); font-size: 15px; animation: blink 1.6s infinite; }
 @keyframes blink { 50% { opacity: .4; } }
+
+/* Boss 挑戰按鈕、暫停選單、提示 */
+.row .boss { flex: 0 0 38%; background: linear-gradient(135deg, #ff3860, #ff8c42); color: #fff; border: none; box-shadow: 0 8px 24px rgba(255,56,96,.35); font-size: 17px; }
+.row .boss:hover { box-shadow: 0 12px 30px rgba(255,56,96,.5); }
+.panel.narrow { width: min(92vw, 360px); }
+.panel h2 { font-size: 40px; letter-spacing: .15em; text-shadow: 0 0 24px rgba(76,201,240,.7); }
+.sub2 { color: rgba(255,255,255,.6); font-size: 14px; margin: 8px 0 14px; min-height: 1.2em; }
+.panel button.danger { color: #ff8c9c; border-color: rgba(255,56,96,.4); }
+.panel button.danger:hover { background: rgba(255,56,96,.18); }
+.check { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px 0 4px; font-size: 14px; color: #ffd166; cursor: pointer; user-select: none; }
+.check input { width: 18px; height: 18px; accent-color: #ff3860; }
+.toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 10px; background: rgba(8,12,34,.9); border: 1px solid rgba(255,209,102,.5); color: #ffd166; font-size: 14px; letter-spacing: .05em; pointer-events: none; z-index: 5; }
+.toast[hidden] { display: none; }

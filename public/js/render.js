@@ -1,6 +1,6 @@
 // 渲染：把世界狀態與特效畫到 Canvas。固定 1600x900 邏輯座標，等比縮放到視窗並加黑邊。
 import { TAU, rand, randInt, clamp } from '../../shared/math.js';
-import { PICKUP_STYLE, UPGRADES } from '../../shared/constants.js';
+import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME } from '../../shared/constants.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts } from './effects.js';
 
@@ -67,6 +67,7 @@ export function createRenderer(canvas, world) {
     if (world.scene === 'menu') { drawMenuBackdrop(time); ctx.restore(); drawReticle(ui); return; }
 
     drawParticles();
+    if (world.beacon) drawBeacon(time);
     drawPickups();
     drawEnemies();
     if (world.boss) drawBoss(time);
@@ -95,7 +96,7 @@ export function createRenderer(canvas, world) {
     drawBossHUD(time);
     if (world.scene === 'upgrade') drawUpgrade(time, mouse, me);
     if (world.scene === 'pause') drawOverlay('暫停', '按 P 繼續');
-    if (world.scene === 'gameover') drawGameOver(time, best);
+    if (world.scene === 'gameover') drawGameOver(time, best, ui);
     drawReticle(ui);
   }
 
@@ -139,10 +140,17 @@ export function createRenderer(canvas, world) {
       ctx.shadowColor = e.color; ctx.shadowBlur = 14;
       ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.color; ctx.lineWidth = 2.5;
       ctx.fillStyle = e.hitFlash > 0 ? 'rgba(255,255,255,.6)' : e.color + '33';
-      ctx.rotate(Math.atan2(e.vy, e.vx));
+      ctx.rotate(e.type === 'rock' ? e.rot : Math.atan2(e.vy, e.vx));
       if (e.squash > 0) ctx.scale(1 - e.squash * 0.18, 1 + e.squash * 0.28);
+      if (e.elite) {
+        // 精英：金色虛線光環
+        ctx.save(); ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 24; ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+        ctx.beginPath(); ctx.arc(0, 0, e.r + 8, 0, TAU); ctx.stroke(); ctx.restore();
+        ctx.lineWidth = 3;
+      }
       ctx.beginPath();
-      if (e.type === 'drifter') { for (let i = 0; i < 5; i++) { const a = i * TAU / 5 + e.wobble * 0.3; ctx.lineTo(Math.cos(a) * e.r, Math.sin(a) * e.r); } }
+      if (e.type === 'rock') { const n = 9; for (let i = 0; i < n; i++) { const a = i * TAU / n; const rr = e.r * (0.75 + 0.25 * Math.abs(Math.sin(i * 2.7 + e.id))); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
+      else if (e.type === 'drifter') { for (let i = 0; i < 5; i++) { const a = i * TAU / 5 + e.wobble * 0.3; ctx.lineTo(Math.cos(a) * e.r, Math.sin(a) * e.r); } }
       else if (e.type === 'dart') { ctx.moveTo(e.r * 1.5, 0); ctx.lineTo(-e.r, e.r * 0.8); ctx.lineTo(-e.r * 0.4, 0); ctx.lineTo(-e.r, -e.r * 0.8); }
       else if (e.type === 'tank') { for (let i = 0; i < 8; i++) { const a = i * TAU / 8, r = i % 2 ? e.r : e.r * 0.8; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
       else if (e.type === 'shooter') { ctx.arc(0, 0, e.r, 0, TAU); ctx.moveTo(e.r * 0.5, 0); ctx.arc(0, 0, e.r * 0.5, 0, TAU); }
@@ -188,7 +196,7 @@ export function createRenderer(canvas, world) {
       ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.02, b.y - b.vy * 0.02); ctx.stroke();
     }
     for (const b of world.enemyBullets) {
-      const c = b.boss ? '#ff3860' : '#00f5d4';
+      const c = b.homing ? '#c77dff' : b.wall ? '#ff8c42' : b.boss ? '#ff3860' : '#00f5d4';
       ctx.shadowColor = c; ctx.fillStyle = c; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
       if (b.boss) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.4, 0, TAU); ctx.fill(); }
     }
@@ -206,6 +214,8 @@ export function createRenderer(canvas, world) {
         ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-5, 5); ctx.lineTo(-3, 0); ctx.lineTo(-5, -5); ctx.closePath(); ctx.fill(); ctx.stroke();
         ctx.restore();
       }
+      if (p.downed) { drawDowned(p, time); continue; }
+      if (p.offline) ctx.globalAlpha = 0.35;
       ctx.save(); ctx.translate(p.x, p.y);
       if (p.shield > 0) {
         ctx.strokeStyle = `rgba(76,201,240,${0.5 + 0.3 * Math.sin(time * 6)})`; ctx.lineWidth = 2; ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = 20;
@@ -234,7 +244,38 @@ export function createRenderer(canvas, world) {
         ctx.fillStyle = p.hp / p.maxHp > 0.3 ? '#3ddc84' : '#ff3860'; ctx.fillRect(-16, -p.r - 10, 32 * (p.hp / p.maxHp), 3);
       }
       ctx.restore();
+      ctx.globalAlpha = 1;
     }
+  }
+  function drawDowned(p, time) {
+    ctx.save(); ctx.translate(p.x, p.y);
+    const pulse = 0.5 + 0.5 * Math.sin(time * 5);
+    ctx.globalAlpha = 0.55; ctx.shadowColor = '#ff5f7a'; ctx.shadowBlur = 16;
+    ctx.rotate(p.angle);
+    ctx.fillStyle = '#6a6a7a'; ctx.strokeStyle = '#ff5f7a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-10, 11); ctx.lineTo(-5, 0); ctx.lineTo(-10, -11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.rotate(-p.angle); ctx.globalAlpha = 1;
+    ctx.strokeStyle = `rgba(255,95,122,${0.25 + pulse * 0.35})`; ctx.lineWidth = 2; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.arc(0, 0, 70, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    if (p.reviveProgress > 0) { ctx.strokeStyle = '#3ddc84'; ctx.shadowColor = '#3ddc84'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, 30, -Math.PI / 2, -Math.PI / 2 + TAU * (p.reviveProgress / REVIVE_TIME)); ctx.stroke(); }
+    ctx.shadowBlur = 0; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ff5f7a'; ctx.font = 'bold 13px sans-serif'; ctx.fillText(`${p.name} 倒地 ${Math.ceil(p.downTimer)}s`, 0, -p.r - 26);
+    ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = '11px sans-serif'; ctx.fillText(p.reviveProgress > 0 ? '救援中…' : '靠近 3 秒救援', 0, p.r + 24);
+    ctx.restore();
+  }
+  function drawBeacon(time) {
+    const b = world.beacon;
+    ctx.save(); ctx.translate(b.x, b.y);
+    const col = b.alive ? (b.hitFlash ? '#fff' : '#4cc9f0') : '#555';
+    ctx.shadowColor = col; ctx.shadowBlur = b.alive ? 30 : 0;
+    ctx.rotate(time * 0.4);
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.fillStyle = b.alive ? 'rgba(76,201,240,.15)' : 'rgba(80,80,80,.3)';
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6; ctx.lineTo(Math.cos(a) * b.r, Math.sin(a) * b.r); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.rotate(-time * 0.8); ctx.setLineDash([10, 6]); ctx.beginPath(); ctx.arc(0, 0, b.r * 0.6, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    ctx.rotate(time * 0.4);
+    if (b.alive) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 8 + Math.sin(time * 6) * 2, 0, TAU); ctx.fill(); }
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(b.x - 50, b.y - b.r - 18, 100, 6);
+    ctx.fillStyle = b.hp / b.maxHp > 0.4 ? '#4cc9f0' : '#ff3860'; ctx.fillRect(b.x - 50, b.y - b.r - 18, 100 * (b.hp / b.maxHp), 6);
   }
   function drawFloatTexts() {
     for (const f of floatTexts) {
@@ -281,8 +322,8 @@ export function createRenderer(canvas, world) {
       let y = 24;
       ctx.textAlign = 'left'; ctx.font = '12px sans-serif';
       for (const q of world.players) {
-        ctx.fillStyle = q.dead ? 'rgba(255,255,255,.35)' : q.color;
-        ctx.fillText(`${q.dead ? '✕' : '●'} ${q.name}  ${q.kills} 擊殺`, 280, y); y += 18;
+        ctx.fillStyle = q.dead ? 'rgba(255,255,255,.35)' : q.offline ? 'rgba(255,255,255,.5)' : q.downed ? '#ff5f7a' : q.color;
+        ctx.fillText(`${q.dead ? '✕' : q.offline ? '⋯' : q.downed ? '⚠' : '●'} ${q.name}  ${q.kills} 擊殺${q.offline ? '（斷線）' : q.downed ? '（倒地）' : ''}`, 280, y); y += 18;
       }
     }
     ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = 'bold 32px sans-serif'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 10;
@@ -296,7 +337,14 @@ export function createRenderer(canvas, world) {
       ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(W - 24 - 120, 104 + s + 6, 120, 3);
       ctx.fillStyle = '#fff'; ctx.fillRect(W - 24 - 120 * (world.comboTimer / 2.2), 104 + s + 6, 120 * (world.comboTimer / 2.2), 3);
     }
-    if (world.enemies.length === 0 && !world.boss && world.bossWarn <= 0 && world.wave > 0 && world.scene === 'play') {
+    if (world.waveMode) {
+      const m = WAVE_MODES[world.waveMode];
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillStyle = '#ffd166'; ctx.font = 'bold 18px sans-serif'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10;
+      ctx.fillText(m.name + (m.duration ? `  ${Math.ceil(world.modeTimer)}s` : world.waveMode === 'asteroids' ? `  剩餘 ${world.enemies.length}` : ''), W / 2, 24); ctx.shadowBlur = 0;
+      if (m.duration) { ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(W / 2 - 120, 50, 240, 4); ctx.fillStyle = '#ffd166'; ctx.fillRect(W / 2 - 120, 50, 240 * (1 - world.modeTimer / m.duration), 4); }
+    }
+    if (world.enemies.length === 0 && !world.boss && world.bossWarn <= 0 && !world.waveMode && world.wave > 0 && world.scene === 'play') {
       ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '16px sans-serif';
       ctx.fillText(`下一波倒數 ${Math.ceil(world.waveTimer)}`, W / 2, H - 60);
     }
@@ -376,23 +424,24 @@ export function createRenderer(canvas, world) {
     });
     ctx.shadowBlur = 0;
   }
-  function drawGameOver(time, best) {
+  function drawGameOver(time, best, ui) {
     ctx.fillStyle = 'rgba(3,4,10,.7)'; ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; ctx.fillText('全員陣亡', W / 2, H / 2 - 100); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; ctx.fillText(world.players.length > 1 ? '全員陣亡' : '艦艇損毀', W / 2, H / 2 - 100); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 30);
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '16px sans-serif';
     ctx.fillText(`撐到第 ${world.wave} 波 · 最高分 ${best}${world.score >= best && world.score > 0 ? '  🏆 新紀錄！' : ''}`, W / 2, H / 2 + 10);
     let y = H / 2 + 44;
     for (const p of world.players) { ctx.fillStyle = p.color; ctx.font = '14px sans-serif'; ctx.fillText(`${p.name}：${p.kills} 擊殺`, W / 2, y); y += 20; }
     const pulse = 0.7 + 0.3 * Math.sin(time * 4);
-    ctx.fillStyle = `rgba(255,255,255,${pulse})`; ctx.font = '20px sans-serif'; ctx.fillText('點擊 或 按 Enter 再來一局 · Esc 回到選單', W / 2, y + 30);
+    ctx.fillStyle = `rgba(255,255,255,${pulse})`; ctx.font = '20px sans-serif'; ctx.fillText(ui.online ? (ui.isHost ? '點擊 或 按 Enter 再來一局 · Esc 回到大廳' : '等待房主再開一局 · Esc 回到大廳') : '點擊 或 按 Enter 再來一局 · Esc 回到選單', W / 2, y + 30);
   }
   function drawOffscreenArrows(time, p) {
     if (!p) return;
     const m = 30, targets = [];
     for (const e of world.enemies) targets.push({ x: e.x, y: e.y, r: e.r, color: e.color, type: e.type, boss: false });
     if (world.boss) targets.push({ x: world.boss.x, y: world.boss.y, r: world.boss.r, color: world.boss.color, type: 'boss', boss: true });
+    for (const q of world.players) if (q.downed && q !== p) targets.push({ x: q.x, y: q.y, r: q.r, color: '#3ddc84', type: 'downed', boss: false });
     ctx.save();
     for (const t of targets) {
       if (!(t.x < -t.r || t.x > W + t.r || t.y < -t.r || t.y > H + t.r)) continue;

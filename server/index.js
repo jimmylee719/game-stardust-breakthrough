@@ -1,12 +1,14 @@
 // 遊戲伺服器：靜態檔 + WebSocket 房間。
 // 每個房間持有一個權威 world，以 TICK_RATE 跑 game.js 的 update()，
 // 每 tick 廣播快照與 fx 事件；客戶端只送輸入。
+// 支援：中途加入、斷線 15 秒內以 token 重連、房主選擇 Boss 挑戰模式。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { createWorld, addPlayer, startRun, update, chooseUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
+import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
 import { TICK_RATE, MAX_PLAYERS, sanitizeName } from '../shared/constants.js';
 
@@ -32,7 +34,7 @@ function resolveFile(urlPath) {
 }
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size })); return; }
+  if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((a, r) => a + r.clients.size, 0) })); return; }
   const file = resolveFile(decodeURIComponent(url.pathname));
   if (!file) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.stat(file, (err, st) => {
@@ -43,15 +45,13 @@ const server = http.createServer((req, res) => {
 });
 
 // ---------- 房間 ----------
-const rooms = new Map(); // code -> room
+const rooms = new Map();
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function makeRoomCode() {
   let code;
   do { code = Array.from({ length: 4 }, () => ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)]).join(''); } while (rooms.has(code));
   return code;
 }
-
-/** 伺服器端的 fx：把每次呼叫記成事件，tick 結束時隨快照廣播。pid 為 null 表示所有人都播放。 */
 function makeRecorder(events) {
   const mk = pid => {
     const o = {};
@@ -61,38 +61,36 @@ function makeRecorder(events) {
   };
   return mk(null);
 }
-
-function createRoom(code, opts = {}) {
-  const room = {
-    code, world: createWorld(), clients: new Map(), hostId: null, events: [], nextPlayerId: 1,
-    startWave: opts.startWave || 0, tick: 0, interval: null, createdAt: Date.now(),
-  };
+function createRoom(code) {
+  const room = { code, world: createWorld(), clients: new Map(), hostId: null, events: [], nextPlayerId: 1, tick: 0, interval: null, createdAt: Date.now() };
+  room.world.scene = 'lobby';
   room.fx = makeRecorder(room.events);
   room.interval = setInterval(() => tickRoom(room), 1000 / TICK_RATE);
   rooms.set(code, room);
   console.log(`[room ${code}] created`);
   return room;
 }
-function destroyRoom(room) {
-  clearInterval(room.interval);
-  rooms.delete(room.code);
-  console.log(`[room ${room.code}] destroyed`);
-}
+function destroyRoom(room) { clearInterval(room.interval); rooms.delete(room.code); console.log(`[room ${room.code}] destroyed`); }
 function broadcast(room, msg) {
   const data = JSON.stringify(msg);
   for (const ws of room.clients.keys()) if (ws.readyState === ws.OPEN) ws.send(data);
 }
 function lobbyMsg(room) {
-  return { t: 'lobby', code: room.code, hostId: room.hostId, players: room.world.players.map(p => ({ id: p.id, name: p.name, color: p.color })) };
+  return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color })) };
 }
+function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
 function tickRoom(room) {
   const w = room.world;
   if (w.scene === 'play') update(w, 1 / TICK_RATE, room.fx);
   room.tick++;
-  if (w.scene === 'lobby') return; // 大廳不需要快照
+  if (w.scene === 'lobby') return;
   const msg = { t: 'snap', tick: room.tick, s: snapshotWorld(w) };
-  if (room.events.length) { msg.ev = room.events.splice(0); }
+  if (room.events.length) msg.ev = room.events.splice(0);
   broadcast(room, msg);
+}
+function pickHost(room) {
+  const first = [...room.clients.values()][0];
+  room.hostId = first ? first.id : null;
 }
 
 // ---------- 連線 ----------
@@ -102,7 +100,6 @@ wss.on('connection', ws => {
   ws.on('pong', () => { ws.isAlive = true; });
   let room = null, player = null;
   const send = m => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); };
-  // startRun 會重建玩家物件，所以永遠用 id 查目前的那一個
   const current = () => room?.world.players.find(p => p.id === player.id);
 
   ws.on('message', raw => {
@@ -114,18 +111,34 @@ wss.on('connection', ws => {
       const code = m.code ? String(m.code).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) : '';
       let r = code ? rooms.get(code) : null;
       if (code && !r) { send({ t: 'error', msg: `找不到房間 ${code}` }); return; }
-      if (!r) r = createRoom(makeRoomCode(), { startWave: m.boss ? 4 : 0 });
+      if (!r) r = createRoom(makeRoomCode());
+      const name = sanitizeName(m.name);
+
+      // 重連：token 對得上斷線中的玩家 → 接回原角色
+      const ghost = m.token ? r.world.players.find(p => p.offline && p.token === m.token) : null;
+      if (ghost) {
+        room = r; player = ghost;
+        ghost.offline = false;
+        room.clients.set(ws, ghost);
+        if (room.hostId === null) room.hostId = ghost.id;
+        send({ t: 'welcome', id: ghost.id, code: room.code, token: ghost.token, resumed: true, inProgress: inProgress(room) });
+        broadcast(room, lobbyMsg(room));
+        room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${ghost.name} 重新連線`, ghost.color, 22, 1.8);
+        console.log(`[room ${room.code}] ${ghost.name}#${ghost.id} reconnected`);
+        return;
+      }
+
       if (r.clients.size >= MAX_PLAYERS) { send({ t: 'error', msg: '房間已滿（最多 4 人）' }); return; }
-      if (r.world.scene !== 'lobby' && r.world.scene !== 'menu') { send({ t: 'error', msg: '這個房間已經開始遊戲' }); return; }
       room = r;
       const id = room.nextPlayerId++;
-      player = addPlayer(room.world, { id, name: sanitizeName(m.name), local: false });
-      room.world.scene = 'lobby';
+      const token = crypto.randomBytes(12).toString('base64url');
+      player = inProgress(room) ? joinMidGame(room.world, { id, name, token }) : addPlayer(room.world, { id, name, token });
       room.clients.set(ws, player);
       if (room.hostId === null) room.hostId = id;
-      send({ t: 'welcome', id, code: room.code });
+      send({ t: 'welcome', id, code: room.code, token, inProgress: inProgress(room) });
       broadcast(room, lobbyMsg(room));
-      console.log(`[room ${room.code}] ${player.name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})`);
+      if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
+      console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''}`);
       return;
     }
     if (!room || !player) return;
@@ -140,10 +153,10 @@ wss.on('connection', ws => {
       case 'start':
         if (player.id !== room.hostId) return;
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
-          startRun(room.world, { startWave: room.startWave });
+          startRun(room.world, { startWave: m.boss ? 4 : 0 });
           room.events.length = 0;
           broadcast(room, { t: 'started' });
-          console.log(`[room ${room.code}] run started with ${room.world.players.length} players`);
+          console.log(`[room ${room.code}] run started with ${room.world.players.length} players${m.boss ? ' (boss rush)' : ''}`);
         }
         break;
       case 'upgrade':
@@ -159,18 +172,25 @@ wss.on('connection', ws => {
     if (!room || !player) return;
     room.clients.delete(ws);
     const w = room.world;
-    const idx = w.players.findIndex(p => p.id === player.id);
-    if (idx >= 0) w.players.splice(idx, 1);
-    console.log(`[room ${room.code}] ${player.name}#${player.id} left`);
+    const cur = w.players.find(p => p.id === player.id);
+    if (cur) {
+      if (inProgress(room) && !cur.dead) {
+        // 遊戲中斷線：保留角色一段時間等重連
+        cur.offline = true; cur.offlineAt = w.time; cur.inputQueue.length = 0;
+        dropPendingUpgrade(w, cur.id);
+        if (w.scene === 'play' && !w.players.some(p => !p.dead && !p.downed && !p.offline)) w.scene = 'gameover';
+      } else {
+        w.players.splice(w.players.indexOf(cur), 1);
+      }
+    }
+    console.log(`[room ${room.code}] ${player.name}#${player.id} disconnected`);
     if (room.clients.size === 0) { destroyRoom(room); return; }
-    if (room.hostId === player.id) room.hostId = room.clients.values().next().value.id;
-    if (w.scene === 'play' && w.players.every(p => p.dead)) w.scene = 'gameover';
+    if (room.hostId === player.id) pickHost(room);
     broadcast(room, lobbyMsg(room));
   });
 });
 
-// WebSocket 保活：雲端反向代理通常會切掉 30 到 60 秒沒流量的連線，每 25 秒 ping 一次；
-// 兩次沒回 pong 視為斷線
+// WebSocket 保活：每 25 秒 ping，兩次沒回 pong 視為斷線
 setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.isAlive === false) { ws.terminate(); continue; }
@@ -178,8 +198,7 @@ setInterval(() => {
     ws.ping();
   }
 }, 25000);
-
-// 空房清理保險（正常情況 close 事件就會清）
+// 空房清理保險
 setInterval(() => { for (const r of rooms.values()) if (r.clients.size === 0 && Date.now() - r.createdAt > 60000) destroyRoom(r); }, 30000);
 
 server.listen(PORT, '0.0.0.0', () => {
