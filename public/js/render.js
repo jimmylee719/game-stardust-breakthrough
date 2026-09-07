@@ -4,6 +4,7 @@ import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME } from '../../shared/co
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts } from './effects.js';
 import { themedContext, getTheme, onThemeChange } from './themes.js';
+import { touch, touchLayout } from './input.js';
 
 export function createRenderer(canvas, world) {
   const raw = canvas.getContext('2d');
@@ -102,7 +103,7 @@ export function createRenderer(canvas, world) {
     if (world.scene === 'upgrade') drawUpgrade(time, mouse, me);
     if (world.scene === 'pause') drawOverlay('暫停', '按 P 繼續');
     if (world.scene === 'gameover') drawGameOver(time, best, ui);
-    drawReticle(ui);
+    if (touch.active) drawTouchControls(ui); else drawReticle(ui);
   }
 
   function drawParticles() {
@@ -476,6 +477,48 @@ export function createRenderer(canvas, world) {
       ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', e.x, e.y - e.r - 12);
     }
     ctx.restore();
+  }
+  // 觸控：搖桿、瞄準桿、衝刺鈕、選單鈕（螢幕座標）
+  function drawTouchControls(ui) {
+    const me = ui.me;
+    ctx.save();
+    raw.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+    const L = touchLayout(view.cw, view.ch);
+    const inGame = world.scene === 'play';
+    const stick = (s, color) => {
+      ctx.globalAlpha = 0.35; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.shadowColor = color; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(s.ox, s.oy, 64, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 0.75; ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 26, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    };
+    if (inGame) {
+      if (touch.move) stick(touch.move, '#4cc9f0');
+      else { ctx.globalAlpha = 0.12; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.setLineDash([6, 8]); ctx.beginPath(); ctx.arc(view.cw * 0.18, view.ch * 0.7, 64, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
+      if (touch.aim) stick(touch.aim, '#ff3860');
+      // 衝刺鈕（冷卻弧）
+      const d = L.dash, ready = me && me.dashCd <= 0;
+      ctx.globalAlpha = 0.85; ctx.fillStyle = ready ? 'rgba(76,201,240,.25)' : 'rgba(255,255,255,.08)'; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = ready ? '#4cc9f0' : 'rgba(255,255,255,.35)'; ctx.lineWidth = 3; ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = ready ? 14 : 0;
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.r, -Math.PI / 2, -Math.PI / 2 + TAU * (me ? 1 - me.dashCd / me.dashCdMax : 1)); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.fillStyle = ready ? '#fff' : 'rgba(255,255,255,.5)'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('衝刺', d.x, d.y);
+      // 自動瞄準提示
+      if (touch.autoAngle !== null && me) {
+        const p = view; const sx = p.ox + me.x * p.scale, sy = p.oy + me.y * p.scale;
+        ctx.globalAlpha = 0.35; ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]);
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(touch.autoAngle) * 90, sy + Math.sin(touch.autoAngle) * 90); ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // 選單鈕
+    const m = L.menu;
+    ctx.globalAlpha = 0.8; ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2;
+    for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(m.x - 9, m.y + i * 7); ctx.lineTo(m.x + 9, m.y + i * 7); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    applyView();
   }
   function drawReticle({ mouse, time }) {
     const inGame = world.scene === 'play' || world.scene === 'pause';

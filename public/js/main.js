@@ -4,7 +4,7 @@
 //   online — 連到伺服器房間；伺服器跑 update()，這裡送輸入、收快照插值、播放 fx 事件、預測自己的機體
 import { createWorld, addPlayer, startRun, update, chooseUpgrade, togglePause } from './game.js';
 import { createRenderer } from './render.js';
-import { attachInput, buildInput, mouse } from './input.js';
+import { attachInput, buildInput, mouse, touch } from './input.js';
 import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effects.js';
 import { ensureAudio, toggleMute, isMuted } from './audio.js';
 import { connect, playEvents } from './net.js';
@@ -62,8 +62,13 @@ function showMenu(msg = '') {
 }
 
 // 單人（startWave 4 = Boss 挑戰）
+function goFullscreenIfTouch() {
+  if (!touch.active && !matchMedia('(pointer: coarse)').matches) return;
+  const el = document.documentElement;
+  if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+}
 function beginSolo(startWave = 0) {
-  ensureAudio();
+  ensureAudio(); goFullscreenIfTouch();
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
   addPlayer(world, { id: myId, name: takeName(), local: true });
@@ -74,7 +79,7 @@ function beginSolo(startWave = 0) {
 
 // 連線
 function beginOnline(code) {
-  ensureAudio();
+  ensureAudio(); goFullscreenIfTouch();
   const name = takeName();
   errEl.textContent = '連線中…';
   net = connect({
@@ -194,6 +199,8 @@ attachInput(canvas, renderer.toWorld, {
     }
   },
   onBlur() { if (mode === 'solo' && world.scene === 'play') openPause(); },
+  onMenuTap() { if (overlayOpen()) return; if (world.scene === 'gameover') showMenu(); else openPause(); },
+  isTapScene() { return world.scene === 'upgrade' || world.scene === 'gameover' || world.scene === 'menu'; },
 });
 function pickUpgrade(i) {
   if (mode === 'solo') chooseUpgrade(world, myId, i, fx);
@@ -212,7 +219,7 @@ function loop(now) {
   if (mode === 'online' && net) {
     if (p && !p.dead && !p.downed && world.scene === 'play' && net.curr && pauseEl.hidden) {
       if (net.snapCount !== lastSnapSeen) { lastSnapSeen = net.snapCount; predictor.reconcile(net.curr.players.find(q => q.id === myId)); }
-      for (const inp of predictor.step(rawDt, st => buildInput(st))) net.sendInput(inp);
+      for (const inp of predictor.step(rawDt, st => buildInput(st, world))) net.sendInput(inp);
     } else if (p && (p.downed || !pauseEl.hidden) && world.scene === 'play') {
       // 倒地或開著選單：不送移動，但要讓伺服器知道我沒在射擊
       if (net.snapCount !== lastSnapSeen) { lastSnapSeen = net.snapCount; net.sendInput({ seq: 0, ix: 0, iy: 0, angle: p.angle, fire: false, dash: false }); predictor.reset(); }
@@ -227,7 +234,7 @@ function loop(now) {
     updateEffects(rawDt);
     renderer.updateStars(rawDt, mine);
   } else if (world.scene === 'play') {
-    if (p) p.input = buildInput(p);
+    if (p) p.input = buildInput(p, world);
     if (vfx.hitStop > 0) vfx.hitStop -= rawDt;
     else {
       const dt = vfx.slowmo > 0 ? rawDt * 0.35 : rawDt;
