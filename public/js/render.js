@@ -3,15 +3,19 @@ import { TAU, rand, randInt, clamp } from '../../shared/math.js';
 import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME } from '../../shared/constants.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts } from './effects.js';
+import { themedContext, getTheme, onThemeChange } from './themes.js';
 
 export function createRenderer(canvas, world) {
-  const ctx = canvas.getContext('2d');
+  const raw = canvas.getContext('2d');
+  const ctx = themedContext(raw);   // 顏色 / 光暈 / 線寬 / 字型都經過主題重映射
   const view = { scale: 1, ox: 0, oy: 0, dpr: 1, cw: 0, ch: 0 };
   const W = world.W, H = world.H;
   let stars = [];
 
   function resize() {
-    view.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const T = getTheme();
+    view.dpr = T.pixelScale || Math.min(window.devicePixelRatio || 1, 2);   // 像素風：降低內部解析度
+    raw.imageSmoothingEnabled = !T.pixelScale;
     view.cw = window.innerWidth; view.ch = window.innerHeight;
     canvas.width = view.cw * view.dpr; canvas.height = view.ch * view.dpr;
     view.scale = Math.min(view.cw / W, view.ch / H);
@@ -47,12 +51,13 @@ export function createRenderer(canvas, world) {
     const { time, mouse, me, best, muted } = ui;
     // 清整個畫布（含黑邊）
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#03040a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const T = getTheme();
+    raw.fillStyle = T.letterbox; raw.fillRect(0, 0, canvas.width, canvas.height);
     applyView();
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
     const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
-    bg.addColorStop(0, '#0b1030'); bg.addColorStop(1, '#03040a');
+    bg.addColorStop(0, T.bg[0]); bg.addColorStop(1, T.bg[1]);
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
     if (vfx.shake > 0.3) ctx.translate(rand(-vfx.shake, vfx.shake), rand(-vfx.shake, vfx.shake));
@@ -60,7 +65,7 @@ export function createRenderer(canvas, world) {
 
     for (const s of stars) {
       const tw = 0.5 + 0.5 * Math.sin(time * 2 + s.tw);
-      ctx.fillStyle = `rgba(255,255,255,${(0.25 + 0.6 * tw) * s.z})`;
+      raw.fillStyle = `rgba(${T.star},${(0.25 + 0.6 * tw) * s.z})`;
       ctx.fillRect(s.x, s.y, s.z * 2, s.z * 2);
     }
 
@@ -493,5 +498,6 @@ export function createRenderer(canvas, world) {
     ctx.restore();
   }
 
+  onThemeChange(() => { resize(); });
   return { resize, toWorld, view, draw, updateStars, upgradeCardRects };
 }
