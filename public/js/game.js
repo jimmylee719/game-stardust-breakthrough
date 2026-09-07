@@ -32,11 +32,11 @@ export function createWorld() {
   };
 }
 
-export function addPlayer(world, { id, name, local = false, token = null }) {
+export function addPlayer(world, { id, name, local = false, token = null, acctId = null }) {
   const pid = id ?? world.nextId++;
   const idx = world.players.length;
   const p = {
-    id: pid, name: sanitizeName(name), local, token, color: PLAYER_COLORS[(pid - 1) % PLAYER_COLORS.length],
+    id: pid, name: sanitizeName(name), local, token, acctId, color: PLAYER_COLORS[(pid - 1) % PLAYER_COLORS.length],
     x: world.W / 2 + (idx - 1.5) * 60, y: world.H / 2, vx: 0, vy: 0, angle: 0,
     r: PLAYER_BASE.r, hp: PLAYER_BASE.hp, maxHp: PLAYER_BASE.maxHp, dead: false,
     downed: false, downTimer: 0, reviveProgress: 0, offline: false, offlineAt: 0,
@@ -61,7 +61,7 @@ export function joinMidGame(world, opts) {
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
 export function startRun(world, { startWave = 0 } = {}) {
-  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token }));
+  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
   roster.forEach(r => addPlayer(world, r));

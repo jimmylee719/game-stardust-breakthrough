@@ -437,6 +437,7 @@ export function createRenderer(canvas, world) {
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '16px sans-serif';
     ctx.fillText(`撐到第 ${world.wave} 波 · 最高分 ${best}${world.score >= best && world.score > 0 ? '  🏆 新紀錄！' : ''}`, W / 2, H / 2 + 10);
     let y = H / 2 + 44;
+    if (ui.result) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 14; ctx.font = 'bold 22px sans-serif'; ctx.fillText(`🏆 ${ui.result.mode === 'coop' ? '合作' : '單人'}排行榜 第 ${ui.result.rank} 名`, W / 2, y); ctx.shadowBlur = 0; y += 32; }
     for (const p of world.players) { ctx.fillStyle = p.color; ctx.font = '14px sans-serif'; ctx.fillText(`${p.name}：${p.kills} 擊殺`, W / 2, y); y += 20; }
     const pulse = 0.7 + 0.3 * Math.sin(time * 4);
     ctx.fillStyle = `rgba(255,255,255,${pulse})`; ctx.font = '20px sans-serif'; ctx.fillText(ui.online ? (ui.isHost ? '點擊 或 按 Enter 再來一局 · Esc 回到大廳' : '等待房主再開一局 · Esc 回到大廳') : '點擊 或 按 Enter 再來一局 · Esc 回到選單', W / 2, y + 30);

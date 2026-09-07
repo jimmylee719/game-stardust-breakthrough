@@ -27,6 +27,7 @@
     </div>
     <div id="err" class="err"></div>
     <div id="best" class="best"></div>
+    <button id="open-lb" class="small">🏆 全球排行榜</button>
     <ul class="help">
       <li>WASD 移動 · 滑鼠 瞄準 · 左鍵 射擊 · Shift 衝刺</li>
       <li>每 2 波三選一強化 · 每 5 波 BOSS · 特殊波次：小行星帶 / 彈幕求生 / 防衛信標</li>
@@ -59,6 +60,19 @@
   </div>
 </div>
 
+<div id="leaderboard" class="overlay" hidden>
+  <div class="panel wide">
+    <h2>全球排行榜</h2>
+    <div class="tabs">
+      <button class="tab on" data-mode="solo">單人</button><button class="tab" data-mode="coop">合作</button>
+      <span class="gap"></span>
+      <button class="tab on" data-period="all">全部</button><button class="tab" data-period="week">本週</button>
+    </div>
+    <div id="lb-me" class="lb-me"></div>
+    <ol id="lb-rows" class="lb-rows"><li class="muted">載入中…</li></ol>
+    <button id="lb-close" class="small">關閉</button>
+  </div>
+</div>
 <div id="toast" class="toast" hidden></div>
 <div id="hint">WASD / 方向鍵 移動 · 滑鼠 瞄準射擊 · Shift 衝刺 · Esc 選單</div>
 <script type="module" src="js/main.js"></script>

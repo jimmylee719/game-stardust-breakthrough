@@ -11,6 +11,9 @@ import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
 import { TICK_RATE, MAX_PLAYERS, sanitizeName } from '../shared/constants.js';
+import { openDb } from './db.js';
+
+const db = await openDb();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -32,9 +35,58 @@ function resolveFile(urlPath) {
   if (!abs.startsWith(base)) return null;
   return abs;
 }
+// ---------- REST API：帳號與排行榜 ----------
+function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); }
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let buf = '';
+    req.on('data', c => { buf += c; if (buf.length > 16384) { reject(new Error('too large')); req.destroy(); } });
+    req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch { reject(new Error('bad json')); } });
+    req.on('error', reject);
+  });
+}
+const MODES = new Set(['solo', 'coop']);
+async function handleApi(req, res, url) {
+  try {
+    if (req.method === 'POST' && url.pathname === '/api/register') {
+      const b = await readBody(req);
+      return json(res, 200, await db.register(sanitizeName(b.name)));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/rename') {
+      const b = await readBody(req);
+      const me = await db.auth(String(b.id || ''), String(b.secret || ''));
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      await db.rename(me.id, sanitizeName(b.name));
+      return json(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/runs') {
+      // 單人成績由客戶端回報（單機模擬在瀏覽器）；合作成績由伺服器自己記錄，不走這裡
+      const b = await readBody(req);
+      const me = await db.auth(String(b.id || ''), String(b.secret || ''));
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      const score = Math.max(0, Math.min(10_000_000, Number(b.score) | 0)), wave = Math.max(0, Math.min(999, Number(b.wave) | 0));
+      if (score <= 0) return json(res, 400, { error: 'empty run' });
+      const r = await db.addRun({ mode: 'solo', score, wave, party: [{ id: me.id, name: me.name }] });
+      return json(res, 200, r);
+    }
+    if (req.method === 'GET' && url.pathname === '/api/leaderboard') {
+      const mode = MODES.has(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'solo';
+      const period = url.searchParams.get('period') === 'week' ? 'week' : 'all';
+      return json(res, 200, { mode, period, rows: await db.top(mode, period, 20) });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/me') {
+      const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      return json(res, 200, { id: me.id, name: me.name, stats: await db.me(me.id) });
+    }
+    return json(res, 404, { error: 'not found' });
+  } catch (e) { return json(res, 400, { error: e.message }); }
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((a, r) => a + r.clients.size, 0) })); return; }
+  if (url.pathname.startsWith('/api/')) { handleApi(req, res, url); return; }
+  if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((a, r) => a + r.clients.size, 0), db: db.kind })); return; }
   const file = resolveFile(decodeURIComponent(url.pathname));
   if (!file) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.stat(file, (err, st) => {
@@ -79,9 +131,21 @@ function lobbyMsg(room) {
   return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color })) };
 }
 function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
+async function recordCoopRun(room) {
+  const w = room.world;
+  if (w.score <= 0) return;
+  const party = w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills }));
+  try {
+    const r = await db.addRun({ mode: 'coop', score: w.score, wave: w.wave, party });
+    broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave });
+    console.log(`[room ${room.code}] coop run recorded: score ${w.score} wave ${w.wave} rank #${r.rank}`);
+  } catch (e) { console.error('record run failed', e.message); }
+}
 function tickRoom(room) {
   const w = room.world;
   if (w.scene === 'play') update(w, 1 / TICK_RATE, room.fx);
+  if (w.scene === 'gameover' && room.lastScene !== 'gameover') recordCoopRun(room);
+  room.lastScene = w.scene;
   room.tick++;
   if (w.scene === 'lobby') return;
   const msg = { t: 'snap', tick: room.tick, s: snapshotWorld(w) };
@@ -137,6 +201,9 @@ wss.on('connection', ws => {
       if (room.hostId === null) room.hostId = id;
       send({ t: 'welcome', id, code: room.code, token, inProgress: inProgress(room) });
       broadcast(room, lobbyMsg(room));
+      if (m.acct && m.acct.id && m.acct.secret) {
+        db.auth(String(m.acct.id), String(m.acct.secret)).then(a => { const cur = current(); if (a && cur) cur.acctId = a.id; }).catch(() => {});
+      }
       if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
       console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''}`);
       return;

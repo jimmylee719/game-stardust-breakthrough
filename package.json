@@ -7,15 +7,17 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "test": "node test/sim.js && node test/net.js",
+    "test": "node test/sim.js && node test/net.js && node test/api.js",
     "test:sim": "node test/sim.js",
-    "test:net": "node test/net.js"
+    "test:net": "node test/net.js",
+    "test:api": "node test/api.js"
   },
   "engines": {
     "node": "22.x"
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "pg": "^8.23.0",
     "ws": "^8.21.3"
   }
 }

@@ -11,10 +11,11 @@ import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
 import { sanitizeName, NAME_MAX_LEN } from '../../shared/constants.js';
 import './themes.js';   // 套用霓虹主題（唯一風格）
+import { ensureAccount, accountCredentials, submitSoloRun, fetchLeaderboard, fetchMe, getAccount } from './account.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
-const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast');
+const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard');
 const nameInput = $('name'), codeInput = $('code');
 const errEl = $('err'), bestEl = $('best');
 
@@ -30,8 +31,9 @@ let uiTime = 0;
 const predictor = createPredictor(world);
 let lastSnapSeen = -1;
 let toastTimer = 0;
+let lastResult = null;   // 結算畫面用：{ rank, mode }
 const me = () => world.players.find(p => p.id === myId);
-const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden;
+const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden || !lbEl.hidden;
 
 // ---------- 小工具 ----------
 function toast(msg, ms = 2500) { toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms); }
@@ -40,6 +42,7 @@ function takeName() {
   const name = sanitizeName(nameInput.value);
   nameInput.value = name;
   localStorage.setItem('stardust_name', name);
+  ensureAccount(name);   // 背景同步匿名帳號（首次自動註冊）
   return name;
 }
 
@@ -64,7 +67,7 @@ function beginSolo(startWave = 0) {
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
   addPlayer(world, { id: myId, name: takeName(), local: true });
-  resetEffects();
+  resetEffects(); lastResult = null;
   startRun(world, { startWave });
   menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true;
 }
@@ -75,7 +78,7 @@ function beginOnline(code) {
   const name = takeName();
   errEl.textContent = '連線中…';
   net = connect({
-    name, code,
+    name, code, acct: accountCredentials(),
     onWelcome(m) {
       mode = 'online'; myId = m.id; fx = createFx(myId);
       resetEffects(); predictor.reset(); lastSnapSeen = -1;
@@ -98,7 +101,8 @@ function beginOnline(code) {
       $('lobby-start').textContent = m.players.length === 1 ? '單獨出擊（可等朋友加入）' : `全員出擊（${m.players.length} 人）`;
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
-    onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
+    onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
+    onResult(m) { lastResult = { rank: m.rank, mode: 'coop' }; toast(`合作排行榜 第 ${m.rank} 名`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
     onClose() { if (mode === 'online') showMenu('與伺服器的連線已中斷'); },
@@ -117,6 +121,35 @@ for (const el of [nameInput, codeInput]) el.addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') { if (el === codeInput && codeInput.value.trim()) $('join').click(); else beginSolo(0); }
 });
 
+// ---------- 排行榜 ----------
+const lb = { mode: 'solo', period: 'all' };
+async function openLeaderboard() {
+  lbEl.hidden = false;
+  await refreshLeaderboard();
+}
+async function refreshLeaderboard() {
+  for (const b of lbEl.querySelectorAll('[data-mode]')) b.classList.toggle('on', b.dataset.mode === lb.mode);
+  for (const b of lbEl.querySelectorAll('[data-period]')) b.classList.toggle('on', b.dataset.period === lb.period);
+  const rows = $('lb-rows'), meEl = $('lb-me');
+  rows.innerHTML = '<li class="muted">載入中…</li>';
+  try {
+    const [data, meData] = await Promise.all([fetchLeaderboard(lb.mode, lb.period), fetchMe()]);
+    const myId = getAccount()?.id;
+    const st = meData?.stats?.[lb.mode];
+    meEl.textContent = st ? `你的最佳：${st.best} 分（第 ${st.bestWave} 波）· 全部時間第 ${st.rank} 名 · 共 ${st.runs} 局` : '還沒有成績，去打一局吧！';
+    if (!data.rows.length) { rows.innerHTML = '<li class="muted">還沒有人上榜，第一名就是你</li>'; return; }
+    rows.innerHTML = data.rows.map((r, i) => {
+      const mine = myId && r.party.some(p => p.id === myId);
+      const names = r.party.map(p => escapeHtml(p.name)).join(' + ');
+      return `<li class="${i < 3 ? 'top' + (i + 1) : ''}${mine ? ' me' : ''}"><span class="rk">#${i + 1}</span><span class="nm">${names}${lb.mode === 'coop' ? ` <small>${r.party.length} 人</small>` : ''}</span><span class="sc">${r.score.toLocaleString()}</span><span class="wv">第 ${r.wave} 波</span></li>`;
+    }).join('');
+  } catch (e) { rows.innerHTML = `<li class="muted">無法載入：${escapeHtml(e.message)}</li>`; }
+}
+$('open-lb').addEventListener('click', openLeaderboard);
+$('lb-close').addEventListener('click', () => { lbEl.hidden = true; });
+for (const b of lbEl.querySelectorAll('[data-mode]')) b.addEventListener('click', () => { lb.mode = b.dataset.mode; refreshLeaderboard(); });
+for (const b of lbEl.querySelectorAll('[data-period]')) b.addEventListener('click', () => { lb.period = b.dataset.period; refreshLeaderboard(); });
+
 // ---------- Esc 選單 ----------
 function openPause() {
   if (world.scene === 'menu' || world.scene === 'gameover') return;
@@ -134,8 +167,9 @@ $('pause-leave').addEventListener('click', () => showMenu());
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
   onKeyDown(code) {
-    if (!menuEl.hidden || !lobbyEl.hidden) return;
+    if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape' && !lbEl.hidden) lbEl.hidden = true; return; }
     if (code === 'Escape') {
+      if (!lbEl.hidden) { lbEl.hidden = true; return; }
       if (!pauseEl.hidden) closePause();
       else if (world.scene === 'gameover') showMenu();
       else openPause();
@@ -201,14 +235,17 @@ function loop(now) {
       update(world, dt, fx);
       updateEffects(dt);
       renderer.updateStars(dt, p);
-      if (prevScene !== 'gameover' && world.scene === 'gameover' && world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
+      if (prevScene !== 'gameover' && world.scene === 'gameover') {
+        if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
+        submitSoloRun(world.score, world.wave).then(r => { if (r) { lastResult = { rank: r.rank, mode: 'solo' }; toast(`單人排行榜 第 ${r.rank} 名`, 4000); } });
+      }
     }
   } else {
     updateEffects(rawDt);
     renderer.updateStars(rawDt, null);
   }
   decayEffects(rawDt);
-  renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId });
+  renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId, result: lastResult });
   requestAnimationFrame(loop);
 }
 showMenu();

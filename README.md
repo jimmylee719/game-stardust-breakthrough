@@ -25,6 +25,23 @@ npm start
 
 所有數值集中在 `shared/constants.js` 的 `DIFFICULTY`、`UPGRADE_EVERY_WAVES`、`WAVE_MODES`、`MODE_SCHEDULE`。
 
+## 帳號與全球排行榜
+
+- **匿名帳號**：首次進站自動向伺服器註冊一組 id + secret，存在瀏覽器 localStorage，不需要密碼或信箱。改名字會同步。換瀏覽器或清除資料就是新帳號（抒壓小遊戲的定位，刻意不做登入）。
+- **兩個榜**：單人（成績由瀏覽器回報）與合作（伺服器結算時自己記錄，無法竄改）；各有「全部」與「本週」。
+- **結算畫面**顯示這局的全球名次；選單的「全球排行榜」可看前 20 名與自己的最佳成績、名次、局數。
+- **API**：`POST /api/register`、`POST /api/rename`、`POST /api/runs`（單人）、`GET /api/leaderboard?mode=solo|coop&period=all|week`、`GET /api/me`。
+
+### 資料儲存
+
+`server/db.js` 有兩個實作：
+- 有 `DATABASE_URL` 環境變數 → **PostgreSQL**（自動建表）。
+- 沒有 → **JSON 檔**（`data/store.json`，可用 `DATA_DIR` 改位置）。開發與測試用；在 Railway 上重新部署會清空。
+
+**在 Railway 啟用永久儲存（一次設定）**：專案畫面按 `+ New` → `Database` → `Add PostgreSQL`，
+Railway 會自動把 `DATABASE_URL` 注入到同專案的服務，重新部署後 `/health` 的 `db` 欄位會從 `file` 變成 `postgres`。
+Hobby 方案的 Postgres 每月約 1 美元內。
+
 ## 視覺風格
 
 整個遊戲鎖定「霓虹」單一風格：深空底、強光暈、程式繪製的向量圖形。
@@ -73,11 +90,14 @@ public/          瀏覽器端
   js/net.js        WebSocket 客戶端：送輸入、收快照做插值、播放 fx 事件
   js/predict.js    客戶端預測：本機先算自己的移動，收到快照後校正並重播未確認輸入
   js/main.js       進入點與主迴圈（solo / online 兩種模式）
+  js/account.js    匿名帳號、成績上傳、排行榜查詢
 server/
-  index.js         靜態檔 + WebSocket 房間伺服器：每房一個權威 world，30 tick 廣播快照
+  index.js         靜態檔 + REST API + WebSocket 房間伺服器：每房一個權威 world，30 tick 廣播快照
+  db.js            帳號與成績資料層（PostgreSQL 或 JSON 檔）
 test/
   sim.js           無頭模擬測試
   net.js           WebSocket 端對端測試
+  api.js           REST API 與合作成績記錄測試
 legacy/
   index-singlefile.html   拆分前的單檔版本（可直接雙擊開啟）
 ```
@@ -115,7 +135,7 @@ legacy/
 
 ## 下一步
 
-1. 名字髒話過濾。
-2. 霓虹風格的圖片精靈支援（可選）。
-3. 快照改二進位（MessagePack）以縮小頻寬。
-4. 帳號、排行榜、數據統計。
+1. 手機觸控支援（虛擬搖桿、自動瞄準）。
+2. 背景音樂。
+3. 遊玩數據統計。
+4. 快照改二進位（MessagePack）以縮小頻寬。

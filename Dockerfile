@@ -8,5 +8,6 @@ RUN npm ci --omit=dev
 COPY shared ./shared
 COPY public ./public
 COPY server ./server
+RUN mkdir -p data
 EXPOSE 8765
 CMD ["node", "server/index.js"]
