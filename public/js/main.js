@@ -2,7 +2,7 @@
 // 兩種模式：
 //   solo   — 本機直接跑 game.js 的 update()
 //   online — 連到伺服器房間；伺服器跑 update()，這裡送輸入、收快照插值、播放 fx 事件、預測自己的機體
-import { createWorld, addPlayer, startRun, update, chooseUpgrade, togglePause } from './game.js';
+import { createWorld, addPlayer, startRun, update, chooseUpgrade, togglePause, abandonRun } from './game.js';
 import { createRenderer } from './render.js';
 import { attachInput, buildInput, mouse, touch } from './input.js';
 import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effects.js';
@@ -32,6 +32,8 @@ const predictor = createPredictor(world);
 let lastSnapSeen = -1;
 let toastTimer = 0;
 let lastResult = null;   // 結算畫面用：{ rank, mode }
+let leftTeam = false;    // 多人：主動離開隊伍後的本機結算畫面
+let soloSubmitted = false;
 const me = () => world.players.find(p => p.id === myId);
 const overlayOpen = () => !menuEl.hidden || !lobbyEl.hidden || !pauseEl.hidden || !lbEl.hidden;
 
@@ -72,7 +74,7 @@ function beginSolo(startWave = 0) {
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
   addPlayer(world, { id: myId, name: takeName(), local: true });
-  resetEffects(); lastResult = null;
+  resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false;
   startRun(world, { startWave });
   menuEl.hidden = true; lobbyEl.hidden = true; pauseEl.hidden = true;
 }
@@ -106,7 +108,7 @@ function beginOnline(code) {
       $('lobby-start').textContent = m.players.length === 1 ? '單獨出擊（可等朋友加入）' : `全員出擊（${m.players.length} 人）`;
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
-    onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
+    onStarted() { resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
     onResult(m) { lastResult = { rank: m.rank, mode: 'coop' }; toast(`合作排行榜 第 ${m.rank} 名`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
@@ -167,7 +169,31 @@ function closePause() {
   if (mode === 'solo' && world.scene === 'pause') togglePause(world);
 }
 $('pause-resume').addEventListener('click', closePause);
-$('pause-leave').addEventListener('click', () => showMenu());
+$('pause-leave').addEventListener('click', leaveGame);
+/** 單人：這局結束並上傳成績；多人：離開隊伍，留在結算畫面 */
+function finishSoloRun() {
+  if (soloSubmitted) return;
+  soloSubmitted = true;
+  if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
+  submitSoloRun(world.score, world.wave).then(r => { if (r) { lastResult = { rank: r.rank, mode: 'solo' }; toast(`單人排行榜 第 ${r.rank} 名`, 4000); } });
+}
+function leaveGame() {
+  pauseEl.hidden = true;
+  if (world.scene === 'gameover' || world.scene === 'menu') { showMenu(); return; }
+  if (mode === 'solo') {
+    if (world.scene === 'pause') togglePause(world);
+    if (abandonRun(world)) { fx.sfx('gameover'); finishSoloRun(); }
+    else showMenu();
+    return;
+  }
+  // 多人：通知伺服器離隊（隊友繼續打），本機切到結算畫面
+  const n = net; net = null; mode = 'solo';
+  n.send({ t: 'leave' }); n.close();
+  predictor.reset();
+  world.scene = 'gameover'; world.abandoned = true; leftTeam = true; lastResult = null;
+  history.replaceState(null, '', location.pathname);
+  fx.sfx('gameover');
+}
 
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
@@ -181,9 +207,10 @@ attachInput(canvas, renderer.toWorld, {
       return;
     }
     if (!pauseEl.hidden) return;
+    if (code === 'KeyL' && world.scene === 'gameover') { lb.mode = leftTeam || mode === 'online' ? 'coop' : 'solo'; openLeaderboard(); return; }
     if (code === 'KeyM') toggleMute();
     if (code === 'KeyP' && mode === 'solo') { if (world.scene === 'pause') closePause(); else openPause(); }
-    if (code === 'Enter' && world.scene === 'gameover') { if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); }
+    if (code === 'Enter' && world.scene === 'gameover') { if (leftTeam) showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); }
     if (world.scene === 'upgrade') {
       const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[code];
       if (n !== undefined) pickUpgrade(n);
@@ -192,7 +219,7 @@ attachInput(canvas, renderer.toWorld, {
   onMouseDown(button) {
     ensureAudio();
     if (button !== 0 || overlayOpen()) return;
-    if (world.scene === 'gameover') { if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); return; }
+    if (world.scene === 'gameover') { if (leftTeam) showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); return; }
     if (world.scene === 'upgrade') {
       const i = renderer.upgradeCardRects().findIndex(r => mouse.x >= r.x && mouse.x <= r.x + r.w && mouse.y >= r.y && mouse.y <= r.y + r.h);
       if (i >= 0) pickUpgrade(i);
@@ -242,17 +269,14 @@ function loop(now) {
       update(world, dt, fx);
       updateEffects(dt);
       renderer.updateStars(dt, p);
-      if (prevScene !== 'gameover' && world.scene === 'gameover') {
-        if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
-        submitSoloRun(world.score, world.wave).then(r => { if (r) { lastResult = { rank: r.rank, mode: 'solo' }; toast(`單人排行榜 第 ${r.rank} 名`, 4000); } });
-      }
+      if (prevScene !== 'gameover' && world.scene === 'gameover') finishSoloRun();
     }
   } else {
     updateEffects(rawDt);
     renderer.updateStars(rawDt, null);
   }
   decayEffects(rawDt);
-  renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId, result: lastResult });
+  renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId, result: lastResult, left: leftTeam });
   requestAnimationFrame(loop);
 }
 showMenu();

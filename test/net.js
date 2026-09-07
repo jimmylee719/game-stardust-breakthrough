@@ -86,8 +86,16 @@ const backSnap = A.snaps[A.snaps.length - 1].players.find(p => p.id === bobId);
 if (!backSnap || backSnap.offline) fail('重連後角色應恢復 online');
 console.log('reconnect: Bob resumed as id', B2.id, '| offline flag cleared:', !backSnap.offline);
 
+// 主動離隊（Esc → 離開）：Cara 送 leave → 立刻從快照消失、房間繼續、A 收到離隊事件文字
+C0.send({ t: 'leave' }); await wait(300);
+const afterLeave = A.snaps[A.snaps.length - 1];
+if (afterLeave.players.some(p => p.name === 'Cara')) fail('離隊者應立刻從快照移除');
+if (afterLeave.scene !== 'play') fail('其他人還在，房間應繼續進行，得到 ' + afterLeave.scene);
+if (!A.events.some(e => e[0] === 'text' && String(e[2][2]).includes('離開了隊伍'))) fail('應廣播「離開了隊伍」文字事件');
+console.log('leave: Cara removed, room still', afterLeave.scene, '| players', afterLeave.players.map(p => p.name).join(', '));
+
 // 真正離開（大廳階段）→ 名單更新
-B2.ws.close(); C0.ws.close(); await wait(300);
+B2.ws.close(); await wait(300);
 const lobbyNames = A.lobby.players.map(p => p.name);
 console.log('after Bob & Cara left: lobby =', lobbyNames.join(', '), '(offline ghosts hidden)');
 

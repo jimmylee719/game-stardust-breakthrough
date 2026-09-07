@@ -53,7 +53,7 @@ function client(name, acct) {
 const A = client('改名A', { id: a.id, secret: a.secret }); await A.open; A.join(); await wait(200);
 const B = client('測試員B', { id: b.id, secret: b.secret }); await B.open; B.join(A.w.code); await wait(200);
 A.ws.send(JSON.stringify({ t: 'start' })); await wait(300);
-// 前 6 秒對最近的敵人開火拿分數（零分局不記錄），之後停火站著被打到全員倒地 → gameover
+// 前 10 秒對最近的敵人做預判射擊拿分數（零分局不記錄），之後停火站著被打到全員倒地 → gameover
 let seq = 0;
 let t0 = Date.now();
 const iv = setInterval(() => {
@@ -61,8 +61,9 @@ const iv = setInterval(() => {
     const s = c.snaps.at(-1); if (!s) continue;
     const me = s.players.find(p => p.id === c.w.id); if (!me) continue;
     const tgt = s.enemies[0] || s.boss;
-    const angle = tgt ? Math.atan2(tgt.y - me.y, tgt.x - me.x) : 0;
-    c.ws.send(JSON.stringify({ t: 'input', seq: ++seq, ix: 0, iy: 0, angle, fire: Date.now() - t0 < 6000, dash: false }));
+    let angle = 0;
+    if (tgt) { const tl = Math.hypot(tgt.x - me.x, tgt.y - me.y) / 760; angle = Math.atan2(tgt.y + (tgt.vy || 0) * tl - me.y, tgt.x + (tgt.vx || 0) * tl - me.x); }
+    c.ws.send(JSON.stringify({ t: 'input', seq: ++seq, ix: 0, iy: 0, angle, fire: Date.now() - t0 < 10000, dash: false }));
   }
 }, 40);
 while (!A.result && Date.now() - t0 < 60000) await wait(200);

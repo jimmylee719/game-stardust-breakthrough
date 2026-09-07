@@ -77,6 +77,7 @@ export function createRenderer(canvas, world) {
     drawPickups();
     drawEnemies();
     if (world.boss) drawBoss(time);
+    drawLasers(time);
     drawBullets();
     drawPlayers(time);
     drawFloatTexts();
@@ -160,9 +161,14 @@ export function createRenderer(canvas, world) {
       else if (e.type === 'dart') { ctx.moveTo(e.r * 1.5, 0); ctx.lineTo(-e.r, e.r * 0.8); ctx.lineTo(-e.r * 0.4, 0); ctx.lineTo(-e.r, -e.r * 0.8); }
       else if (e.type === 'tank') { for (let i = 0; i < 8; i++) { const a = i * TAU / 8, r = i % 2 ? e.r : e.r * 0.8; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
       else if (e.type === 'shooter') { ctx.arc(0, 0, e.r, 0, TAU); ctx.moveTo(e.r * 0.5, 0); ctx.arc(0, 0, e.r * 0.5, 0, TAU); }
+      else if (e.type === 'lancer') { ctx.moveTo(e.r * 1.6, 0); ctx.lineTo(0, e.r * 0.55); ctx.lineTo(-e.r, 0); ctx.lineTo(0, -e.r * 0.55); ctx.closePath(); ctx.moveTo(e.r * 0.5, 0); ctx.arc(e.r * 0.2, 0, e.r * 0.3, 0, TAU); }
+      else if (e.type === 'bounty') { for (let i = 0; i < 12; i++) { const a = i * TAU / 12 + e.wobble * 0.5, rr = i % 2 ? e.r : e.r * 0.55; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
       else { for (let i = 0; i < 4; i++) { const a = i * TAU / 4 + Math.PI / 4; ctx.lineTo(Math.cos(a) * e.r, Math.sin(a) * e.r); } }
       ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (e.type === 'bounty') { ctx.rotate(-Math.atan2(e.vy, e.vx)); ctx.shadowBlur = 0; ctx.fillStyle = '#1a1200'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('$', 0, 1); }
       ctx.restore();
+      if (e.blinkFlash) { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 14, 0, TAU); ctx.stroke(); }
+      if (e.type === 'bounty') { ctx.fillStyle = '#ffd166'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('懸賞目標', e.x, e.y - e.r - 14); }
       if (e.maxHp >= 60 && e.hp < e.maxHp) {
         ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(e.x - e.r, e.y - e.r - 10, e.r * 2, 4);
         ctx.fillStyle = e.color; ctx.fillRect(e.x - e.r, e.y - e.r - 10, e.r * 2 * (e.hp / e.maxHp), 4);
@@ -202,11 +208,53 @@ export function createRenderer(canvas, world) {
       ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.02, b.y - b.vy * 0.02); ctx.stroke();
     }
     for (const b of world.enemyBullets) {
-      const c = b.homing ? '#c77dff' : b.wall ? '#ff8c42' : b.boss ? '#ff3860' : '#00f5d4';
+      if (b.kind === 'mine') {
+        // 感應地雷：脈動的橘色圓環 + 十字，快爆時閃爍
+        const urgent = b.life !== undefined && b.life < 1.5, pulse = 1 + Math.sin(performance.now() / 120) * 0.15;
+        ctx.shadowColor = '#ff8c42'; ctx.strokeStyle = urgent && Math.sin(performance.now() / 50) > 0 ? '#fff' : '#ff8c42'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r * pulse, 0, TAU); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(b.x - 5, b.y); ctx.lineTo(b.x + 5, b.y); ctx.moveTo(b.x, b.y - 5); ctx.lineTo(b.x, b.y + 5); ctx.stroke();
+        ctx.globalAlpha = 0.15; ctx.strokeStyle = '#ff8c42'; ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.arc(b.x, b.y, 70, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        continue;
+      }
+      const c = b.homing ? '#c77dff' : b.wall ? '#ff8c42' : b.boss ? '#ff3860' : b.kind === 'lead' ? '#ffb347' : b.kind === 'shard' ? '#ffd166' : '#00f5d4';
       ctx.shadowColor = c; ctx.fillStyle = c; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
+      if (b.kind === 'lead' || b.kind === 'shard') { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.04, b.y - b.vy * 0.04); ctx.stroke(); }
       if (b.boss) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.4, 0, TAU); ctx.fill(); }
     }
     ctx.shadowBlur = 0;
+  }
+  function drawLasers(time) {
+    for (const L of world.lasers) {
+      const x2 = L.x + Math.cos(L.angle) * L.len, y2 = L.y + Math.sin(L.angle) * L.len;
+      ctx.save();
+      if (L.phase === 'warn') {
+        const k = 1 - L.t / L.warn;   // 0 → 1 越接近發射越亮
+        ctx.globalAlpha = 0.25 + 0.55 * k * (0.6 + 0.4 * Math.sin(time * 30));
+        ctx.strokeStyle = L.color; ctx.shadowColor = L.color; ctx.shadowBlur = 8; ctx.lineWidth = 1.5 + k * 2; ctx.setLineDash([14, 10]); ctx.lineDashOffset = -time * 200;
+        ctx.beginPath(); ctx.moveTo(L.x, L.y); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+        ctx.globalAlpha = 0.6 + 0.4 * k; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(L.x, L.y, 10 + k * 18, 0, TAU); ctx.stroke();
+      } else {
+        const a = Math.min(1, L.t / 0.12 + 0.3);
+        ctx.globalAlpha = a; ctx.lineCap = 'round';
+        ctx.strokeStyle = L.color; ctx.shadowColor = L.color; ctx.shadowBlur = 30; ctx.lineWidth = L.w * (1 + Math.sin(time * 60) * 0.12);
+        ctx.beginPath(); ctx.moveTo(L.x, L.y); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.strokeStyle = '#fff'; ctx.shadowBlur = 0; ctx.lineWidth = L.w * 0.35;
+        ctx.beginPath(); ctx.moveTo(L.x, L.y); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(L.x, L.y, L.w * 0.9, 0, TAU); ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+  function drawPlayerLaser(p, time) {
+    const x1 = p.x + Math.cos(p.angle) * 18, y1 = p.y + Math.sin(p.angle) * 18, x2 = p.x + Math.cos(p.angle) * 720, y2 = p.y + Math.sin(p.angle) * 720;
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = '#7ff5ff'; ctx.shadowColor = '#7ff5ff'; ctx.shadowBlur = 26; ctx.lineWidth = 12 + Math.sin(time * 50) * 2;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.strokeStyle = '#fff'; ctx.shadowBlur = 0; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x1, y1, 8, 0, TAU); ctx.fill();
+    ctx.restore();
   }
   function drawPlayers(time) {
     for (const p of world.players) {
@@ -221,6 +269,7 @@ export function createRenderer(canvas, world) {
         ctx.restore();
       }
       if (p.downed) { drawDowned(p, time); continue; }
+      if (p.laserOn && world.scene === 'play') drawPlayerLaser(p, time);
       if (p.offline) ctx.globalAlpha = 0.35;
       ctx.save(); ctx.translate(p.x, p.y);
       if (p.shield > 0) {
@@ -268,8 +317,23 @@ export function createRenderer(canvas, world) {
     ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = '11px sans-serif'; ctx.fillText(p.reviveProgress > 0 ? '救援中…' : '靠近 3 秒救援', 0, p.r + 24);
     ctx.restore();
   }
+  function drawConvoy(b, time) {
+    ctx.save(); ctx.translate(b.x, b.y);
+    const col = b.alive ? (b.hitFlash ? '#fff' : '#4cc9f0') : '#555';
+    ctx.shadowColor = col; ctx.shadowBlur = b.alive ? 24 : 0;
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.fillStyle = b.alive ? 'rgba(76,201,240,.18)' : 'rgba(80,80,80,.3)';
+    const r = b.r;
+    ctx.beginPath(); ctx.moveTo(r * 1.5, 0); ctx.lineTo(r * 0.6, -r * 0.7); ctx.lineTo(-r * 1.2, -r * 0.7); ctx.lineTo(-r * 1.5, -r * 0.3); ctx.lineTo(-r * 1.5, r * 0.3); ctx.lineTo(-r * 1.2, r * 0.7); ctx.lineTo(r * 0.6, r * 0.7); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(-r * 0.3 + i * r * 0.5, 0, 5, 0, TAU); ctx.fill(); }
+    if (b.alive) { ctx.fillStyle = 'rgba(255,170,60,' + (0.5 + Math.random() * 0.5) + ')'; ctx.beginPath(); ctx.moveTo(-r * 1.5, -r * 0.25); ctx.lineTo(-r * 2.1 - Math.random() * 10, 0); ctx.lineTo(-r * 1.5, r * 0.25); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(b.x - 50, b.y - b.r - 22, 100, 6);
+    ctx.fillStyle = b.hp / b.maxHp > 0.4 ? '#4cc9f0' : '#ff3860'; ctx.fillRect(b.x - 50, b.y - b.r - 22, 100 * (b.hp / b.maxHp), 6);
+    ctx.fillStyle = '#4cc9f0'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('運輸艦', b.x, b.y - b.r - 26);
+  }
   function drawBeacon(time) {
     const b = world.beacon;
+    if (b.kind === 'convoy') { drawConvoy(b, time); return; }
     ctx.save(); ctx.translate(b.x, b.y);
     const col = b.alive ? (b.hitFlash ? '#fff' : '#4cc9f0') : '#555';
     ctx.shadowColor = col; ctx.shadowBlur = b.alive ? 30 : 0;
@@ -311,6 +375,7 @@ export function createRenderer(canvas, world) {
       if (p.spread > 1) tag(`散射 ×${p.spread}`, '#ffd166');
       if (p.rapid > 0) tag(`連射 ${p.rapid.toFixed(0)}s`, '#ff8c42');
       if (p.shield > 0) tag(`護盾 ×${p.shield}`, '#4cc9f0');
+      if (p.laser > 0) tag(`雷射 ${p.laser.toFixed(0)}s`, '#b8ffff');
       const ups = Object.entries(p.upgrades);
       if (ups.length) {
         sx = bx; sy += 26; ctx.textAlign = 'left';
@@ -347,7 +412,8 @@ export function createRenderer(canvas, world) {
       const m = WAVE_MODES[world.waveMode];
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       ctx.fillStyle = '#ffd166'; ctx.font = 'bold 18px sans-serif'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10;
-      ctx.fillText(m.name + (m.duration ? `  ${Math.ceil(world.modeTimer)}s` : world.waveMode === 'asteroids' ? `  剩餘 ${world.enemies.length}` : ''), W / 2, 24); ctx.shadowBlur = 0;
+      const extra = m.duration ? `  ${Math.ceil(world.modeTimer)}s` : world.waveMode === 'asteroids' ? `  剩餘 ${world.enemies.length}` : world.waveMode === 'convoy' && world.beacon ? `  ${Math.round(clamp((world.beacon.x + 70) / (W + 130), 0, 1) * 100)}%` : '';
+      ctx.fillText(m.name + extra, W / 2, 24); ctx.shadowBlur = 0;
       if (m.duration) { ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(W / 2 - 120, 50, 240, 4); ctx.fillStyle = '#ffd166'; ctx.fillRect(W / 2 - 120, 50, 240 * (1 - world.modeTimer / m.duration), 4); }
     }
     if (world.enemies.length === 0 && !world.boss && world.bossWarn <= 0 && !world.waveMode && world.wave > 0 && world.scene === 'play') {
@@ -433,15 +499,16 @@ export function createRenderer(canvas, world) {
   function drawGameOver(time, best, ui) {
     ctx.fillStyle = 'rgba(3,4,10,.7)'; ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; ctx.fillText(world.players.length > 1 ? '全員陣亡' : '艦艇損毀', W / 2, H / 2 - 100); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; ctx.fillText(ui.left ? '已離開戰鬥' : world.abandoned ? '撤退' : world.players.length > 1 ? '全員陣亡' : '艦艇損毀', W / 2, H / 2 - 100); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 30);
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '16px sans-serif';
     ctx.fillText(`撐到第 ${world.wave} 波 · 最高分 ${best}${world.score >= best && world.score > 0 ? '  🏆 新紀錄！' : ''}`, W / 2, H / 2 + 10);
     let y = H / 2 + 44;
     if (ui.result) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 14; ctx.font = 'bold 22px sans-serif'; ctx.fillText(`🏆 ${ui.result.mode === 'coop' ? '合作' : '單人'}排行榜 第 ${ui.result.rank} 名`, W / 2, y); ctx.shadowBlur = 0; y += 32; }
+    else if (ui.left) { ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '15px sans-serif'; ctx.fillText('合作成績會在隊伍結束時一併結算，你的擊殺數會計入', W / 2, y); y += 28; }
     for (const p of world.players) { ctx.fillStyle = p.color; ctx.font = '14px sans-serif'; ctx.fillText(`${p.name}：${p.kills} 擊殺`, W / 2, y); y += 20; }
     const pulse = 0.7 + 0.3 * Math.sin(time * 4);
-    ctx.fillStyle = `rgba(255,255,255,${pulse})`; ctx.font = '20px sans-serif'; ctx.fillText(ui.online ? (ui.isHost ? '點擊 或 按 Enter 再來一局 · Esc 回到大廳' : '等待房主再開一局 · Esc 回到大廳') : '點擊 或 按 Enter 再來一局 · Esc 回到選單', W / 2, y + 30);
+    ctx.fillStyle = `rgba(255,255,255,${pulse})`; ctx.font = '20px sans-serif'; ctx.fillText(ui.online ? (ui.isHost ? '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到大廳' : '等待房主再開一局 · L 排行榜 · Esc 回到大廳') : '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到選單', W / 2, y + 30);
   }
   function drawOffscreenArrows(time, p) {
     if (!p) return;

@@ -121,7 +121,7 @@ function makeRecorder(events) {
   return mk(null);
 }
 function createRoom(code) {
-  const room = { code, world: createWorld(), clients: new Map(), hostId: null, events: [], nextPlayerId: 1, tick: 0, interval: null, createdAt: Date.now() };
+  const room = { code, world: createWorld(), clients: new Map(), hostId: null, events: [], nextPlayerId: 1, tick: 0, interval: null, createdAt: Date.now(), departed: [], recorded: false };
   room.world.scene = 'lobby';
   room.fx = makeRecorder(room.events);
   room.interval = setInterval(() => tickRoom(room), 1000 / TICK_RATE);
@@ -140,8 +140,11 @@ function lobbyMsg(room) {
 function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause'; }
 async function recordCoopRun(room) {
   const w = room.world;
+  if (room.recorded) return;
+  room.recorded = true;
   if (w.score < MIN_RUN_SCORE) return;
-  const party = w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills }));
+  // 隊伍名單：仍在場的玩家 + 中途離隊的玩家（離隊者的擊殺數也計入）
+  const party = [...w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills })), ...room.departed];
   try {
     const r = await db.addRun({ mode: 'coop', score: w.score, wave: w.wave, party });
     broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave });
@@ -151,8 +154,7 @@ async function recordCoopRun(room) {
 function tickRoom(room) {
   const w = room.world;
   if (w.scene === 'play') update(w, 1 / TICK_RATE, room.fx);
-  if (w.scene === 'gameover' && room.lastScene !== 'gameover') recordCoopRun(room);
-  room.lastScene = w.scene;
+  if (w.scene === 'gameover') recordCoopRun(room);
   room.tick++;
   if (w.scene === 'lobby') return;
   const msg = { t: 'snap', tick: room.tick, s: snapshotWorld(w) };
@@ -228,7 +230,7 @@ wss.on('connection', ws => {
         if (player.id !== room.hostId) return;
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
           startRun(room.world, { startWave: m.boss ? 4 : 0 });
-          room.events.length = 0;
+          room.events.length = 0; room.departed = []; room.recorded = false;
           broadcast(room, { t: 'started' });
           console.log(`[room ${room.code}] run started with ${room.world.players.length} players${m.boss ? ' (boss rush)' : ''}`);
         }
@@ -236,9 +238,20 @@ wss.on('connection', ws => {
       case 'upgrade':
         chooseUpgrade(room.world, player.id, Number(m.idx) | 0, room.fx);
         break;
-      case 'leave':
+      case 'leave': {
+        // 主動離隊：立刻移出戰場（不保留重連），擊殺數記到隊伍名單；若沒人能戰鬥則整局結束並結算
+        const w = room.world, cur = current();
+        if (cur && inProgress(room)) {
+          room.departed.push({ id: cur.acctId || null, name: cur.name, kills: cur.kills, left: true });
+          dropPendingUpgrade(w, cur.id);
+          w.players.splice(w.players.indexOf(cur), 1);
+          room.fx.text(w.W / 2, w.H / 2 - 120, `${cur.name} 離開了隊伍`, cur.color, 22, 2);
+          if (!w.players.some(p => !p.dead && !p.downed && !p.offline)) { w.scene = 'gameover'; recordCoopRun(room); }
+          console.log(`[room ${room.code}] ${cur.name}#${cur.id} left the team`);
+        }
         ws.close();
         break;
+      }
     }
   });
 
@@ -252,7 +265,7 @@ wss.on('connection', ws => {
         // 遊戲中斷線：保留角色一段時間等重連
         cur.offline = true; cur.offlineAt = w.time; cur.inputQueue.length = 0;
         dropPendingUpgrade(w, cur.id);
-        if (w.scene === 'play' && !w.players.some(p => !p.dead && !p.downed && !p.offline)) w.scene = 'gameover';
+        if (w.scene === 'play' && !w.players.some(p => !p.dead && !p.downed && !p.offline)) { w.scene = 'gameover'; recordCoopRun(room); }
       } else {
         w.players.splice(w.players.indexOf(cur), 1);
       }

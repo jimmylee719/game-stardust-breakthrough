@@ -75,12 +75,13 @@ export function updateEffects(dt) {
     const f = floatTexts[i]; f.life -= dt; f.y -= 30 * dt;
     if (f.life <= 0) floatTexts.splice(i, 1);
   }
-  vfx.shake *= Math.pow(0.02, dt);
   vfx.flash = Math.max(0, vfx.flash - dt * 3);
-  vfx.slowmo = Math.max(0, vfx.slowmo - dt);
 }
 /** 隨真實時間衰減（不受慢動作與定格影響） */
 export function decayEffects(rawDt) {
+  // 震動與慢動作以真實時間計，避免慢動作把自己拉長（炸彈約 0.6 秒收掉）
+  vfx.shake *= Math.pow(0.004, rawDt);
+  vfx.slowmo = Math.max(0, vfx.slowmo - rawDt);
   vfx.aberr = Math.max(0, vfx.aberr - rawDt * 4);
   vfx.hitStopCd = Math.max(0, vfx.hitStopCd - rawDt);
   vfx.crossPunch = Math.max(0, vfx.crossPunch - rawDt * 5);
