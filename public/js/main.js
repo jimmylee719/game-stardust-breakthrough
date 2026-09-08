@@ -9,12 +9,12 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects } from './effe
 import { ensureAudio, toggleMute, isMuted } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked } from '../../shared/constants.js';
+import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS } from '../../shared/daily.js';
 import './themes.js';   // 套用霓虹主題（唯一風格）
 import { track } from './analytics.js';
-import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe, getAccount, profile, buyPerk, fetchDaily, startDaily } from './account.js';
+import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe, getAccount, profile, buyPerk, fetchDaily, startDaily, exportCode, importCode } from './account.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
@@ -38,6 +38,7 @@ let lastResult = null;   // 結算畫面用：{ rank, mode }
 let leftTeam = false;    // 多人：主動離開隊伍後的本機結算畫面
 let soloSubmitted = false;
 let ship = localStorage.getItem('stardust_ship') || 'falcon';   // 出擊用的機體
+let weapon = localStorage.getItem('stardust_weapon') || 'blaster';   // 出擊用的主武器
 let runKind = 'solo';
 let runStartedAt = 0;   // 事件記錄用    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
@@ -86,7 +87,7 @@ function beginSolo(startWave = 0, daily = null) {
   world.players.length = 0;
   runKind = daily ? 'daily' : 'solo'; dailyInfo = daily;
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
-  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip() });
+  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false;
   startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily });
   runStartedAt = performance.now();
@@ -95,6 +96,24 @@ function beginSolo(startWave = 0, daily = null) {
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
 }
 function currentShip() { if (!shipUnlocked(ship, profile.unlocks)) ship = 'falcon'; return ship; }
+function currentWeapon() { if (!weaponUnlocked(weapon, profile.unlocks)) weapon = 'blaster'; return weapon; }
+function renderWeapons() {
+  const cur = currentWeapon();
+  $('weapon-cards').innerHTML = WEAPONS.map(w => {
+    const un = weaponUnlocked(w.id, profile.unlocks);
+    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-weapon="${w.id}"><div class="ic">${w.icon}</div><div class="nm">${w.name}</div><div class="ds">${w.desc}</div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? '✔ 裝備中' : '已解鎖') : '✨ ' + w.cost}</div></div>`;
+  }).join('');
+  for (const el of $('weapon-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
+    const id = el.dataset.weapon;
+    $('hangar-err').textContent = '';
+    if (weaponUnlocked(id, profile.unlocks)) { weapon = id; localStorage.setItem('stardust_weapon', id); ensureAudio(); renderWeapons(); return; }
+    const w = weaponById(id);
+    if (profile.dust < w.cost) { $('hangar-err').textContent = `星塵不足，解鎖 ${w.name} 需要 ${w.cost}`; return; }
+    try { await buyPerk('weapon:' + id); weapon = id; localStorage.setItem('stardust_weapon', id); ensureAudio(); renderHangar(); toast(`已解鎖 ${w.icon} ${w.name}`); }
+    catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', offline: '目前離線，無法解鎖' }[e.message] || e.message; }
+  });
+  $('xfer-code').value = exportCode();
+}
 function renderShips() {
   const cur = currentShip(), s0 = shipById(cur);
   $('ship-name').textContent = `${s0.icon} ${s0.name}`;
@@ -114,7 +133,7 @@ function renderShips() {
   });
 }
 function renderDust() {
-  renderShips(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
+  renderShips(); renderWeapons(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
 
 // ---------- 機庫：永久強化 ----------
 function renderHangar() {
@@ -137,6 +156,12 @@ $('open-privacy').addEventListener('click', () => { privacyEl.hidden = false; })
 $('privacy-close').addEventListener('click', () => { privacyEl.hidden = true; });
 $('open-hangar').addEventListener('click', async () => { hangarEl.hidden = false; renderHangar(); await fetchMe(); renderHangar(); });
 $('hangar-close').addEventListener('click', () => { hangarEl.hidden = true; renderDust(); });
+$('xfer-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('xfer-code').value); toast('已複製轉移碼'); } catch { $('xfer-code').select(); } });
+$('xfer-import').addEventListener('click', async () => {
+  $('hangar-err').textContent = '';
+  try { const me = await importCode($('xfer-in').value); nameInput.value = me.name; localStorage.setItem('stardust_name', me.name); $('xfer-in').value = ''; renderHangar(); toast(`已切換到 ${me.name} 的帳號`); }
+  catch (e) { $('hangar-err').textContent = /unauthorized|HTTP/.test(e.message) ? '轉移碼無效' : e.message; }
+});
 
 // ---------- 每日挑戰 ----------
 let dailyToday = null;
@@ -167,7 +192,7 @@ function beginOnline(code) {
   const name = takeName();
   errEl.textContent = '連線中…';
   net = connect({
-    name, code, acct: accountCredentials(), ship: currentShip(),
+    name, code, acct: accountCredentials(), ship: currentShip(), weapon: currentWeapon(),
     onWelcome(m) {
       mode = 'online'; myId = m.id; fx = createFx(myId);
       resetEffects(); predictor.reset(); lastSnapSeen = -1;

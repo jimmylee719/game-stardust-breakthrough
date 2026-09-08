@@ -7,9 +7,11 @@ import { sfx as SFX, beep, noise } from './audio.js';
 export const vfx = { shake: 0, flash: 0, slowmo: 0, hitStop: 0, hitStopCd: 0, aberr: 0, crossPunch: 0, crossRecoil: 0, zoom: 0 };
 export const particles = [];
 export const floatTexts = [];
+/** 閃電鏈：多段折線，短暫顯示 */
+export const bolts = [];
 
 export function resetEffects() {
-  particles.length = 0; floatTexts.length = 0;
+  particles.length = 0; floatTexts.length = 0; bolts.length = 0;
   for (const k of Object.keys(vfx)) vfx[k] = 0;
 }
 
@@ -39,9 +41,10 @@ export function floatText(x, y, text, color = '#fff', size = 16, life = 0.9) {
   floatTexts.push({ x, y, text, color, size, life, maxLife: life });
 }
 export function shake(v) { vfx.shake = Math.min(vfx.shake + v, 24); }
+/** 定格：依玩家回饋，只保留 Boss 擊破那一瞬（sec >= 0.2）；一般擊殺與命中不再停畫面 */
 export function hitStop(sec, minor = false) {
-  if (minor) { if (vfx.hitStopCd > 0) return; vfx.hitStopCd = 0.15; }
-  vfx.hitStop = Math.max(vfx.hitStop, sec);
+  if (minor || sec < 0.2) return;
+  vfx.hitStop = Math.max(vfx.hitStop, Math.min(sec, 0.2));
 }
 export function aberrate(v) { vfx.aberr = Math.min(1, vfx.aberr + v); }
 
@@ -49,9 +52,10 @@ export function aberrate(v) { vfx.aberr = Math.min(1, vfx.aberr + v); }
 export function createFx(localPlayerId) {
   const fx = {
     burst, burstDir, ring, muzzle, ghost, text: floatText,
+    bolt: (pts, color = '#9ff') => { bolts.push({ pts, color, life: 0.14, maxLife: 0.14 }); },
     shake, hitStop, aberrate,
     flash: v => { vfx.flash = Math.max(vfx.flash, v); },
-    slowmo: s => { vfx.slowmo = Math.max(vfx.slowmo, s); },
+    slowmo: () => {},   // 慢動作拿掉：會打斷流暢感（玩家回饋）
     zoom: v => { vfx.zoom = Math.max(vfx.zoom, v); },
     crossPunch: () => { vfx.crossPunch = 1; },
     crossRecoil: () => { vfx.crossRecoil = 1; },
@@ -71,6 +75,7 @@ export function updateEffects(dt) {
     q.x += q.vx * dt; q.y += q.vy * dt;
     q.vx *= Math.pow(0.05, dt); q.vy *= Math.pow(0.05, dt);
   }
+  for (let i = bolts.length - 1; i >= 0; i--) { bolts[i].life -= dt; if (bolts[i].life <= 0) bolts.splice(i, 1); }
   for (let i = floatTexts.length - 1; i >= 0; i--) {
     const f = floatTexts[i]; f.life -= dt; f.y -= 30 * dt;
     if (f.life <= 0) floatTexts.splice(i, 1);

@@ -14,15 +14,16 @@ export function snapshotWorld(world) {
     players: world.players.map(p => ({
       id: p.id, name: p.name, color: p.color, x: r1(p.x), y: r1(p.y), vx: r1(p.vx), vy: r1(p.vy), angle: r1(p.angle * 100) / 100,
       r: p.r, hp: Math.round(p.hp), maxHp: p.maxHp, dead: p.dead, downed: p.downed, downTimer: r1(p.downTimer), reviveProgress: r1(p.reviveProgress), offline: p.offline,
-      shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined, ship: p.ship, syn: Object.keys(p.syn),
+      shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined, ship: p.ship, syn: Object.keys(p.syn), weapon: p.weapon, weaponOn: p.weaponOn || undefined,
       dashCd: r1(p.dashCd), dashCdMax: r1(p.dashCdMax), dashing: r1(p.dashing), inv: r1(p.inv), seq: p.lastSeq, kills: p.kills, upgrades: p.upgrades,
       drones: p.drones.map(d => ({ x: r1(d.x ?? p.x), y: r1(d.y ?? p.y), a: r1(d.a) })),
     })),
     bullets: world.bullets.map(b => ({ id: b.id, x: r1(b.x), y: r1(b.y), vx: r1(b.vx), vy: r1(b.vy), size: b.size, homing: b.homing, burn: b.burn || undefined })),
-    enemies: world.enemies.map(e => ({ id: e.id, type: e.type, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), r: e.r, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), color: e.color, hitFlash: e.hitFlash > 0 ? 1 : 0, burn: e.burn > 0 ? 1 : undefined, stun: e.stun > 0 ? 1 : undefined, squash: r1(e.squash), wobble: r1(e.wobble), rot: r1(e.rot), elite: e.elite || undefined, tier: e.tier || undefined, lunge: e.lunge > 0 ? 1 : undefined, blinkFlash: e.blinkFlash > 0 ? 1 : undefined })),
-    enemyBullets: world.enemyBullets.map(b => ({ id: b.id, x: r1(b.x), y: r1(b.y), vx: r1(b.vx), vy: r1(b.vy), r: b.r, boss: !!b.boss, homing: b.homing ? 1 : undefined, wall: b.wall || undefined, kind: b.kind, life: b.kind === 'mine' ? r1(b.life) : undefined })),
+    enemies: world.enemies.map(e => ({ id: e.id, type: e.type, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), r: e.r, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), color: e.color, hitFlash: e.hitFlash > 0 ? 1 : 0, ambient: e.ambient || undefined, ally: e.ally || undefined, life: e.ambient ? r1(e.life) : undefined, buffed: (e.buffSpeed > 0 || e.buffRapid > 0 || e.buffSpread > 0 || e.armored) ? 1 : undefined, burn: e.burn > 0 ? 1 : undefined, stun: e.stun > 0 ? 1 : undefined, slow: e.slow > 0 ? 1 : undefined, squash: r1(e.squash), wobble: r1(e.wobble), rot: r1(e.rot), elite: e.elite || undefined, tier: e.tier || undefined, lunge: e.lunge > 0 ? 1 : undefined, blinkFlash: e.blinkFlash > 0 ? 1 : undefined })),
+    enemyBullets: world.enemyBullets.map(b => ({ id: b.id, x: r1(b.x), y: r1(b.y), vx: r1(b.vx), vy: r1(b.vy), r: b.r, boss: !!b.boss, homing: b.homing ? 1 : undefined, wall: b.wall || undefined, kind: b.kind, ufo: b.ufo || undefined, life: b.kind === 'mine' ? r1(b.life) : undefined })),
     pickups: world.pickups.map(k => ({ id: k.id, x: r1(k.x), y: r1(k.y), kind: k.kind, life: r1(k.life), t: r1(k.t) })),
-    boss: world.boss ? { id: world.boss.id, name: world.boss.name, x: r1(world.boss.x), y: r1(world.boss.y), r: world.boss.r, hp: Math.round(world.boss.hp), maxHp: Math.round(world.boss.maxHp), phase: world.boss.phase, color: world.boss.color, spin: r1(world.boss.spin), hitFlash: world.boss.hitFlash > 0 ? 1 : 0, atk: world.boss.atk, charging: !!world.boss.chargeDir, aim: r1(world.boss.aim * 100) / 100, entering: world.boss.entering, dying: world.boss.dying > 0 } : null,
+    bosses: world.bosses.map(b => ({ id: b.id, kind: b.kind, name: b.name, x: r1(b.x), y: r1(b.y), r: b.r, hp: Math.round(b.hp), maxHp: Math.round(b.maxHp), phase: b.phase, color: b.color, spin: r1(b.spin), hitFlash: b.hitFlash > 0 ? 1 : 0, atk: b.atk, charging: !!b.chargeDir, aim: r1(b.aim * 100) / 100, entering: b.entering, dying: b.dying > 0, cloak: b.cloak > 0 ? r1(b.cloak) : undefined, buff: b.buff > 0 ? 1 : undefined })),
+    graze: world.graze,
     pending: Object.fromEntries([...world.pendingUpgrades.entries()].map(([pid, list]) => [pid, list.map(u => u.id)])),
   };
 }
@@ -50,7 +51,7 @@ export function applySnapshot(world, prev, curr, t) {
   world.lasers = prev ? lerpList(prev.lasers || [], s.lasers || [], t, 'angle') : (s.lasers || []).slice();
   if (!prev) {
     world.players = s.players.map(p => ({ ...p })); world.bullets = s.bullets.slice(); world.enemies = s.enemies.map(e => ({ ...e }));
-    world.enemyBullets = s.enemyBullets.slice(); world.pickups = s.pickups.slice(); world.boss = s.boss ? { ...s.boss } : null;
+    world.enemyBullets = s.enemyBullets.slice(); world.pickups = s.pickups.slice(); world.bosses = (s.bosses || []).map(b => ({ ...b }));
   } else {
     world.players = lerpList(prev.players, s.players, t, 'angle').map(p => {
       const pp = prev.players.find(q => q.id === p.id);
@@ -61,10 +62,11 @@ export function applySnapshot(world, prev, curr, t) {
     world.enemies = lerpList(prev.enemies, s.enemies, t);
     world.enemyBullets = lerpList(prev.enemyBullets, s.enemyBullets, t);
     world.pickups = lerpList(prev.pickups, s.pickups, t);
-    world.boss = s.boss ? (prev.boss && prev.boss.id === s.boss.id ? { ...s.boss, x: lerp(prev.boss.x, s.boss.x, t), y: lerp(prev.boss.y, s.boss.y, t) } : { ...s.boss }) : null;
+    world.bosses = lerpList(prev.bosses || [], s.bosses || [], t);
   }
   // 渲染端需要的衍生欄位
   for (const p of world.players) if (Array.isArray(p.syn)) p.syn = Object.fromEntries(p.syn.map(id => [id, true]));
-  if (world.boss) world.boss.chargeDir = world.boss.charging ? {} : null;
+  for (const b of world.bosses) b.chargeDir = b.charging ? {} : null;
+  world.graze = s.graze || 0;
   world.pendingUpgrades = new Map(Object.entries(s.pending).map(([pid, ids]) => [Number(pid), ids.map(id => UPGRADES.find(u => u.id === id))]));
 }

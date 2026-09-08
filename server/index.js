@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS } from '../shared/constants.js';
+import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { openDb } from './db.js';
 import { computeStats } from './stats.js';
@@ -272,6 +272,7 @@ wss.on('connection', ws => {
       if (r.clients.size >= MAX_PLAYERS) { send({ t: 'error', msg: '房間已滿（最多 4 人）' }); return; }
       room = r;
       const wantShip = SHIPS.some(s => s.id === m.ship) ? m.ship : 'falcon';
+      const wantWeapon = WEAPONS.some(w => w.id === m.weapon) ? m.weapon : 'blaster';
       // 先驗證帳號（取得永久強化與已解鎖機體），再把玩家放進世界，這樣中途加入也會拿到正確的機體
       (async () => {
         let acct = null;
@@ -279,9 +280,10 @@ wss.on('connection', ws => {
         if (ws.readyState !== ws.OPEN || !rooms.has(room.code)) return;
         const unlocks = acct?.unlocks || [];
         const ship = shipUnlocked(wantShip, unlocks) ? wantShip : 'falcon';
+        const weapon = weaponUnlocked(wantWeapon, unlocks) ? wantWeapon : 'blaster';
         const id = room.nextPlayerId++;
         const token = crypto.randomBytes(12).toString('base64url');
-        const opts = { id, name, token, acctId: acct?.id || null, perks: unlocks, ship };
+        const opts = { id, name, token, acctId: acct?.id || null, perks: unlocks, ship, weapon };
         player = inProgress(room) ? joinMidGame(room.world, opts) : addPlayer(room.world, opts);
         room.clients.set(ws, player);
         if (room.hostId === null) room.hostId = id;

@@ -23,7 +23,7 @@ try {
     if (world.scene === 'gameover') break;
     if (world.scene === 'victory') { victories++; if (args.endless) continueEndless(world); else break; }
     for (const p of world.players) {
-      const tgt = world.boss && !world.boss.entering ? world.boss : world.enemies[0] || { x: world.W / 2, y: 180 };
+      const tgt = world.bosses[0] && !world.bosses[0].entering ? world.bosses[0] : world.enemies[0] || { x: world.W / 2, y: 180 };
       const ph = Math.floor(f / 90 + p.id) % 4;
       p.input = { ix: [1, 0, -1, 0][ph], iy: [0, 1, 0, -1][ph], angle: Math.atan2(tgt.y - p.y, tgt.x - p.x), fire: true, dash: false };
     }
@@ -35,7 +35,9 @@ try {
 
 const summary = {
   players: nPlayers, simulatedSeconds: +(frames / 60).toFixed(1), finalScene: world.scene, wave: world.wave, score: world.score,
-  bossKills: log.filter(l => l.includes('BOSS 擊破')).length,
+  bossKills: log.filter(l => /擊破 +/.test(l)).length,
+  bossesSeen: [...new Set(log.filter(l => /(殲滅者|蜂巢母艦|幽影|星隕) (Mk|Ω)/.test(l) && !l.includes('擊破')).map(l => l.split(' ').slice(1).join(' ')))],
+  ambient: { meteors: log.filter(l => l.includes('流星來襲')).length, ufos: log.filter(l => l.includes('不明飛行物')).length, perfect: log.filter(l => l.includes('無傷清波')).length },
   upgradesPicked: world.players.map(p => Object.values(p.upgrades).reduce((a, b) => a + b, 0)),
   won: world.won, endless: world.endless, victories, synergies: world.players.map(p => Object.keys(p.syn)),
   maxLasers: lasersSeen, laserFireFrames: laserFired, maxMines: minesSeen,

@@ -77,17 +77,23 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 
 ## 4. 目前的玩法規格（改動時保持一致）
 
+- 手感：`effects.js` 的 `slowmo` 是 no-op、`hitStop` 只接受 ≥ 0.2 s（Boss 擊破）。**不要再加慢動作**（玩家明確回饋）。
+- 主武器：`WEAPONS`（blaster / flame / frost / arc，`WEAPON_STATS`），發射邏輯在 `update()` 的「射擊：依主武器分派」；`p.weaponOn` 給連續武器渲染；閃電走 `fx.bolt(points)`；伺服器 join 用 `weaponUnlocked` 驗證，解鎖 id `weapon:<id>`。
 - 玩家：HP 100、傷害 8、射速 0.16 s、衝刺 1.2 s 冷卻。每 2 波三選一升級（Boss 後必給），13 種升級（傷害 +20%、射速 +10%、穿甲、反彈、追蹤、僚機、汲血、連鎖爆裂、裝甲、推進、衝刺冷卻、牽引、巨型彈體）。
 - 道具：+HP、散射、連射、護盾、炸彈（震動 / 慢動作 0.6 秒）、雷射（5 秒貫穿光束，每秒 傷害×7）。
 - 敵人：drifter / dart / tank / shooter / splitter / rock / **lancer（雷射兵）** / **bounty（懸賞目標）**。精英第 4 波起（1.5 倍體型、3 倍血、必掉道具）。
 - 敵人 AI（`AI` 常數）：追擊者側面包抄；飛鏢突進；射手風箏 + 第 5 波預判射擊 + 第 6 波閃避子彈 + 第 8 波佈雷；雷射兵預警 1.1 s（前 70% 追蹤）→ 0.35 s 貫穿雷射；懸賞目標逃跑、閃現、還擊；第 6 波起 50% 夾擊隊形。
-- Boss 每 5 波，體型 110，招式 ring / spiral / volley / wall / homing / charge / summon / **laser（掃射）**，三階段。
+- Boss：**`world.bosses` 是陣列**（沒有 `world.boss` 了），`BOSS_KINDS` 四種（annihilator / hive / phantom / titan），`makeBoss / spawnBoss / bossBrain（閃避、搶道具）/ updateBoss(world, b) / damageBoss(world, b, …) / killBoss(world, b)`；第 10 波起 `BOSS_DOUBLE_CHANCE` 雙 Boss（slot -1 / +1），第 20 波固定殲滅者 Ω。招式池在 `updateBoss` 的 `pools`。幽影 `b.cloak` 隱形（被打會縮短），星隕 `armor 0.7`。
+- 環境單位：`spawnAmbient(world, 'meteor'|'ufo')`，`e.ambient = true` 不算波次（`waveEnemies()`），`AMBIENT` 常數；飛碟子彈 `ufo: true` 會打敵人與 Boss。
+- 敵人搶道具：`e.wantPickup`，吃到依 kind 給 Buff（`buffSpeed / buffRapid / buffSpread / armored`），`DIFFICULTY.pickupHuntFromWave`。追擊者閃避 `chaserDodgeFromWave`。
+- 無傷清波 `world.waveDamaged`（`hurtPlayer` 設）、擦彈 `world.graze`。
 - 特殊波：3 小行星帶、4 彈幕求生、6 懸賞獵殺、8 護送運輸艦、9 防衛信標、12 小行星帶；10 波後 40% 隨機。
 - 合作：倒地 30 s、靠近 3 s 救援；斷線 15 s 內重連；中途加入；Esc 離開 = 單人立即結算上傳、多人離隊（擊殺仍計入隊伍成績）。
 - 排行榜：單人（客戶端回報）、合作（伺服器記錄）、每日（今日榜）、全部 / 本週；`MIN_RUN_SCORE = 10`；玩家可刪自己的單人成績。
 - 組合技：`SYNERGIES`（7 組，`needs` 兩個升級 id），`chooseUpgrade` 後用 `activeSynergies` 更新 `p.syn`，效果散在 game.js 依 `p.syn.<id>` 判斷；升級卡提示用 `synergyIfPicked`。通關：`WIN_WAVE = 20`，`killBoss` 內 `world.won` → scene `victory`（每日直接 gameover）；`continueEndless` / `finishRun`，伺服器訊息 `endless` / `finish`（房主）。`inProgress` 要包含 `victory`。
 - 機體：`SHIPS`（falcon / wasp / bastion / carrier），`applyShip` 在 `addPlayer` 內、永久強化之前套用；客戶端 join 帶 `ship`，伺服器用 `shipUnlocked(ship, unlocks)` 驗證後才建玩家（join 改成先 `await db.auth`）；解鎖走 `/api/perks/buy` 的 `ship:<id>`；`render.js` 的 `shipPath(ship)` 畫船身。
 - 選單 UI：單人出擊與 Boss 挑戰等寬；底部只有「📖 遊玩說明」「🔒 隱私說明」兩個按鈕，各自彈出 `.panel.doc`（右上 `.x` 關閉、Esc 也關）。隱私說明承諾：不需註冊、不收個資、只有匿名編號與匿名遊玩事件、無廣告 / 追蹤 Cookie / 第三方分析——**新增任何收集行為前要先改這段文字**。
+- 帳號轉移碼：`exportCode()` = `SD1-<id>-<secret>`，`importCode()` 用 `/api/me` 驗證後覆蓋 localStorage；碼等同密碼。
 - 遊玩事件（`analytics.js` → `POST /api/events`，白名單 `EVENT_NAMES`）：`session{device}`、`run_start{mode,ship,wave0}`、`run_end{mode,ship,wave,score,reason: dead|abandon|victory|endless|left,dur,kills,ups,syn}`、`upgrade{id,wave}`；伺服器記 `room{kind}`、合作局 `run_start/run_end`、`perk_buy`、`daily_start`。儀表板 `/admin.html` 讀 `GET /api/stats?key=&days=`。
 - 局外成長：星塵 = `dustFor(score, wave, unlocks)`（分數/25 + 波×5，上限 2000，任何分數都給）；機庫 `PERKS`（7 種永久強化，`applyPerks` 在 `addPlayer` 套用，伺服器在 join 時依帳號套用）；每日挑戰 `DAILY_MODS`（`world.mods` 由 `startRun({mods})` 設定，只在單機模式跑，伺服器房間不做每日）。一天一次由伺服器用 `players.daily_started` + 當日 runs 記錄擋。
 

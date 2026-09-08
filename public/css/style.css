@@ -39,9 +39,9 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 @keyframes blink { 50% { opacity: .4; } }
 
 /* Boss 挑戰按鈕、暫停選單、提示 */
-.row .boss { background: linear-gradient(135deg, var(--danger), var(--gold)); color: #fff; border: none; box-shadow: 0 8px 24px rgba(255,56,96,.35); }
-.row .primary, .row .boss { font-size: 17px; font-weight: 700; letter-spacing: .2em; padding: 14px 8px; }
-.row .boss:hover { box-shadow: 0 12px 30px rgba(255,56,96,.5); }
+.row .boss { background: color-mix(in srgb, var(--danger) 18%, transparent); color: #ff8c9c; border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent); box-shadow: none; }
+.row .boss:hover { background: color-mix(in srgb, var(--danger) 30%, transparent); }
+.row .primary, .row .boss { flex: 1 1 0; min-width: 0; font-size: 16px; font-weight: 700; letter-spacing: .15em; padding: 13px 6px; }
 .panel.narrow { width: min(92vw, 360px); }
 .panel h2 { font-size: 40px; letter-spacing: .15em; text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 70%, transparent); }
 .sub2 { color: rgba(255,255,255,.6); font-size: 14px; margin: 8px 0 14px; min-height: 1.2em; }
@@ -132,3 +132,7 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 .panel.doc b { color: var(--accent); font-weight: 700; }
 .panel .x { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; margin: 0; padding: 0; border-radius: 50%; font-size: 16px; letter-spacing: 0; background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.2); box-shadow: none; }
 .panel .x:hover { background: rgba(255,255,255,.18); transform: none; box-shadow: none; }
+.transfer .ds { font-size: 12px; color: color-mix(in srgb, var(--text) 60%, transparent); text-align: left; line-height: 1.6; margin-bottom: 8px; }
+.transfer .row { margin-bottom: 8px; }
+.transfer input { flex: 1; font-size: 12px; letter-spacing: 0; text-transform: none; text-align: left; padding: 9px 10px; }
+.transfer .row button { flex: 0 0 auto; padding: 9px 14px; }

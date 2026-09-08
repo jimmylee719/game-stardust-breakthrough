@@ -5,7 +5,7 @@ import { TICK_RATE } from '../../shared/constants.js';
 const INTERP_DELAY = 2 * (1000 / TICK_RATE); // 落後兩個 tick 渲染，吸收網路抖動
 const RECONNECT_WINDOW = 12000;               // 斷線後嘗試重連的時間（伺服器保留角色 15 秒）
 
-export function connect({ name, code, token, acct, ship, onWelcome, onLobby, onStarted, onError, onClose, onReconnecting, onResult }) {
+export function connect({ name, code, token, acct, ship, weapon, onWelcome, onLobby, onStarted, onError, onClose, onReconnecting, onResult }) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const net = {
     ws: null, id: null, code: code || null, token: token || null, connected: false, closedByUser: false,
@@ -29,7 +29,7 @@ export function connect({ name, code, token, acct, ship, onWelcome, onLobby, onS
   function open() {
     const ws = new WebSocket(`${proto}://${location.host}`);
     net.ws = ws;
-    ws.addEventListener('open', () => { net.connected = true; ws.send(JSON.stringify({ t: 'join', name, code: net.code, token: net.token, acct, ship })); });
+    ws.addEventListener('open', () => { net.connected = true; ws.send(JSON.stringify({ t: 'join', name, code: net.code, token: net.token, acct, ship, weapon })); });
     ws.addEventListener('message', e => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
       switch (m.t) {

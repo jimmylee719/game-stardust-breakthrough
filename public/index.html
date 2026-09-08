@@ -122,9 +122,17 @@
     <div id="hangar-dust" class="lb-me">✨ 星塵 0</div>
     <div class="divider"><span>機體（點選出擊用的機體）</span></div>
     <div id="ship-cards" class="ships"></div>
+    <div class="divider"><span>改裝：主武器（點選出擊用的武器）</span></div>
+    <div id="weapon-cards" class="ships"></div>
     <div class="divider"><span>永久強化（每局開局自動套用）</span></div>
     <ul id="perk-rows" class="perk-rows"></ul>
     <div id="hangar-err" class="err"></div>
+    <div class="divider"><span>帳號轉移（換裝置繼續累積）</span></div>
+    <div class="transfer">
+      <div class="ds">你的進度綁在這台裝置的匿名帳號上。要在另一台裝置繼續，複製下面的轉移碼貼到那邊的「匯入」即可。轉移碼等同帳號密碼，不要公開。</div>
+      <div class="row"><input id="xfer-code" type="text" readonly><button id="xfer-copy">複製</button></div>
+      <div class="row"><input id="xfer-in" type="text" placeholder="貼上另一台裝置的轉移碼"><button id="xfer-import">匯入</button></div>
+    </div>
     <button id="hangar-close" class="small">關閉</button>
   </div>
 </div>

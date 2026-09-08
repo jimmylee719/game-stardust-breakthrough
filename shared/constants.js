@@ -46,7 +46,9 @@ export const DIFFICULTY = {
   eliteChance: w => Math.min(0.3, 0.06 + w * 0.015),
   shooterVolley: w => Math.min(4, 1 + Math.floor(w / 3)),   // 射手每次發射的子彈數上限（實際為 1..此值隨機）
   leadFromWave: 5,        // 射手從第 5 波起會預判玩家移動方向射擊
-  dodgeFromWave: 6,       // 射手 / 雷射兵從第 6 波起會側移閃避來襲子彈
+  dodgeFromWave: 3,       // 射手 / 雷射兵從第 3 波起、追擊者從第 5 波起會側移閃避來襲子彈
+  chaserDodgeFromWave: 5,
+  pickupHuntFromWave: 3,  // 敵人從第 3 波起會跟玩家搶道具吃（吃到有 Buff）
   mineFromWave: 8,        // 射手從第 8 波起會在身後佈雷
   lancerFromWave: 5,      // 雷射兵從第 5 波起出現
   pincerFromWave: 6,      // 從第 6 波起有 50% 機率改成兩側夾擊隊形
@@ -67,6 +69,20 @@ export const AI = {
 };
 
 export const BOSS_NAMES = ['殲滅者 Mk.I', '殲滅者 Mk.II', '殲滅者 Mk.III', '殲滅者 Ω'];
+/** Boss 種類：每次 Boss 波隨機挑選；第 10 波起有機率同時兩隻（可相同可不同）。第 20 波固定殲滅者 Ω 壓軸。 */
+export const BOSS_KINDS = {
+  annihilator: { name: '殲滅者', color: '#ff3860', color2: '#ff8c42', r: 110, hpMul: 1,   speed: 1,   desc: '彈幕、彈牆、衝撞、雷射掃射' },
+  hive:        { name: '蜂巢母艦', color: '#f15bb5', color2: '#c77dff', r: 120, hpMul: 1.1, speed: 0.6, desc: '召喚蟲群、外星飛碟與流星雨' },
+  phantom:     { name: '幽影',   color: '#c77dff', color2: '#4cc9f0', r: 90,  hpMul: 0.8, speed: 1.5, desc: '隱形潛行、瞬移突襲、雷射' },
+  titan:       { name: '星隕',   color: '#ff8c42', color2: '#ffd166', r: 135, hpMul: 1.4, speed: 0.45, desc: '呼叫隕石、衝擊波、厚重裝甲（受傷 -30%）' },
+};
+export const BOSS_DOUBLE_FROM_WAVE = 10;
+export const BOSS_DOUBLE_CHANCE = 0.4;
+/** 太空環境事件：流星與外星飛碟（第 3 波起，每 20–40 秒隨機一次） */
+export const AMBIENT = { fromWave: 3, cd: [20, 40], meteorHp: 320, meteorSpeed: 300, meteorDmg: 30, meteorScore: 150, ufoHp: 160, ufoLife: 13, ufoShootCd: 0.7, ufoScore: 250 };
+/** 無傷清波 / 擦彈加分 */
+export const PERFECT_WAVE_BONUS = 120;   // × 波數
+export const GRAZE_SCORE = 5;
 export const BOSS_EVERY = 5;
 export const BOSS_RADIUS = 110;   // 約原本的 2 倍
 
@@ -173,6 +189,20 @@ export const SHIPS = [
   { id: 'carrier', icon: '🛸', name: '母艦',   cost: 1200, desc: '航艦：開局自帶 2 台僚機、生命 110；射速 -15%、傷害 -10%',
     stats: { hp: 1.1, speed: 0.95, fire: 0.85, dmg: 0.9 }, apply: p => { p.maxHp = 110; p.hp = 110; p.speedMul *= 0.95; p.fireRate *= 1.18; p.damage *= 0.9; for (let i = 0; i < 2; i++) p.drones.push({ a: i * Math.PI, cd: 0.2 * i, x: p.x, y: p.y }); } },
 ];
+/**
+ * 改裝：主武器。脈衝砲免費；其餘在機庫用星塵解鎖（unlocks 內存 'weapon:<id>'）。
+ * 子彈類升級（穿甲 / 反彈 / 追蹤 / 巨型彈體 / 散射道具）只對脈衝砲有效；傷害與射速升級對全部有效。
+ */
+export const WEAPONS = [
+  { id: 'blaster', icon: '🔫', name: '脈衝砲',   cost: 0,    desc: '標準連射子彈，所有子彈升級都有效' },
+  { id: 'flame',   icon: '🔥', name: '火焰槍',   cost: 900,  desc: '近距離扇形持續噴射，碰到的敵人全部點燃；射程短' },
+  { id: 'frost',   icon: '❄️', name: '冰凍光線', cost: 900,  desc: '中距離光束，命中減速，連續照射 2 秒凍結；傷害較低' },
+  { id: 'arc',     icon: '⚡', name: '閃電鏈',   cost: 1200, desc: '自動命中最近的敵人並連鎖跳到最多 4 個目標；射速較慢' },
+];
+export const WEAPON_STATS = { flameRange: 250, flameCone: 0.4, flameDps: 4.5, frostRange: 520, frostDps: 2.4, frostSlow: 0.4, frostFreezeAfter: 2, arcRange: 380, arcJump: 210, arcTargets: 4, arcDmg: 2.6, arcRate: 2.4 };
+export function weaponById(id) { return WEAPONS.find(w => w.id === id) || WEAPONS[0]; }
+export function weaponUnlocked(id, unlocks) { return id === 'blaster' || (unlocks || []).includes('weapon:' + id); }
+
 export function shipById(id) { return SHIPS.find(s => s.id === id) || SHIPS[0]; }
 export function shipUnlocked(id, unlocks) { return id === 'falcon' || (unlocks || []).includes('ship:' + id); }
 export function applyShip(p, shipId) { const s = shipById(shipId); s.apply(p); p.ship = s.id; }

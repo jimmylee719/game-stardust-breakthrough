@@ -43,6 +43,16 @@ async function ensureAccountNow(name) {
 }
 export function getAccount() { return acct; }
 export function accountCredentials() { return acct ? creds() : null; }
+/** 帳號轉移碼：把匿名帳號帶到另一台裝置（碼本身就是登入憑證，請勿公開） */
+export function exportCode() { return acct ? `SD1-${acct.id}-${acct.secret}` : ''; }
+export async function importCode(code) {
+  const m = String(code || '').trim().match(/^SD1-([A-Za-z0-9_-]+)-([A-Za-z0-9_-]+)$/);
+  if (!m) throw new Error('轉移碼格式不對');
+  const me = await api(`/api/me?id=${encodeURIComponent(m[1])}&secret=${encodeURIComponent(m[2])}`);
+  acct = { id: m[1], secret: m[2], name: me.name }; localStorage.setItem(KEY, JSON.stringify(acct));
+  Object.assign(profile, { dust: me.dust, dustTotal: me.dustTotal, unlocks: me.unlocks }); cacheProfile();
+  return me;
+}
 async function ready(name) {
   if (pending) await pending;
   if (!acct) await ensureAccount(name || localStorage.getItem('stardust_name') || '');
