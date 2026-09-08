@@ -3,7 +3,7 @@
 // 這個模組同時在瀏覽器（單機）與伺服器（多人）執行。
 import { TAU, rand, randInt, rnd, clamp, dist2, angleDiff } from '../../shared/math.js';
 import {
-  WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS, BOSS_KINDS, BOSS_DOUBLE_FROM_WAVE, BOSS_DOUBLE_CHANCE, AMBIENT, PERFECT_WAVE_BONUS, GRAZE_SCORE,
+  WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS, BOSS_KINDS, BOSS_DOUBLE_FROM_WAVE, BOSS_DOUBLE_CHANCE, AMBIENT, PERFECT_WAVE_BONUS, GRAZE_SCORE, ENEMY_BLINK_FROM_WAVE,
   UPGRADES, UPGRADE_EVERY_WAVES, WAVE_MODES, MODE_SCHEDULE, MODE_CHANCE_AFTER, MODE_CHANCE,
   DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName, applyPerks, applyShip, activeSynergies, SYNERGIES, WIN_WAVE, WIN_BONUS, WEAPON_STATS,
 } from '../../shared/constants.js';
@@ -27,6 +27,7 @@ export function createWorld() {
     abandoned: false, mods: {}, won: false, endless: false,   // mods：每日挑戰規則 {fast, elite, noPickup, glass, lancers, swarm, mines}
     bosses: [], bossWarn: 0, upgradeOffered: false, upgradeDue: false,
     ambientCd: 25, waveDamaged: false, graze: 0,
+    zones: [], safeZones: [], doom: null,   // 生化毒區、母艦毀滅攻擊的安全區與倒數
     waveMode: null, modeTimer: 0, modeSpawnCd: 0, beacon: null, lastMode: null,
     pendingUpgrades: new Map(),
     timers: [],
@@ -34,7 +35,7 @@ export function createWorld() {
   };
 }
 
-export function addPlayer(world, { id, name, local = false, token = null, acctId = null, perks = null, ship = 'falcon', weapon = 'blaster' }) {
+export function addPlayer(world, { id, name, local = false, token = null, acctId = null, perks = null, ship = 'falcon', weapon = 'blaster', skin = 'classic' }) {
   const pid = id ?? world.nextId++;
   const idx = world.players.length;
   const p = {
@@ -52,7 +53,7 @@ export function addPlayer(world, { id, name, local = false, token = null, acctId
     inputQueue: [], lastSeq: 0, netInput: false,
     luck: 0, perks: [], ship: 'falcon',
     syn: {}, killStreak: 0, dashHits: new Set(),
-    weapon, weaponOn: false,
+    weapon, weaponOn: false, skin, blinkCd: 0, blinkCdMax: PLAYER_BASE.blinkCd, blinkFlash: 0, toxicT: 0,
   };
   applyShip(p, ship);
   applyPerks(p, perks);
@@ -70,7 +71,7 @@ export function joinMidGame(world, opts) {
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
 export function startRun(world, { startWave = 0, mods = null, daily = false } = {}) {
-  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship, weapon: p.weapon }));
+  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship, weapon: p.weapon, skin: p.skin }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
   world.mods = Object.fromEntries((mods || []).map(m => [typeof m === 'string' ? m : m.id, true]));
@@ -168,12 +169,82 @@ function spawnAmbient(world, kind, fx, opts = {}) {
   }
   const fromLeft = rnd() < 0.5;
   const hp = AMBIENT.ufoHp * (1 + w * 0.1) * (1 + (nPlayers(world) - 1) * 0.3);
-  const e = { id: world.nextId++, type: 'ufo', kind: 'ufo', ambient: true, ally: !!opts.ally, x: fromLeft ? -60 : W + 60, y: rand(120, 320), vx: 0, vy: 0, r: 26, hp, maxHp: hp, speed: 160, color: opts.ally ? '#f15bb5' : '#90f1a8', score: AMBIENT.ufoScore, contact: 12, shootCd: 1, wobble: rand(0, TAU), hitFlash: 0, squash: 0, rot: 0, rotV: 0, tier: 0, flank: fromLeft ? 1 : -1, lunge: 0, lungeCd: 9, dodgeCd: 0, mineCd: 9, laserCd: 9, laserId: null, blinkCd: 9, blinkFlash: 0, life: AMBIENT.ufoLife };
+  const e = { id: world.nextId++, type: 'ufo', kind: 'ufo', ambient: true, ally: !!opts.ally, fleet: !!opts.fleet, x: fromLeft ? -60 : W + 60, y: rand(120, 320), vx: 0, vy: 0, r: 26, hp, maxHp: hp, speed: 160, color: opts.ally ? '#f15bb5' : '#90f1a8', score: AMBIENT.ufoScore, contact: 12, shootCd: 1, wobble: rand(0, TAU), hitFlash: 0, squash: 0, rot: 0, rotV: 0, tier: 0, flank: fromLeft ? 1 : -1, lunge: 0, lungeCd: 9, dodgeCd: 0, mineCd: 9, laserCd: 9, laserId: null, blinkCd: 9, blinkFlash: 0, life: AMBIENT.ufoLife };
   world.enemies.push(e);
-  fx.text(e.x < 0 ? 120 : W - 120, e.y, opts.ally ? '母艦召喚飛碟' : '不明飛行物', e.color, 16, 1.4); fx.beep(900, 0.4, 'sine', 0.05, 400);
+  if (!opts.fleet) { fx.text(e.x < 0 ? 120 : W - 120, e.y, opts.ally ? '母艦召喚飛碟' : '不明飛行物', e.color, 16, 1.4); fx.beep(900, 0.4, 'sine', 0.05, 400); }
   return e;
 }
 function waveEnemies(world) { return world.enemies.filter(e => !e.ambient); }
+/** 敵人閃現：子彈快打到時瞬移到側面（有冷卻） */
+function enemyBlink(world, e, fx) {
+  e.blinkCd2 = (e.blinkCd2 ?? rand(0, 2)) - 1 / 60;
+  if (e.blinkCd2 > 0) return;
+  for (const b of world.bullets) {
+    const rx = e.x - b.x, ry = e.y - b.y, rd = Math.hypot(rx, ry);
+    if (rd > 120) continue;
+    const sp = Math.hypot(b.vx, b.vy) || 1, ux = b.vx / sp, uy = b.vy / sp;
+    if (rx * ux + ry * uy < 0 || Math.abs(rx * uy - ry * ux) > e.r + 10) continue;
+    const s = (rx * uy - ry * ux) >= 0 ? 1 : -1;
+    fx.burst(e.x, e.y, e.color, 10, 160, 0.3, 2);
+    e.x = clamp(e.x - uy * s * 170, e.r, world.W - e.r); e.y = clamp(e.y + ux * s * 170, e.r, world.H - e.r);
+    e.vx = 0; e.vy = 0; e.blinkCd2 = rand(3, 5); e.blinkFlash = 0.3;
+    fx.burst(e.x, e.y, '#fff', 8, 140, 0.3, 2); fx.beep(1300, 0.08, 'sine', 0.03, 500);
+    return;
+  }
+}
+/** 直接扣血（毒區、毀滅攻擊）：無視護盾與無敵，但會走倒地 / 陣亡流程 */
+function drainPlayer(world, p, amount, fx) {
+  if (p.dead || p.downed || p.offline || amount <= 0) return;
+  p.hp -= amount; world.waveDamaged = true;
+  if (p.hp <= 0) { p.hp = 0; playerDown(world, p, fx); }
+}
+function playerDown(world, p, fx) {
+  const others = world.players.filter(q => q !== p && !q.dead && !q.offline);
+  if (others.length === 0) killPlayer(world, p, fx);
+  else {
+    p.downed = true; p.downTimer = DOWNED_TIME; p.reviveProgress = 0; p.vx = p.vy = 0;
+    fx.burst(p.x, p.y, p.color, 30, 250, 0.8, 3);
+    fx.text(p.x, p.y - 40, `${p.name} 倒地！靠近救援`, '#ff5f7a', 20, 2.5);
+    checkGameOver(world, fx);
+  }
+}
+/** 飛碟軍團：母艦帶隊 + 3–5 艘護衛，母艦會發動毀滅攻擊（只有安全區裡安全） */
+function spawnFleet(world, fx) {
+  const W = world.W, w = world.wave, n = nPlayers(world);
+  const hp = AMBIENT.mothershipHp * (1 + w * 0.15) * (1 + (n - 1) * 0.5);
+  const m = { id: world.nextId++, type: 'mothership', kind: 'mothership', ambient: true, x: W / 2, y: -140, vx: 0, vy: 0, r: 72, hp, maxHp: hp, speed: 60, color: '#90f1a8', score: AMBIENT.mothershipScore, contact: 25, shootCd: 2, toxicCd: 5, doomCd: 6, dooms: 0, wobble: 0, hitFlash: 0, squash: 0, rot: 0, rotV: 0, tier: 0, flank: 1, lunge: 0, lungeCd: 9, dodgeCd: 9, mineCd: 9, laserCd: 9, laserId: null, blinkCd: 9, blinkFlash: 0, life: AMBIENT.mothershipLife };
+  world.enemies.push(m);
+  const k = randInt(3, 5);
+  for (let i = 0; i < k; i++) schedule(world, 0.4 + i * 0.5, () => { const u = spawnAmbient(world, 'ufo', fx, { fleet: true }); u.life = AMBIENT.mothershipLife - 2; });
+  fx.text(W / 2, world.H / 2 - 120, '⚠ 飛碟軍團接近 ⚠', '#90f1a8', 34, 3); fx.shake(6);
+  [0, 0.6, 1.2].forEach(d => schedule(world, d, () => fx.beep(160, 0.4, 'sawtooth', 0.1, -60)));
+  return m;
+}
+/** 母艦毀滅攻擊：先標出安全區倒數，時間到不在安全區的玩家血量只剩 1 */
+function startDoom(world, m, fx) {
+  const W = world.W, H = world.H, zones = [];
+  const k = randInt(AMBIENT.safeZones[0], AMBIENT.safeZones[1]);
+  for (let i = 0; i < k * 8 && zones.length < k; i++) {
+    const x = rand(140, W - 140), y = rand(140, H - 140);
+    if (zones.every(z => dist2(z.x, z.y, x, y) > 260 * 260)) zones.push({ id: world.nextId++, x, y, r: AMBIENT.safeR });
+  }
+  world.safeZones = zones; world.doom = { t: AMBIENT.doomWarn, warn: AMBIENT.doomWarn, by: m.id };
+  fx.text(W / 2, H / 2 - 150, `母艦充能毀滅攻擊！進入安全區（${zones.length} 個）`, '#ff3860', 30, 2.5);
+  fx.beep(70, 1.5, 'sawtooth', 0.12, 90); fx.shake(4);
+}
+function fireDoom(world, fx) {
+  const zones = world.safeZones;
+  fx.flash(1); fx.shake(30); fx.aberrate(1); fx.noise(0.5, 0.35); fx.ring(world.W / 2, -100, '#90f1a8', 100, 2200, 1.2, 12);
+  for (const q of activePlayers(world)) {
+    const safe = zones.some(z => dist2(q.x, q.y, z.x, z.y) < (z.r - q.r * 0.5) ** 2);
+    if (safe) { fx.text(q.x, q.y - 40, '安全區內，平安度過', '#90f1a8', 16, 1.5); continue; }
+    if (q.hp > 1) { q.hp = 1; world.waveDamaged = true; fx.text(q.x, q.y - 40, '被毀滅波擊中！只剩 1 點生命', '#ff3860', 18, 2.5); fx.burst(q.x, q.y, '#ff3860', 30, 300, 0.6, 4); }
+  }
+  // 波及所有一般敵人，Boss 也受傷
+  for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (o && !o.ambient) { o.hp = 0; killEnemy(world, j, null, fx); } }
+  for (const bb of world.bosses) damageBoss(world, bb, 200, bb.x, bb.y, fx);
+  world.safeZones = []; world.doom = null;
+}
 function pickType(world) {
   const w = world.wave, roll = rnd();
   let type = 'drifter';
@@ -306,7 +377,7 @@ function finishMode(world, fx, success) {
     const bonus = (mode === 'defend' || mode === 'convoy') ? Math.round(300 * (world.beacon.hp / world.beacon.maxHp) + 100 * world.wave) : mode === 'hunt' ? 400 + 100 * world.wave : 150 * world.wave;
     world.score += bonus;
     fx.text(world.W / 2, world.H / 2 - 40, `${WAVE_MODES[mode].name} 成功 +${bonus}`, '#ffd166', 32, 2);
-    const kinds = ['heal', 'shield', 'spread', 'rapid', 'laser'];
+    const kinds = ['heal', 'shield', 'spread', 'rapid'];
     world.pickups.push({ id: world.nextId++, x: world.W / 2 + rand(-40, 40), y: world.H / 2 + rand(-40, 40), kind: kinds[randInt(0, kinds.length - 1)], life: 12, t: 0 });
     fx.sfx('wave');
   } else {
@@ -628,7 +699,7 @@ function killBoss(world, b, fx) {
   fx.burst(b.x, b.y, '#fff', 100, 600, 1.2, 7); fx.burst(b.x, b.y, b.color, 100, 500, 1.2, 6);
   fx.ring(b.x, b.y, '#fff', b.r, Math.max(world.W, world.H), 0.9, 8); fx.ring(b.x, b.y, b.color, b.r, Math.max(world.W, world.H) * 0.6, 0.7, 5);
   fx.shake(24); fx.flash(0.6); fx.hitStop(0.25); fx.aberrate(1); fx.zoom(1); fx.crossPunch();
-  const kinds = ['heal', 'shield', 'spread', 'laser'];
+  const kinds = ['heal', 'shield', 'spread', 'rapid'];
   for (let i = 0; i < 3; i++) world.pickups.push({ id: world.nextId++, x: b.x + rand(-80, 80), y: b.y + rand(-50, 50), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
   world.bosses.splice(world.bosses.indexOf(b), 1);
   if (world.bosses.length) return;   // 還有另一隻：獎勵等全部擊破
@@ -680,7 +751,6 @@ function spawnPickup(world, x, y, force = false, luck = 0) {
   else if (roll < 0.24) kind = 'rapid';
   else if (roll < 0.29) kind = 'shield';
   else if (roll < 0.33) kind = 'bomb';
-  else if (roll < 0.355) kind = 'laser';
   if (kind) world.pickups.push({ id: world.nextId++, x, y, kind, life: 10, t: 0 });
 }
 function applyPickup(world, p, kind, fx) {
@@ -709,6 +779,9 @@ function killEnemy(world, idx, killer, fx) {
   const e = world.enemies[idx];
   if (!e) return;
   world.enemies.splice(idx, 1);
+  // 發射者被擊落：它射出的子彈一起消散（含地雷）
+  let gone = 0;
+  world.enemyBullets = world.enemyBullets.filter(b => { if (b.owner !== e.id) return true; if (gone++ < 12) fx.burst(b.x, b.y, '#fff', 2, 60, 0.25, 2); return false; });
   world.combo++; world.comboTimer = 2.2;
   const mult = 1 + Math.floor(world.combo / 5) * 0.5;
   const gain = Math.round(e.score * mult);
@@ -719,6 +792,7 @@ function killEnemy(world, idx, killer, fx) {
   if (e.type === 'bounty') { fx.text(e.x, e.y - 40, '懸賞達成！', '#ffd166', 28, 2); fx.shake(10); }
   if (e.type === 'meteor') { fx.text(e.x, e.y - 40, '流星擊碎！', '#ffb070', 24, 1.6); spawnPickup(world, e.x, e.y, true); }
   if (e.type === 'ufo') { fx.text(e.x, e.y - 40, '飛碟擊落！', '#90f1a8', 24, 1.6); spawnPickup(world, e.x, e.y, true); }
+  if (e.type === 'mothership') { fx.text(e.x, e.y - 60, '母艦擊沉！+' + e.score, '#ffd166', 34, 2.5); fx.shake(20); fx.flash(0.5); for (let k = 0; k < 3; k++) spawnPickup(world, e.x + rand(-60, 60), e.y + rand(-40, 40), true); for (const o of world.enemies) if (o.fleet) o.life = 0; if (world.doom && world.doom.by === e.id) { world.doom = null; world.safeZones = []; } }
   const big = e.type === 'tank' || e.elite || e.type === 'bounty';
   fx.burst(e.x, e.y, e.color, big ? 40 : 18, big ? 320 : 220, 0.7, big ? 5 : 3);
   fx.burst(e.x, e.y, '#ffffff', 6, 80, 0.3, 2);
@@ -765,17 +839,7 @@ function hurtPlayer(world, p, dmg, fx) {
   fx.burst(p.x, p.y, '#ff5f7a', 16, 200, 0.5, 3);
   fx.ring(p.x, p.y, '#ff5f7a', 10, 90, 0.35, 3);
   fx.sfx('hurt');
-  if (p.hp <= 0) {
-    p.hp = 0;
-    const others = world.players.filter(q => q !== p && !q.dead && !q.offline);
-    if (others.length === 0) killPlayer(world, p, fx);
-    else {
-      p.downed = true; p.downTimer = DOWNED_TIME; p.reviveProgress = 0; p.vx = p.vy = 0;
-      fx.burst(p.x, p.y, p.color, 30, 250, 0.8, 3);
-      fx.text(p.x, p.y - 40, `${p.name} 倒地！靠近救援`, '#ff5f7a', 20, 2.5);
-      checkGameOver(world, fx);
-    }
-  }
+  if (p.hp <= 0) { p.hp = 0; playerDown(world, p, fx); }
 }
 function killPlayer(world, p, fx) {
   p.dead = true; p.downed = false; p.hp = 0;
@@ -856,6 +920,19 @@ export function stepPlayer(world, p, inp, dt, fx = NULL_FX) {
   }
   p.x = clamp(p.x + p.vx * dt, p.r, W - p.r);
   p.y = clamp(p.y + p.vy * dt, p.r, H - p.r);
+  // 閃現：朝移動方向（沒移動就朝瞄準方向）瞬移，過程無敵
+  p.blinkCd = Math.max(0, (p.blinkCd || 0) - dt);
+  if (p.blinkFlash > 0) p.blinkFlash -= dt;
+  if (inp.blink && p.blinkCd <= 0) {
+    const a = (ix || iy) ? Math.atan2(iy, ix) : inp.angle;
+    const ox = p.x, oy = p.y;
+    p.x = clamp(p.x + Math.cos(a) * PLAYER_BASE.blinkDist, p.r, W - p.r);
+    p.y = clamp(p.y + Math.sin(a) * PLAYER_BASE.blinkDist, p.r, H - p.r);
+    p.blinkCd = p.blinkCdMax || PLAYER_BASE.blinkCd; p.inv = Math.max(p.inv, PLAYER_BASE.blinkInv); p.blinkFlash = 0.3; p.dashing = 0;
+    fx.burst(ox, oy, p.color, 14, 220, 0.4, 3); fx.ring(ox, oy, p.color, 6, 60, 0.3, 3);
+    fx.burst(p.x, p.y, '#fff', 12, 200, 0.35, 2); fx.ghost(p.x, p.y, 16, p.color, 0.35);
+    fx.beep(1100, 0.12, 'sine', 0.06, 700); fx.sfx('dash');
+  }
   p.angle = inp.angle;
   p.inv = Math.max(0, p.inv - dt);
   p.rapid = Math.max(0, p.rapid - dt);
@@ -895,7 +972,7 @@ export function update(world, dt, fx = NULL_FX) {
     if (p.netInput) {
       const n = Math.min(2, p.inputQueue.length);
       for (let i = 0; i < n; i++) { const q = p.inputQueue.shift(); p.input = q.input; p.lastSeq = q.seq; stepPlayer(world, p, q.input, dt, fx); }
-      if (n === 0) { p.inv = Math.max(0, p.inv - dt); p.rapid = Math.max(0, p.rapid - dt); p.dashCd = Math.max(0, p.dashCd - dt); }
+      if (n === 0) { p.inv = Math.max(0, p.inv - dt); p.rapid = Math.max(0, p.rapid - dt); p.dashCd = Math.max(0, p.dashCd - dt); p.blinkCd = Math.max(0, p.blinkCd - dt); }
     } else {
       stepPlayer(world, p, p.input, dt, fx);
     }
@@ -903,10 +980,10 @@ export function update(world, dt, fx = NULL_FX) {
 
     // 雷射道具：按住射擊時射出貫穿光束，期間不發射一般子彈
     p.laser = Math.max(0, p.laser - dt);
-    p.laserOn = p.laser > 0 && !!inp.fire;
+    p.laserOn = (p.laser > 0 || p.weapon === 'laser') && !!inp.fire;
     if (p.laserOn) {
       const x1 = p.x + Math.cos(p.angle) * 18, y1 = p.y + Math.sin(p.angle) * 18, x2 = p.x + Math.cos(p.angle) * PLAYER_BASE.laserRange, y2 = p.y + Math.sin(p.angle) * PLAYER_BASE.laserRange;
-      const dps = p.damage * PLAYER_BASE.laserDps;
+      const dps = p.damage * (p.laser > 0 ? PLAYER_BASE.laserDps : WEAPON_STATS.laserDps) * (p.rapid > 0 ? 1.5 : 1);
       for (let j = world.enemies.length - 1; j >= 0; j--) {
         const e = world.enemies[j];
         if (!e || segDist2(e.x, e.y, x1, y1, x2, y2) > (e.r + 6) ** 2) continue;
@@ -1099,11 +1176,29 @@ export function update(world, dt, fx = NULL_FX) {
       if (e.shootCd <= 0 && !leaving) {
         e.shootCd = AMBIENT.ufoShootCd;
         const targets = [...activePlayers(world), ...world.enemies.filter(o => !o.ambient && o !== e), ...world.bosses.filter(bb => !bb.entering && bb.dying <= 0)];
-        const pool = e.ally ? [...activePlayers(world)] : targets;
+        const pool = e.ally || e.fleet ? [...activePlayers(world)] : targets;
         const tg = pool.length ? pool[randInt(0, pool.length - 1)] : null;
-        if (tg) { const a = Math.atan2(tg.y + (tg.vy || 0) * 0.3 - e.y, tg.x + (tg.vx || 0) * 0.3 - e.x); world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: Math.cos(a) * 330, vy: Math.sin(a) * 330, life: 3, r: 5, kind: 'ufo', ufo: true }); fx.beep(1500, 0.06, 'square', 0.03, -700); }
+        if (tg) { const a = Math.atan2(tg.y + (tg.vy || 0) * 0.3 - e.y, tg.x + (tg.vx || 0) * 0.3 - e.x); for (let k = -1; k <= 1; k++) world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: Math.cos(a + k * 0.2) * 330, vy: Math.sin(a + k * 0.2) * 330, life: 3, r: 5, kind: 'ufo', ufo: !e.fleet && !e.ally }); fx.beep(1500, 0.06, 'square', 0.03, -700); }
       }
+      // 生化毒物：定期在身下留下毒區
+      e.toxicCd = (e.toxicCd ?? AMBIENT.ufoToxicCd * 0.6) - dt;
+      if (e.toxicCd <= 0 && !leaving) { e.toxicCd = AMBIENT.ufoToxicCd; world.zones.push({ id: world.nextId++, x: e.x, y: e.y + 40, r: AMBIENT.toxicR, life: AMBIENT.toxicLife, kind: 'toxic' }); fx.burst(e.x, e.y + 40, '#3ddc84', 14, 120, 0.6, 4); fx.beep(300, 0.3, 'triangle', 0.05, -100); }
       if (leaving && (e.x < -100 || e.x > W + 100)) { world.enemies.splice(i, 1); continue; }
+    } else if (e.kind === 'mothership') {
+      // 母艦：緩慢橫移、齊射、灑毒、定期毀滅攻擊；時間到離開
+      e.life -= dt; e.wobble += dt;
+      const leaving = e.life <= 0;
+      const ty = leaving ? -200 : 150, tx = leaving ? e.x : W / 2 + Math.sin(e.wobble * 0.35) * 380;
+      e.vx += ((tx - e.x) * 0.8 - e.vx) * Math.min(1, dt * 2); e.vy += ((ty - e.y) * 1.2 - e.vy) * Math.min(1, dt * 2);
+      e.x += e.vx * dt; e.y += e.vy * dt;
+      if (leaving && e.y < -180) { world.enemies.splice(i, 1); if (world.doom && world.doom.by === e.id) { world.doom = null; world.safeZones = []; } continue; }
+      if (!leaving && e.y > 40) {
+        e.shootCd -= dt;
+        if (e.shootCd <= 0) { e.shootCd = 1.3; const tg = nearestPlayer(world, e.x, e.y); if (tg) { const a = Math.atan2(tg.y + tg.vy * 0.35 - e.y, tg.x + tg.vx * 0.35 - e.x); for (let k = -2; k <= 2; k++) world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y + 30, vx: Math.cos(a + k * 0.16) * 300, vy: Math.sin(a + k * 0.16) * 300, life: 4, r: 6, kind: 'ufo' }); fx.beep(600, 0.1, 'square', 0.05, -300); } }
+        e.toxicCd -= dt;
+        if (e.toxicCd <= 0) { e.toxicCd = 6; const tg = nearestPlayer(world, e.x, e.y); const zx = tg ? tg.x + rand(-80, 80) : e.x, zy = tg ? tg.y + rand(-80, 80) : e.y + 100; world.zones.push({ id: world.nextId++, x: clamp(zx, 60, W - 60), y: clamp(zy, 60, H - 60), r: AMBIENT.toxicR * 1.3, life: AMBIENT.toxicLife, kind: 'toxic' }); fx.text(zx, zy - 60, '生化毒物投放', '#3ddc84', 16, 1.4); fx.burst(zx, zy, '#3ddc84', 20, 160, 0.6, 4); }
+        if (!world.doom && e.dooms < AMBIENT.doomMax) { e.doomCd -= dt; if (e.doomCd <= 0) { e.doomCd = AMBIENT.doomEvery; e.dooms++; startDoom(world, e, fx); } }
+      }
     } else if (e.kind === 'drift') {
       e.x += e.vx * dt; e.y += e.vy * dt;
       if (e.x < e.r && e.vx < 0) e.vx = -e.vx; if (e.x > W - e.r && e.vx > 0) e.vx = -e.vx;
@@ -1155,6 +1250,18 @@ export function update(world, dt, fx = NULL_FX) {
         const bend = e.flank * AI.flankTurn * clamp((d - 140) / 420, 0, 1);
         const ca = Math.cos(bend), sa = Math.sin(bend);
         tx = (dx / d) * ca - (dy / d) * sa; ty = (dx / d) * sa + (dy / d) * ca;
+        // 圍攻：靠近後先站到自己在玩家周圍的位置（每隻不同角度），大家到位或等太久就一起衝
+        if (tgt === nearestPlayer(world, e.x, e.y) && d < 360 && e.type !== 'dart' && !e.wantPickup) {
+          if (e.slot === undefined) e.slot = (e.id * 2.399) % TAU;
+          e.encT = (e.encT || 0) + dt;
+          if (e.encT < 2.0) {
+            const px = tgt.x + Math.cos(e.slot + world.time * 0.3) * 160, py = tgt.y + Math.sin(e.slot + world.time * 0.3) * 160;
+            const ex = px - e.x, ey = py - e.y, ed = Math.hypot(ex, ey) || 1;
+            if (ed > 26) { tx = ex / ed; ty = ey / ed; } else { tx *= 0.15; ty *= 0.15; e.encT += dt * 2; }
+          } else if (e.encT > 6.5) e.encT = 0;
+        } else e.encT = 0;
+        // 閃現躲子彈（第 7 波起）
+        if (e.type === 'dart' && wave >= ENEMY_BLINK_FROM_WAVE) enemyBlink(world, e, fx);
         if (e.type === 'dart') {
           // 飛鏢：繞飛一陣子後直線突進
           e.lungeCd -= dt;
@@ -1167,6 +1274,7 @@ export function update(world, dt, fx = NULL_FX) {
           } else { tx += Math.cos(e.wobble) * 0.5; ty += Math.sin(e.wobble) * 0.5; }
         }
       } else if (e.kind === 'orbit' || e.kind === 'lancer') {
+        if (e.kind === 'orbit' && wave >= ENEMY_BLINK_FROM_WAVE) enemyBlink(world, e, fx);
         // 風箏戰術：維持距離帶並橫向移動；太近就退、太遠就進
         const [near, far] = e.kind === 'orbit' ? AI.shooterRange : AI.lancerRange;
         const radial = d > far ? 1 : d < near ? -1 : 0;
@@ -1201,13 +1309,13 @@ export function update(world, dt, fx = NULL_FX) {
             const a = Math.atan2(ay, ax);
             const cnt = e.elite || e.buffSpread > 0 ? 5 : randInt(1, DIFFICULTY.shooterVolley(wave));
             const spd = lead ? 340 : 270;
-            for (let k = 0; k < cnt; k++) { const aa = a + (k - (cnt - 1) / 2) * (e.elite ? 0.18 : 0.22); world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: Math.cos(aa) * spd, vy: Math.sin(aa) * spd, life: 3, r: 5, kind: lead ? 'lead' : undefined }); }
+            for (let k = 0; k < cnt; k++) { const aa = a + (k - (cnt - 1) / 2) * (e.elite ? 0.18 : 0.22); world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: Math.cos(aa) * spd, vy: Math.sin(aa) * spd, life: 3, r: 5, kind: lead ? 'lead' : undefined }); }
             fx.beep(lead ? 520 : 400, 0.1, 'sine', 0.04, -200);
           }
           // 佈雷：在身後留下感應地雷
           if (wave >= DIFFICULTY.mineFromWave || world.mods.mines) {
             e.mineCd -= dt;
-            if (e.mineCd <= 0) { e.mineCd = rand(AI.mineCd[0], AI.mineCd[1]); world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: 0, vy: 0, life: AI.mineLife, r: 10, kind: 'mine' }); fx.beep(200, 0.15, 'triangle', 0.05, -100); }
+            if (e.mineCd <= 0) { e.mineCd = rand(AI.mineCd[0], AI.mineCd[1]); world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: 0, vy: 0, life: AI.mineLife, r: 10, kind: 'mine' }); fx.beep(200, 0.15, 'triangle', 0.05, -100); }
           }
         } else {
           // 雷射兵：鎖定 → 預警線追蹤玩家 → 鎖死 → 發射貫穿雷射
@@ -1241,13 +1349,13 @@ export function update(world, dt, fx = NULL_FX) {
         if (e.shootCd <= 0) {
           e.shootCd = AI.bountyShootCd;
           const a = Math.atan2(dy, dx);
-          for (let k = -1; k <= 1; k++) { const aa = a + k * 0.25; world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: Math.cos(aa) * 300, vy: Math.sin(aa) * 300, life: 3, r: 5, kind: 'lead' }); }
+          for (let k = -1; k <= 1; k++) { const aa = a + k * 0.25; world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: Math.cos(aa) * 300, vy: Math.sin(aa) * 300, life: 3, r: 5, kind: 'lead' }); }
           fx.beep(600, 0.1, 'square', 0.04, -300);
         }
       }
       if (steer) {
         const len = Math.hypot(tx, ty) || 1; tx /= len; ty /= len;
-        const spd = e.speed * (e.slow > 0 ? WEAPON_STATS.frostSlow : 1) * (e.buffSpeed > 0 ? 1.4 : 1);
+        const spd = e.speed * (e.slow > 0 ? WEAPON_STATS.frostSlow : 1) * (e.buffSpeed > 0 ? 1.4 : 1) * (e.encT >= 2.0 ? 1.35 : 1);
         e.vx += (tx * spd - e.vx) * Math.min(1, dt * 3);
         e.vy += (ty * spd - e.vy) * Math.min(1, dt * 3);
       }
@@ -1369,7 +1477,14 @@ export function update(world, dt, fx = NULL_FX) {
   if (world.bossWarn > 0) { world.bossWarn -= dt; if (world.bossWarn <= 0) spawnBoss(world, fx); }
   for (let i = world.bosses.length - 1; i >= 0; i--) if (world.bosses[i]) updateBoss(world, world.bosses[i], dt, fx);
   // 太空環境事件：流星 / 飛碟
-  if (world.wave >= AMBIENT.fromWave && world.bossWarn <= 0 && !world.mods.daily) { world.ambientCd -= dt; if (world.ambientCd <= 0) { world.ambientCd = rand(AMBIENT.cd[0], AMBIENT.cd[1]); spawnAmbient(world, rnd() < 0.7 ? 'meteor' : 'ufo', fx); } }
+  if (world.wave >= AMBIENT.fromWave && world.bossWarn <= 0 && !world.mods.daily) { world.ambientCd -= dt; if (world.ambientCd <= 0) { world.ambientCd = rand(AMBIENT.cd[0], AMBIENT.cd[1]); const fleetOk = world.wave >= AMBIENT.fleetFromWave && !world.enemies.some(e => e.kind === 'mothership') && world.bosses.length === 0 && rnd() < AMBIENT.fleetChance; if (fleetOk) { spawnFleet(world, fx); world.ambientCd += 30; } else spawnAmbient(world, rnd() < 0.7 ? 'meteor' : 'ufo', fx); } }
+  // 生化毒區：在裡面持續扣血；毀滅攻擊倒數
+  for (let i = world.zones.length - 1; i >= 0; i--) {
+    const z = world.zones[i]; z.life -= dt;
+    if (z.life <= 0) { world.zones.splice(i, 1); continue; }
+    for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < z.r * z.r) { drainPlayer(world, q, AMBIENT.toxicDps * dt, fx); q.toxicT = (q.toxicT || 0) + dt; if (q.toxicT > 0.5) { q.toxicT = 0; fx.local(q).text(q.x, q.y - 30, '中毒', '#3ddc84', 12, 0.5); fx.burst(q.x, q.y, '#3ddc84', 3, 60, 0.4, 2); } }
+  }
+  if (world.doom) { world.doom.t -= dt; if (world.doom.t <= 0) fireDoom(world, fx); }
   updateMode(world, dt, fx);
 
   // 波次結束 → 升級（每 UPGRADE_EVERY_WAVES 波或 Boss 後）→ 倒數下一波

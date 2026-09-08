@@ -71,6 +71,8 @@ export function remapColor(c) {
 
 /** 包住 CanvasRenderingContext2D：顏色重映射、光暈與線寬縮放、字型替換 */
 export function themedContext(raw) {
+  // 霓虹（預設）沒有任何重映射：直接回傳原生 context，避免 Proxy 每個屬性存取的額外成本（敵人多時掉幀的主因之一）
+  if (hexMap.size === 0 && current.glow === 1 && current.lineMul === 1 && !current.font) return raw;
   return new Proxy(raw, {
     get(t, k) {
       const v = t[k];

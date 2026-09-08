@@ -10,11 +10,12 @@ export function snapshotWorld(world) {
     score: world.score, combo: world.combo, comboTimer: r1(world.comboTimer), bossWarn: r1(world.bossWarn),
     waveMode: world.waveMode, modeTimer: r1(world.modeTimer), abandoned: world.abandoned || undefined, won: world.won || undefined, endless: world.endless || undefined,
     beacon: world.beacon ? { x: r1(world.beacon.x), y: r1(world.beacon.y), r: world.beacon.r, hp: Math.round(world.beacon.hp), maxHp: world.beacon.maxHp, hitFlash: world.beacon.hitFlash > 0 ? 1 : 0, alive: world.beacon.alive, kind: world.beacon.kind } : null,
+    zones: world.zones.map(z => ({ id: z.id, x: r1(z.x), y: r1(z.y), r: z.r, life: r1(z.life), kind: z.kind })), safeZones: world.safeZones.map(z => ({ id: z.id, x: z.x, y: z.y, r: z.r })), doom: world.doom ? { t: r1(world.doom.t), warn: world.doom.warn } : null,
     lasers: world.lasers.map(L => ({ id: L.id, x: r1(L.x), y: r1(L.y), angle: r1(L.angle * 100) / 100, phase: L.phase, t: r1(L.t), warn: L.warn, len: L.len, w: L.w, boss: L.boss, color: L.color })),
     players: world.players.map(p => ({
       id: p.id, name: p.name, color: p.color, x: r1(p.x), y: r1(p.y), vx: r1(p.vx), vy: r1(p.vy), angle: r1(p.angle * 100) / 100,
       r: p.r, hp: Math.round(p.hp), maxHp: p.maxHp, dead: p.dead, downed: p.downed, downTimer: r1(p.downTimer), reviveProgress: r1(p.reviveProgress), offline: p.offline,
-      shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined, ship: p.ship, syn: Object.keys(p.syn), weapon: p.weapon, weaponOn: p.weaponOn || undefined,
+      shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined, ship: p.ship, syn: Object.keys(p.syn), weapon: p.weapon, weaponOn: p.weaponOn || undefined, skin: p.skin, blinkCd: r1(p.blinkCd), blinkCdMax: p.blinkCdMax, blinkFlash: p.blinkFlash > 0 ? 1 : undefined,
       dashCd: r1(p.dashCd), dashCdMax: r1(p.dashCdMax), dashing: r1(p.dashing), inv: r1(p.inv), seq: p.lastSeq, kills: p.kills, upgrades: p.upgrades,
       drones: p.drones.map(d => ({ x: r1(d.x ?? p.x), y: r1(d.y ?? p.y), a: r1(d.a) })),
     })),
@@ -48,6 +49,7 @@ export function applySnapshot(world, prev, curr, t) {
   const s = curr;
   Object.assign(world, { scene: s.scene, time: s.time, wave: s.wave, waveTimer: s.waveTimer, score: s.score, combo: s.combo, comboTimer: s.comboTimer, bossWarn: s.bossWarn, waveMode: s.waveMode, modeTimer: s.modeTimer, abandoned: !!s.abandoned, won: !!s.won, endless: !!s.endless });
   world.beacon = s.beacon && prev && prev.beacon ? { ...s.beacon, x: lerp(prev.beacon.x, s.beacon.x, t), y: lerp(prev.beacon.y, s.beacon.y, t) } : s.beacon;
+  world.zones = (s.zones || []).slice(); world.safeZones = (s.safeZones || []).slice(); world.doom = s.doom || null;
   world.lasers = prev ? lerpList(prev.lasers || [], s.lasers || [], t, 'angle') : (s.lasers || []).slice();
   if (!prev) {
     world.players = s.players.map(p => ({ ...p })); world.bullets = s.bullets.slice(); world.enemies = s.enemies.map(e => ({ ...e }));

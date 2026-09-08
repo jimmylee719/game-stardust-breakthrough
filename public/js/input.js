@@ -10,7 +10,7 @@ export const touch = {
   active: false,                 // 曾經偵測到觸控 → 切換成觸控模式
   move: null,                    // { id, ox, oy, x, y, dx, dy, mag }  螢幕座標
   aim: null,                     // 同上
-  dash: false, dashId: null,
+  dash: false, dashId: null, blink: false, blinkId: null,
   autoAngle: null,               // 自動瞄準的角度（給渲染畫提示）
 };
 const STICK_R = 64;              // 搖桿最大半徑（CSS px）
@@ -20,6 +20,7 @@ const DEAD = 0.12;
 export function touchLayout(cw, ch) {
   return {
     dash: { x: cw - 86, y: ch - 86, r: 44 },
+    blink: { x: cw - 176, y: ch - 70, r: 36 },
     menu: { x: cw - 34, y: 34, r: 24 },
   };
 }
@@ -60,10 +61,12 @@ export function attachInput(canvas, toWorld, handlers) {
     if (touch.move && !live.has(touch.move.id)) touch.move = null;
     if (touch.aim && !live.has(touch.aim.id)) touch.aim = null;
     if (touch.dashId !== null && !live.has(touch.dashId)) { touch.dash = false; touch.dashId = null; }
+    if (touch.blinkId !== null && !live.has(touch.blinkId)) { touch.blink = false; touch.blinkId = null; }
     for (const t of e.changedTouches) {
       const x = t.clientX - r.left, y = t.clientY - r.top;
       if (inCircle(x, y, L.menu)) { handlers.onMenuTap?.(); continue; }
       if (inCircle(x, y, L.dash)) { touch.dash = true; touch.dashId = t.identifier; continue; }
+      if (inCircle(x, y, L.blink)) { touch.blink = true; touch.blinkId = t.identifier; continue; }
       // 非遊戲場景（升級卡、結算）：當成點擊
       if (handlers.isTapScene?.()) { updateMouse(t.clientX, t.clientY); handlers.onMouseDown?.(0, e); continue; }
       const stick = { id: t.identifier, ox: x, oy: y, x, y, dx: 0, dy: 0, mag: 0 };
@@ -91,6 +94,7 @@ export function attachInput(canvas, toWorld, handlers) {
       if (touch.move && touch.move.id === t.identifier) touch.move = null;
       if (touch.aim && touch.aim.id === t.identifier) touch.aim = null;
       if (touch.dashId === t.identifier) { touch.dash = false; touch.dashId = null; }
+      if (touch.blinkId === t.identifier) { touch.blinkId = null; }
     }
   };
   canvas.addEventListener('touchend', end, { passive: false });
@@ -111,7 +115,8 @@ export function buildInput(player, world) {
       if (touch.aim) fire = true;   // 手指按著但沒拖：朝目前方向開火
     }
     const dash = touch.dash; touch.dash = false;   // 衝刺當作一次性按下
-    return { ix, iy, angle, fire, dash };
+    const blink = touch.blink; touch.blink = false;
+    return { ix, iy, angle, fire, dash, blink };
   }
   let ix = 0, iy = 0;
   if (keys.KeyW || keys.ArrowUp) iy -= 1;
@@ -122,6 +127,7 @@ export function buildInput(player, world) {
     ix, iy,
     angle: Math.atan2(mouse.y - player.y, mouse.x - player.x),
     fire: mouse.down,
-    dash: !!(keys.ShiftLeft || keys.ShiftRight || keys.Space),
+    dash: !!(keys.ShiftLeft || keys.ShiftRight),
+    blink: !!keys.Space,
   };
 }

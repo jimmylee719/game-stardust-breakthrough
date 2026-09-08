@@ -18,6 +18,7 @@ export const PLAYER_BASE = {
   fireRate: 0.16, damage: 8, spread: 1,          // 火力下修：原本 0.14 / 10
   accel: 1800, maxSpeed: 320,
   dashSpeed: 900, dashTime: 0.18, dashCd: 1.2,
+  blinkDist: 240, blinkCd: 3, blinkInv: 0.45,   // 閃現（空白鍵）：瞬移一段距離，過程無敵
   bulletSpeed: 760, bulletLife: 1.2,
   magnetR: 120,
   laserDps: 7, laserRange: 720, laserTime: 5,    // 雷射道具：每秒傷害 = damage × laserDps，穿透路徑上所有敵人
@@ -79,7 +80,10 @@ export const BOSS_KINDS = {
 export const BOSS_DOUBLE_FROM_WAVE = 10;
 export const BOSS_DOUBLE_CHANCE = 0.4;
 /** 太空環境事件：流星與外星飛碟（第 3 波起，每 20–40 秒隨機一次） */
-export const AMBIENT = { fromWave: 3, cd: [20, 40], meteorHp: 320, meteorSpeed: 300, meteorDmg: 30, meteorScore: 150, ufoHp: 160, ufoLife: 13, ufoShootCd: 0.7, ufoScore: 250 };
+export const AMBIENT = { fromWave: 3, cd: [20, 40], meteorHp: 320, meteorSpeed: 300, meteorDmg: 30, meteorScore: 150, ufoHp: 160, ufoLife: 13, ufoShootCd: 0.7, ufoScore: 250, ufoDmg: 18, ufoToxicCd: 4.5,
+  fleetFromWave: 8, fleetChance: 0.35, mothershipHp: 900, mothershipLife: 42, mothershipScore: 1000, toxicR: 110, toxicLife: 9, toxicDps: 12,
+  doomWarn: 4, doomEvery: 12, doomMax: 3, safeZones: [2, 6], safeR: 95 };
+export const ENEMY_BLINK_FROM_WAVE = 7;   // 飛鏢 / 射手從第 7 波起會閃現躲子彈
 /** 無傷清波 / 擦彈加分 */
 export const PERFECT_WAVE_BONUS = 120;   // × 波數
 export const GRAZE_SCORE = 5;
@@ -189,6 +193,18 @@ export const SHIPS = [
   { id: 'carrier', icon: '🛸', name: '母艦',   cost: 1200, desc: '航艦：開局自帶 2 台僚機、生命 110；射速 -15%、傷害 -10%',
     stats: { hp: 1.1, speed: 0.95, fire: 0.85, dmg: 0.9 }, apply: p => { p.maxHp = 110; p.hp = 110; p.speedMul *= 0.95; p.fireRate *= 1.18; p.damage *= 0.9; for (let i = 0; i < 2; i++) p.drones.push({ a: i * Math.PI, cd: 0.2 * i, x: p.x, y: p.y }); } },
 ];
+/** 塗裝：純外觀，用星塵解鎖（unlocks 內存 'skin:<id>'）。hull 機身、stroke 輪廓、glow 光暈；null 用玩家辨識色 */
+export const SKINS = [
+  { id: 'classic', icon: '⬜', name: '標準',   cost: 0,   hull: '#e8f6ff', stroke: null, glow: null },
+  { id: 'ember',   icon: '🟧', name: '餘燼',   cost: 500, hull: '#ffe0c2', stroke: '#ff8c42', glow: '#ff8c42' },
+  { id: 'frost',   icon: '⬜', name: '霜白',   cost: 500, hull: '#ffffff', stroke: '#b8ffff', glow: '#b8ffff' },
+  { id: 'gold',    icon: '🟨', name: '鎏金',   cost: 800, hull: '#fff3c4', stroke: '#ffd166', glow: '#ffd166' },
+  { id: 'void',    icon: '🟪', name: '虛空',   cost: 800, hull: '#2a1440', stroke: '#c77dff', glow: '#c77dff', dash: true },
+  { id: 'toxic',   icon: '🟩', name: '毒液',   cost: 800, hull: '#d7ffe0', stroke: '#3ddc84', glow: '#3ddc84' },
+];
+export function skinById(id) { return SKINS.find(s => s.id === id) || SKINS[0]; }
+export function skinUnlocked(id, unlocks) { return id === 'classic' || (unlocks || []).includes('skin:' + id); }
+
 /**
  * 改裝：主武器。脈衝砲免費；其餘在機庫用星塵解鎖（unlocks 內存 'weapon:<id>'）。
  * 子彈類升級（穿甲 / 反彈 / 追蹤 / 巨型彈體 / 散射道具）只對脈衝砲有效；傷害與射速升級對全部有效。
@@ -198,8 +214,9 @@ export const WEAPONS = [
   { id: 'flame',   icon: '🔥', name: '火焰槍',   cost: 900,  desc: '近距離扇形持續噴射，碰到的敵人全部點燃；射程短' },
   { id: 'frost',   icon: '❄️', name: '冰凍光線', cost: 900,  desc: '中距離光束，命中減速，連續照射 2 秒凍結；傷害較低' },
   { id: 'arc',     icon: '⚡', name: '閃電鏈',   cost: 1200, desc: '自動命中最近的敵人並連鎖跳到最多 4 個目標；射速較慢' },
+  { id: 'laser',   icon: '🔆', name: '雷射砲',   cost: 1000, desc: '按住持續射出貫穿光束，命中路徑上所有敵人；傷害隨傷害升級成長' },
 ];
-export const WEAPON_STATS = { flameRange: 250, flameCone: 0.4, flameDps: 4.5, frostRange: 520, frostDps: 2.4, frostSlow: 0.4, frostFreezeAfter: 2, arcRange: 380, arcJump: 210, arcTargets: 4, arcDmg: 2.6, arcRate: 2.4 };
+export const WEAPON_STATS = { laserDps: 3.2, flameRange: 250, flameCone: 0.4, flameDps: 4.5, frostRange: 520, frostDps: 2.4, frostSlow: 0.4, frostFreezeAfter: 2, arcRange: 380, arcJump: 210, arcTargets: 4, arcDmg: 2.6, arcRate: 2.4 };
 export function weaponById(id) { return WEAPONS.find(w => w.id === id) || WEAPONS[0]; }
 export function weaponUnlocked(id, unlocks) { return id === 'blaster' || (unlocks || []).includes('weapon:' + id); }
 

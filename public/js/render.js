@@ -1,6 +1,6 @@
 // 渲染：把世界狀態與特效畫到 Canvas。固定 1600x900 邏輯座標，等比縮放到視窗並加黑邊。
 import { TAU, rand, randInt, clamp } from '../../shared/math.js';
-import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS } from '../../shared/constants.js';
+import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById } from '../../shared/constants.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
 import { themedContext, getTheme, onThemeChange } from './themes.js';
@@ -73,6 +73,7 @@ export function createRenderer(canvas, world) {
     if (world.scene === 'menu') { drawMenuBackdrop(time); ctx.restore(); drawReticle(ui); return; }
 
     drawParticles();
+    drawZones(time);
     if (world.beacon) drawBeacon(time);
     drawPickups();
     drawEnemies();
@@ -156,7 +157,7 @@ export function createRenderer(canvas, world) {
   function drawEnemies() {
     for (const e of world.enemies) {
       ctx.save(); ctx.translate(e.x, e.y);
-      ctx.shadowColor = e.color; ctx.shadowBlur = 14;
+      ctx.shadowColor = e.color; ctx.shadowBlur = vfx.lowQ || world.enemies.length > 40 ? 0 : 14;
       ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.burn ? '#ff8c42' : e.stun ? '#ffffff' : e.slow ? '#b8ffff' : e.color; ctx.lineWidth = 2.5;
       if (e.slow && !e.burn) ctx.shadowColor = '#b8ffff';
       if (e.burn) ctx.shadowColor = '#ff8c42';
@@ -179,12 +180,14 @@ export function createRenderer(canvas, world) {
       else if (e.type === 'bounty') { for (let i = 0; i < 12; i++) { const a = i * TAU / 12 + e.wobble * 0.5, rr = i % 2 ? e.r : e.r * 0.55; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
       else if (e.type === 'meteor') { const n = 10; for (let i = 0; i < n; i++) { const a = i * TAU / n; const rr = e.r * (0.7 + 0.3 * Math.abs(Math.sin(i * 1.9 + e.id))); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
       else if (e.type === 'ufo') { ctx.rotate(-Math.atan2(e.vy, e.vx)); ctx.ellipse(0, 4, e.r * 1.4, e.r * 0.5, 0, 0, TAU); ctx.moveTo(e.r * 0.6, -2); ctx.arc(0, -2, e.r * 0.6, Math.PI, 0); }
+      else if (e.type === 'mothership') { ctx.rotate(-Math.atan2(e.vy, e.vx)); ctx.ellipse(0, 10, e.r * 1.5, e.r * 0.45, 0, 0, TAU); ctx.moveTo(e.r * 0.75, 0); ctx.arc(0, 0, e.r * 0.75, Math.PI, 0); ctx.moveTo(e.r * 0.35, -e.r * 0.3); ctx.arc(0, -e.r * 0.3, e.r * 0.35, 0, TAU); }
       else { for (let i = 0; i < 4; i++) { const a = i * TAU / 4 + Math.PI / 4; ctx.lineTo(Math.cos(a) * e.r, Math.sin(a) * e.r); } }
       ctx.closePath(); ctx.fill(); ctx.stroke();
       if (e.type === 'bounty') { ctx.rotate(-Math.atan2(e.vy, e.vx)); ctx.shadowBlur = 0; ctx.fillStyle = '#1a1200'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('$', 0, 1); }
       ctx.restore();
       if (e.blinkFlash) { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 14, 0, TAU); ctx.stroke(); }
       if (e.buffed) { ctx.strokeStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10; ctx.lineWidth = 2; ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 6, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur = 0; }
+      if (e.type === 'mothership') { ctx.fillStyle = '#ffd166'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('飛碟母艦', e.x, e.y - e.r - 14); for (let k = 0; k < 7; k++) { ctx.fillStyle = k % 2 ? '#ff3860' : '#90f1a8'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(performance.now() / 150 + k); ctx.beginPath(); ctx.arc(e.x - e.r * 1.2 + k * e.r * 0.4, e.y + 12, 4, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
       if (e.type === 'ufo') { ctx.fillStyle = e.ally ? '#f15bb5' : '#90f1a8'; for (let k = 0; k < 4; k++) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(performance.now() / 120 + k); ctx.beginPath(); ctx.arc(e.x - e.r + k * e.r * 0.66, e.y + 6, 3, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
       if (e.type === 'bounty') { ctx.fillStyle = '#ffd166'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('懸賞目標', e.x, e.y - e.r - 14); }
       if (e.maxHp >= 60 && e.hp < e.maxHp) {
@@ -253,7 +256,8 @@ export function createRenderer(canvas, world) {
     ctx.restore();
   }
   function drawBullets() {
-    ctx.shadowBlur = 10;
+    const many = vfx.lowQ || world.bullets.length + world.enemyBullets.length > 90;
+    ctx.shadowBlur = many ? 0 : 10;
     for (const b of world.bullets) {
       ctx.shadowColor = b.burn ? '#ff8c42' : b.homing ? '#ffd166' : '#fff'; ctx.strokeStyle = b.burn ? '#ffb070' : b.homing ? '#fff3c4' : '#fff'; ctx.lineWidth = 3 * b.size; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.02, b.y - b.vy * 0.02); ctx.stroke();
@@ -274,6 +278,33 @@ export function createRenderer(canvas, world) {
       if (b.boss) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.4, 0, TAU); ctx.fill(); }
     }
     ctx.shadowBlur = 0;
+  }
+  function drawZones(time) {
+    for (const z of world.zones) {
+      const a = Math.min(1, z.life / 1.5) * (0.55 + 0.15 * Math.sin(time * 4 + z.id));
+      const gr = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, z.r);
+      gr.addColorStop(0, `rgba(61,220,132,${0.28 * a})`); gr.addColorStop(0.7, `rgba(61,220,132,${0.14 * a})`); gr.addColorStop(1, 'rgba(61,220,132,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
+      ctx.globalAlpha = a; ctx.strokeStyle = '#3ddc84'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 8]); ctx.lineDashOffset = -time * 40; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#3ddc84'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('☣ 生化毒物', z.x, z.y);
+      for (let k = 0; k < 4; k++) { const aa = time * 0.8 + k * TAU / 4, rr = z.r * (0.4 + 0.3 * Math.sin(time * 2 + k)); ctx.globalAlpha = a * 0.5; ctx.beginPath(); ctx.arc(z.x + Math.cos(aa) * rr, z.y + Math.sin(aa) * rr, 6, 0, TAU); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    if (world.doom) {
+      const k = 1 - world.doom.t / world.doom.warn, pulse = 0.5 + 0.5 * Math.sin(time * (6 + k * 14));
+      ctx.fillStyle = `rgba(144,241,168,${0.05 + 0.1 * k * pulse})`; ctx.fillRect(0, 0, W, H);
+      for (const z of world.safeZones) {
+        ctx.save(); ctx.strokeStyle = '#fff'; ctx.shadowColor = '#90f1a8'; ctx.shadowBlur = 18; ctx.lineWidth = 3; ctx.setLineDash([12, 8]); ctx.lineDashOffset = -time * 60;
+        ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(144,241,168,.12)'; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
+        ctx.shadowBlur = 0; ctx.fillStyle = '#90f1a8'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('安全區', z.x, z.y);
+        ctx.restore();
+      }
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = `rgba(255,56,96,${0.7 + 0.3 * pulse})`; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 44px sans-serif';
+      ctx.fillText(`毀滅攻擊 ${Math.ceil(world.doom.t)}`, W / 2, 120);
+      ctx.font = 'bold 18px sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText('進入白色安全區！其他地方會被打到只剩 1 點生命', W / 2, 158); ctx.shadowBlur = 0;
+    }
   }
   function drawLasers(time) {
     for (const L of world.lasers) {
@@ -350,8 +381,10 @@ export function createRenderer(canvas, world) {
       const thrust = Math.hypot(p.vx, p.vy) / 320;
       ctx.fillStyle = `rgba(255,${140 + randInt(0, 80)},60,${0.5 + thrust * 0.5})`;
       ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-16 - thrust * 14 - rand(0, 6), 0); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#e8f6ff'; ctx.strokeStyle = p.color; ctx.lineWidth = 2;
-      shipPath(p.ship); ctx.fill(); ctx.stroke();
+      const sk = skinById(p.skin);
+      ctx.fillStyle = sk.hull; ctx.strokeStyle = sk.stroke || p.color; ctx.shadowColor = sk.glow || p.color; ctx.lineWidth = 2; if (sk.dash) ctx.setLineDash([5, 4]);
+      shipPath(p.ship); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+      if (p.blinkFlash) { ctx.globalAlpha = 0.6; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.r + 12, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
       ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(4, 0, 3.5, 0, TAU); ctx.fill();
       ctx.restore();
       // 名牌：其他玩家在角色頭上看到名字
@@ -446,6 +479,10 @@ export function createRenderer(canvas, world) {
       ctx.fillStyle = 'rgba(255,255,255,.1)'; roundRect(bx, by + 40, 120, 6, 3); ctx.fill();
       ctx.fillStyle = p.dashCd <= 0 ? '#4cc9f0' : 'rgba(76,201,240,.4)'; roundRect(bx, by + 40, 120 * (1 - p.dashCd / p.dashCdMax), 6, 3); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '11px sans-serif'; ctx.fillText('衝刺 (Shift)', bx, by + 50);
+      ctx.fillStyle = 'rgba(255,255,255,.1)'; roundRect(bx + 130, by + 40, 90, 6, 3); ctx.fill();
+      const bk = p.blinkCdMax ? 1 - (p.blinkCd || 0) / p.blinkCdMax : 1;
+      ctx.fillStyle = (p.blinkCd || 0) <= 0 ? '#b8ffff' : 'rgba(184,255,255,.4)'; roundRect(bx + 130, by + 40, 90 * Math.max(0, bk), 6, 3); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText('閃現 (空白鍵)', bx + 130, by + 50);
       let sx = bx, sy = by + 72;
       const tag = (label, color) => { ctx.fillStyle = color; ctx.font = 'bold 11px sans-serif'; const w = ctx.measureText(label).width + 12; ctx.globalAlpha = .18; roundRect(sx, sy, w, 18, 9); ctx.fill(); ctx.globalAlpha = 1; ctx.fillText(label, sx + 6, sy + 3); sx += w + 6; };
       for (const id of Object.keys(p.syn || {})) { const s = SYNERGIES.find(x => x.id === id); if (s) tag(`${s.icon} ${s.name}`, '#ff8c42'); }
@@ -667,6 +704,12 @@ export function createRenderer(canvas, world) {
       ctx.beginPath(); ctx.arc(d.x, d.y, d.r, -Math.PI / 2, -Math.PI / 2 + TAU * (me ? 1 - me.dashCd / me.dashCdMax : 1)); ctx.stroke();
       ctx.shadowBlur = 0; ctx.fillStyle = ready ? '#fff' : 'rgba(255,255,255,.5)'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('衝刺', d.x, d.y);
+      // 閃現鈕
+      const bl = L.blink, bReady = me && (me.blinkCd || 0) <= 0;
+      ctx.globalAlpha = 0.85; ctx.fillStyle = bReady ? 'rgba(184,255,255,.22)' : 'rgba(255,255,255,.08)'; ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = bReady ? '#b8ffff' : 'rgba(255,255,255,.35)'; ctx.lineWidth = 3; ctx.shadowColor = '#b8ffff'; ctx.shadowBlur = bReady ? 12 : 0;
+      ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r, -Math.PI / 2, -Math.PI / 2 + TAU * (me && me.blinkCdMax ? 1 - (me.blinkCd || 0) / me.blinkCdMax : 1)); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.fillStyle = bReady ? '#fff' : 'rgba(255,255,255,.5)'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('閃現', bl.x, bl.y);
       // 自動瞄準提示
       if (touch.autoAngle !== null && me) {
         const p = view; const sx = p.ox + me.x * p.scale, sy = p.oy + me.y * p.scale;

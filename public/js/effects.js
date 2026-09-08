@@ -4,7 +4,15 @@ import { rand, TAU } from '../../shared/math.js';
 import { NULL_FX } from './game.js';
 import { sfx as SFX, beep, noise } from './audio.js';
 
-export const vfx = { shake: 0, flash: 0, slowmo: 0, hitStop: 0, hitStopCd: 0, aberr: 0, crossPunch: 0, crossRecoil: 0, zoom: 0 };
+export const vfx = { shake: 0, flash: 0, slowmo: 0, hitStop: 0, hitStopCd: 0, aberr: 0, crossPunch: 0, crossRecoil: 0, zoom: 0, lowQ: false };
+const MAX_PARTICLES = 600;
+/** 自動畫質：連續掉幀就關掉小物件的光暈；順了再開回來 */
+let slowFrames = 0, fastFrames = 0;
+export function trackFrame(rawDt) {
+  if (rawDt > 1 / 45) { slowFrames++; fastFrames = 0; } else { fastFrames++; if (fastFrames > 240) slowFrames = 0; }
+  if (slowFrames > 20 && !vfx.lowQ) { vfx.lowQ = true; slowFrames = 0; }
+  else if (vfx.lowQ && fastFrames > 600) { vfx.lowQ = false; fastFrames = 0; }
+}
 export const particles = [];
 export const floatTexts = [];
 /** 閃電鏈：多段折線，短暫顯示 */
@@ -16,12 +24,14 @@ export function resetEffects() {
 }
 
 export function burst(x, y, color, n = 12, speed = 180, life = 0.6, size = 3) {
+  if (particles.length > MAX_PARTICLES) { particles.splice(0, particles.length - MAX_PARTICLES); n = Math.ceil(n / 3); }
   for (let i = 0; i < n; i++) {
     const a = rand(0, TAU), s = rand(speed * 0.3, speed);
     particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life, maxLife: life, color, size: rand(size * 0.5, size) });
   }
 }
 export function burstDir(x, y, color, n, a, spread = 0.7, speed = 260, life = 0.35, size = 2.5) {
+  if (particles.length > MAX_PARTICLES) { particles.splice(0, particles.length - MAX_PARTICLES); n = Math.ceil(n / 3); }
   for (let i = 0; i < n; i++) {
     const aa = a + rand(-spread, spread), s = rand(speed * 0.4, speed);
     particles.push({ x, y, vx: Math.cos(aa) * s, vy: Math.sin(aa) * s, life, maxLife: life, color, size: rand(size * 0.5, size), streak: true });

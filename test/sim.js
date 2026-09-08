@@ -37,7 +37,7 @@ const summary = {
   players: nPlayers, simulatedSeconds: +(frames / 60).toFixed(1), finalScene: world.scene, wave: world.wave, score: world.score,
   bossKills: log.filter(l => /擊破 +/.test(l)).length,
   bossesSeen: [...new Set(log.filter(l => /(殲滅者|蜂巢母艦|幽影|星隕) (Mk|Ω)/.test(l) && !l.includes('擊破')).map(l => l.split(' ').slice(1).join(' ')))],
-  ambient: { meteors: log.filter(l => l.includes('流星來襲')).length, ufos: log.filter(l => l.includes('不明飛行物')).length, perfect: log.filter(l => l.includes('無傷清波')).length },
+  ambient: { meteors: log.filter(l => l.includes('流星來襲')).length, ufos: log.filter(l => l.includes('不明飛行物')).length, fleets: log.filter(l => l.includes('飛碟軍團')).length, dooms: log.filter(l => l.includes('毀滅攻擊')).length, perfect: log.filter(l => l.includes('無傷清波')).length },
   upgradesPicked: world.players.map(p => Object.values(p.upgrades).reduce((a, b) => a + b, 0)),
   won: world.won, endless: world.endless, victories, synergies: world.players.map(p => Object.keys(p.syn)),
   maxLasers: lasersSeen, laserFireFrames: laserFired, maxMines: minesSeen,

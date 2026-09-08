@@ -67,7 +67,10 @@ if (!wNo.error) fail('未知武器應被拒絕');
 await post('/api/runs', { id: a.id, secret: a.secret, score: 20000, wave: 12 });   // 補星塵（火焰槍 900）
 const wOk = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'weapon:flame' });
 if (!wOk.ok || !wOk.unlocks.includes('weapon:flame')) fail('解鎖武器失敗 ' + JSON.stringify(wOk));
-console.log('ships ok:', shipOk.unlocks.join(','), 'dust', shipOk.dust, '| weapon:', wOk.unlocks.filter(u => u.startsWith('weapon:')).join(','));
+await post('/api/runs', { id: a.id, secret: a.secret, score: 20000, wave: 12 });   // 補星塵（塗裝 500）
+const skOk = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 'skin:ember' });
+if (!skOk.ok || !skOk.unlocks.includes('skin:ember')) fail('解鎖塗裝失敗 ' + JSON.stringify(skOk));
+console.log('ships ok:', shipOk.unlocks.join(','), 'dust', shipOk.dust, '| weapon:', wOk.unlocks.filter(u => u.startsWith('weapon:')).join(','), '| skin:', skOk.unlocks.filter(u => u.startsWith('skin:')).join(','));
 
 
 // 每日挑戰：今天規則固定、一天一次、獨立榜

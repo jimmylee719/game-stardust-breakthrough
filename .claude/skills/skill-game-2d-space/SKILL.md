@@ -77,6 +77,11 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 
 ## 4. 目前的玩法規格（改動時保持一致）
 
+- 效能：`themes.js` 的 `themedContext` 在恆等主題時直接回傳原生 context（Proxy 是掉幀主因）；`effects.js` 的 `trackFrame` 自動切 `vfx.lowQ`，render 依此關光暈；粒子上限 600。
+- 閃現：`PLAYER_BASE.blinkDist/blinkCd/blinkInv`，`stepPlayer` 內處理（`inp.blink`），輸入協定 `{ix,iy,angle,fire,dash,blink}`，`predict.js` FIELDS 含 `blinkCd/blinkCdMax`；觸控 `touchLayout().blink`。
+- 塗裝：`SKINS`（`skin:<id>` 解鎖），render 的 `drawPlayers` 用 `skinById`；join 帶 `skin` 由 `skinUnlocked` 驗證。
+- 敵人子彈都帶 `owner`，`killEnemy` 會清掉該 owner 的子彈。
+- 毒區 `world.zones`（`drainPlayer` 無視護盾 / 無敵）、飛碟軍團 `spawnFleet` + 母艦 `kind: 'mothership'`，毀滅攻擊 `startDoom / fireDoom`（`world.safeZones`, `world.doom`）；常數在 `AMBIENT`。圍攻用 `e.slot / e.encT`；敵人閃現 `enemyBlink`（`ENEMY_BLINK_FROM_WAVE`）。
 - 手感：`effects.js` 的 `slowmo` 是 no-op、`hitStop` 只接受 ≥ 0.2 s（Boss 擊破）。**不要再加慢動作**（玩家明確回饋）。
 - 主武器：`WEAPONS`（blaster / flame / frost / arc，`WEAPON_STATS`），發射邏輯在 `update()` 的「射擊：依主武器分派」；`p.weaponOn` 給連續武器渲染；閃電走 `fx.bolt(points)`；伺服器 join 用 `weaponUnlocked` 驗證，解鎖 id `weapon:<id>`。
 - 玩家：HP 100、傷害 8、射速 0.16 s、衝刺 1.2 s 冷卻。每 2 波三選一升級（Boss 後必給），13 種升級（傷害 +20%、射速 +10%、穿甲、反彈、追蹤、僚機、汲血、連鎖爆裂、裝甲、推進、衝刺冷卻、牽引、巨型彈體）。

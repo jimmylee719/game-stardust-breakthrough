@@ -127,4 +127,38 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (world.graze < 1 || world.score <= s0) fail('貼身飛過的子彈應算擦彈加分');
   console.log('meteor & graze ok');
 }
+// 10. 閃現：空白鍵瞬移、過程無敵、有冷卻
+{
+  const { world, p } = fresh({});
+  p.x = 400; p.y = 450; const x0 = p.x;
+  p.input = { ix: 1, iy: 0, angle: 0, fire: false, dash: false, blink: true };
+  update(world, 1 / 60, fx);
+  if (p.x - x0 < 200 || !(p.inv > 0.3) || !(p.blinkCd > 2)) fail(`閃現應瞬移並無敵：dx=${(p.x - x0).toFixed(0)} inv=${p.inv} cd=${p.blinkCd}`);
+  const x1 = p.x; update(world, 1 / 60, fx);
+  if (p.x - x1 > 60) fail('冷卻中不該再閃現');
+  console.log('blink ok: moved', Math.round(p.x - x0), 'px, inv', p.inv.toFixed(2));
+}
+// 11. 發射者被擊落 → 它的子彈消失；毒區持續扣血（無視無敵）；毀滅攻擊只有安全區安全
+{
+  const { world, p } = fresh({});
+  p.x = 100; p.y = 100;
+  const sh = enemy(world, 900, 450, 1);
+  world.enemyBullets.push({ id: world.nextId++, owner: sh.id, x: 500, y: 450, vx: 0, vy: 0, life: 9, r: 5 });
+  world.enemyBullets.push({ id: world.nextId++, owner: 424242, x: 520, y: 450, vx: 0, vy: 0, life: 9, r: 5 });
+  sh.hp = 0; p.pierce = 0; p.input = { ix: 0, iy: 0, angle: Math.atan2(450 - 100, 900 - 100), fire: true, dash: false };
+  for (let i = 0; i < 240 && world.enemies.includes(sh); i++) update(world, 1 / 60, fx);
+  if (world.enemies.includes(sh)) fail('射手應被擊落');
+  if (world.enemyBullets.some(b => b.owner === sh.id) || !world.enemyBullets.some(b => b.owner === 424242)) fail('擊落後只有它自己的子彈該消失');
+  p.input.fire = false; p.inv = 5; p.shield = 2; const hp0 = p.hp;
+  world.zones.push({ id: world.nextId++, x: p.x, y: p.y, r: 120, life: 9, kind: 'toxic' });
+  step(world, 60);
+  if (!(p.hp < hp0 - 5) || p.shield !== 2) fail('毒區應無視護盾與無敵持續扣血：hp ' + hp0 + ' → ' + p.hp);
+  world.zones.length = 0;
+  world.safeZones = [{ id: 1, x: 1200, y: 700, r: 95 }]; world.doom = { t: 0.01, warn: 4, by: 0 };
+  p.hp = 80; update(world, 1 / 60, fx);
+  if (p.hp !== 1 || world.doom) fail('不在安全區的玩家血量應只剩 1，doom 應結束：hp=' + p.hp);
+  world.safeZones = [{ id: 2, x: p.x, y: p.y, r: 95 }]; world.doom = { t: 0.01, warn: 4, by: 0 }; p.hp = 80; update(world, 1 / 60, fx);
+  if (p.hp !== 80) fail('安全區內的玩家不該受毀滅攻擊影響');
+  console.log('bullet cleanup, toxic drain, doom ok');
+}
 console.log('PASS');
