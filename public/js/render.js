@@ -335,6 +335,14 @@ export function createRenderer(canvas, world) {
       ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(184,255,255,.55)'; ctx.shadowColor = '#b8ffff'; ctx.shadowBlur = 18; ctx.lineWidth = 7 + Math.sin(time * 40) * 1.5;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       ctx.strokeStyle = '#fff'; ctx.shadowBlur = 0; ctx.lineWidth = 2; ctx.setLineDash([6, 10]); ctx.lineDashOffset = -time * 300; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    } else if (p.weapon === 'arc') {
+      // 蓄電：機頭電弧環 + 蓄電量弧線
+      const c = Math.min(1.5, p.arcCharge || 0) / 1.5, nx = p.x + Math.cos(p.angle) * 18, ny = p.y + Math.sin(p.angle) * 18;
+      ctx.strokeStyle = c >= 1 ? '#fff' : '#9ff'; ctx.shadowColor = '#9ff'; ctx.shadowBlur = 14; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(nx, ny, 6 + c * 10 + Math.sin(time * 40) * 2, 0, TAU); ctx.stroke();
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 14, -Math.PI / 2, -Math.PI / 2 + TAU * c); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(153,255,255,.85)'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(c >= 1 ? '蓄滿 ×2' : '蓄電中 · 射程內無目標', p.x, p.y + p.r + 26);
     } else if (p.weapon === 'flame') {
       const R = WEAPON_STATS.flameRange, c = WEAPON_STATS.flameCone + (p.spread - 1) * 0.08;
       const g = ctx.createRadialGradient(p.x, p.y, 10, p.x, p.y, R);

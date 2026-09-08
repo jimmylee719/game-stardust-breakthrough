@@ -1033,14 +1033,18 @@ export function update(world, dt, fx = NULL_FX) {
         for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && segDist2(bb.x, bb.y, x1, y1, x2, y2) < (bb.r + 8) ** 2) { damageBoss(world, bb, dps * dt, bb.x, bb.y, fx); bb.slow = 0.6; }
       }
     } else if (!p.laserOn && p.weapon === 'arc') {
-      // 閃電鏈：自動鎖定最近目標，連鎖跳躍
+      // 閃電鏈：自動鎖定最近目標，連鎖跳躍；沒目標時按住會在機頭蓄電（最多 1.5 秒 → 傷害 ×2）
+      p.arcCharge = p.arcCharge || 0;
+      if (!inp.fire) p.arcCharge = Math.max(0, p.arcCharge - dt * 2);
       if (inp.fire && p.fireCd <= 0) {
         p.fireCd = (p.rapid > 0 ? p.fireRate * 0.45 : p.fireRate) * WEAPON_STATS.arcRate;
         const first = nearestTarget(world, p.x, p.y, WEAPON_STATS.arcRange);
         if (first) {
           const pts = [{ x: p.x + Math.cos(p.angle) * 16, y: p.y + Math.sin(p.angle) * 16 }];
           const hit = new Set(); let cur = first;
-          const dmg = p.damage * WEAPON_STATS.arcDmg;
+          const dmg = p.damage * WEAPON_STATS.arcDmg * (1 + Math.min(1.5, p.arcCharge) / 1.5);
+          if (p.arcCharge > 0.5) fx.text(p.x, p.y - 34, `蓄電釋放 ×${(1 + Math.min(1.5, p.arcCharge) / 1.5).toFixed(1)}`, '#9ff', 14, 0.8);
+          p.arcCharge = 0;
           for (let k = 0; k < WEAPON_STATS.arcTargets + Math.floor((p.spread - 1) / 2) && cur; k++) {
             hit.add(cur); pts.push({ x: cur.x, y: cur.y });
             if (cur.tier !== undefined && cur.r <= 200 && !cur.name) { const idx = world.enemies.indexOf(cur); if (idx >= 0) { cur.hp -= dmg * Math.pow(0.85, k); cur.hitFlash = 0.08; cur.squash = 1; cur.vx *= 0.5; cur.vy *= 0.5; if (cur.hp <= 0) killEnemy(world, idx, p, fx); } }
@@ -1052,8 +1056,17 @@ export function update(world, dt, fx = NULL_FX) {
           fx.bolt(pts, '#9ff');
           fx.beep(1600, 0.06, 'square', 0.05, -900); fx.sfx('hit');
           lfx.crossRecoil();
-        } else { p.fireCd = 0.1; }
+        } else {
+          // 沒有目標：蓄電，機頭噼啪作響
+          p.fireCd = 0.1; p.weaponOn = true; p.arcCharge = Math.min(1.5, p.arcCharge + 0.1);
+          const nx = p.x + Math.cos(p.angle) * 18, ny = p.y + Math.sin(p.angle) * 18;
+          const k = 1 + Math.floor(p.arcCharge * 2);
+          for (let s = 0; s < k; s++) { const a = p.angle + rand(-1.2, 1.2), l = 14 + p.arcCharge * 22; fx.bolt([{ x: nx, y: ny }, { x: nx + Math.cos(a) * l * 0.5 + rand(-6, 6), y: ny + Math.sin(a) * l * 0.5 + rand(-6, 6) }, { x: nx + Math.cos(a) * l, y: ny + Math.sin(a) * l }], p.arcCharge >= 1.5 ? '#fff' : '#9ff'); }
+          if (rnd() < 0.5) fx.beep(900 + p.arcCharge * 600, 0.04, 'square', 0.02, 300);
+          if (p.arcCharge >= 1.5 && rnd() < 0.15) fx.text(nx, ny - 20, '蓄滿', '#fff', 11, 0.4);
+        }
       }
+      if (inp.fire && p.fireCd > 0 && p.arcCharge > 0 && !nearestTarget(world, p.x, p.y, WEAPON_STATS.arcRange)) p.weaponOn = true;
     } else if (inp.fire && p.fireCd <= 0 && !p.laserOn) {
       p.fireCd = p.rapid > 0 ? p.fireRate * 0.45 : p.fireRate;
       const n = p.spread;

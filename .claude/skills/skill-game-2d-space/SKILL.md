@@ -78,6 +78,7 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 ## 4. 目前的玩法規格（改動時保持一致）
 
 - 效能：`themes.js` 的 `themedContext` 在恆等主題時直接回傳原生 context（Proxy 是掉幀主因）；`effects.js` 的 `trackFrame` 自動切 `vfx.lowQ`，render 依此關光暈；粒子上限 600。
+- 閃電鏈沒目標時按住會蓄電（`p.arcCharge` 0–1.5，傷害最多 ×2），機頭 `fx.bolt` 噼啪 + render 的蓄電環；首頁動畫全在 style.css 的「首頁動畫」段（`prefers-reduced-motion` 會關）。
 - 閃現：`PLAYER_BASE.blinkDist/blinkCd/blinkInv`，`stepPlayer` 內處理（`inp.blink`），輸入協定 `{ix,iy,angle,fire,dash,blink}`，`predict.js` FIELDS 含 `blinkCd/blinkCdMax`；觸控 `touchLayout().blink`。
 - 塗裝：`SKINS`（`skin:<id>` 解鎖），render 的 `drawPlayers` 用 `skinById`；join 帶 `skin` 由 `skinUnlocked` 驗證。
 - 敵人子彈都帶 `owner`，`killEnemy` 會清掉該 owner 的子彈。
