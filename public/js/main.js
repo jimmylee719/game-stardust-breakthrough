@@ -68,6 +68,7 @@ function showMenu(msg = '') {
   errEl.textContent = msg;
   bestEl.textContent = best > 0 ? `最高分 ${best}` : '';
   hangarEl.hidden = true; dailyEl.hidden = true;
+  requestAnimationFrame(fitMenu);
   seedRandom(null); runKind = 'solo'; dailyInfo = null;
   renderDust();
   fetchMe().then(renderDust);
@@ -76,11 +77,31 @@ function showMenu(msg = '') {
 }
 
 // 單人（startWave 4 = Boss 挑戰）
-function goFullscreenIfTouch() {
-  if (!touch.active && !matchMedia('(pointer: coarse)').matches) return;
+/** 全螢幕：任何裝置按下出擊都進全螢幕（需要使用者手勢）；手機另外鎖橫向 */
+function goFullscreen() {
   const el = document.documentElement;
-  if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!document.fullscreenElement && req) {
+    try { const p = req.call(el, { navigationUI: 'hide' }); if (p && p.catch) p.catch(() => {}); } catch {}
+  }
+  if (matchMedia('(pointer: coarse)').matches && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
 }
+const goFullscreenIfTouch = goFullscreen;
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else goFullscreen();
+}
+/** 首頁面板：依視窗大小整塊縮放，保證所有資訊同時看得到、不出現捲軸 */
+function fitMenu() {
+  const panel = menuEl.querySelector('.panel');
+  if (!panel || menuEl.hidden) return;
+  panel.style.transform = 'none';
+  const s = Math.min(1, (innerHeight - 20) / panel.offsetHeight, (innerWidth - 12) / panel.offsetWidth);
+  panel.style.transform = s < 1 ? `scale(${s.toFixed(3)})` : 'none';
+}
+window.addEventListener('resize', fitMenu);
+document.addEventListener('fullscreenchange', () => { fitMenu(); const b = $('fs-toggle'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶'; });
+$('fs-toggle').addEventListener('click', toggleFullscreen);
 function beginSolo(startWave = 0, daily = null) {
   ensureAudio(); goFullscreenIfTouch();
   mode = 'solo'; myId = 1; fx = createFx(myId);

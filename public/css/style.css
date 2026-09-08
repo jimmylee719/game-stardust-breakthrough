@@ -136,3 +136,15 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 .transfer .row { margin-bottom: 8px; }
 .transfer input { flex: 1; font-size: 12px; letter-spacing: 0; text-transform: none; text-align: left; padding: 9px 10px; }
 .transfer .row button { flex: 0 0 auto; padding: 9px 14px; }
+
+/* 首頁：不捲動，整塊依視窗自動縮放；按鈕邊距統一 */
+.panel.fit { position: relative; max-height: none; overflow: visible; transform-origin: center center; padding: 22px 30px 20px; }
+.panel.fit h1 { font-size: 52px; }
+.panel.fit .sub { margin-bottom: 18px; }
+.panel.fit .divider { margin: 16px 0 10px; }
+.panel.fit .best { margin-top: 10px; }
+.panel.fit .links { margin-top: 12px; }
+.row .primary, .row .boss { margin: 0; }
+.panel .x.fs { font-size: 18px; }
+
+@media (max-height: 520px) { #hint { display: none; } }
