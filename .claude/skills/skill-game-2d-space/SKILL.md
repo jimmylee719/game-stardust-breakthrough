@@ -176,3 +176,8 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 下一輪先看儀表板的流失波次與機體表現再決定調什麼；使用者已明確不做分享圖。
 
 其他候選：背景音樂、MessagePack 壓縮快照、手動部署避免清房、付費外觀（`themes.js` 的重映射機制已保留）。
+
+### 第三輪（2026-09-09 下午起）：全系統 Bug 稽核
+
+- 已修（commit `3b72747`）：首頁改兩欄 + `.fitbox` 用 `zoom` 縮放（CSS 入場動畫 `fill-mode: both` 會永久覆蓋 inline transform，縮放一定要放在另一層）；太陽風暴改成以畫面外太陽（`flare.sx`）為圓心的弧形帶，伺服器判定與畫面同一半徑；核心邏輯約 45 處（`schedule(world, d, fn, spawn)` 只有生怪排程算波次未清、敵人主迴圈改「拍名單 + indexOf」身分制、燃燒記 `burnBy`、射速升級對火焰 / 冰凍 / 雷射有效、輸入額度防灌雙倍輸入、AI 冷卻用 dt…）；客戶端（僚機 / 砲塔子彈 `ELEMENTS['kinetic']` 崩潰、frame loop try/catch、localStorage 防呆、音訊曲目快取）。
+- **未修（先做）**：伺服器安全與崩潰（`decodeURIComponent` 未 try/catch、tick 無 try/catch、無速率限制、分數 / 成就全信客戶端、`/api/stats` Host 偽造、密鑰在 query string、join TOCTOU、gameover 房列在公開房、stats 每 tick 全量廣播、db 檔案非原子寫入）；`i18n-extra.js` 英文字典（421 條，目前佔位）；README / 本檔規格補寫。細節在記憶 `stardust-pending-audit`。
