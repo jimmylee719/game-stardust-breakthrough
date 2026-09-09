@@ -344,6 +344,18 @@ export const EVENT_FROM_WAVE = 4;
 export const EVENT_CD = [25, 50];
 
 export function shipById(id) { return SHIPS.find(s => s.id === id) || SHIPS[0]; }
+/** 主動技能：擊殺累積能量（右上 HUD 能量條），滿了按 E / 右鍵 / 觸控鈕施放。第一個免費，其餘用星塵解鎖 */
+export const SKILLS = [
+  { id: 'swarm',       icon: '🚀', name: '飛彈雨',   cost: 0,   energy: 60,  desc: '射出 30 枚小型追蹤飛彈，每枚 14 傷害，自動鎖定最近的敵人' },
+  { id: 'nova',        icon: '☢️', name: '原子彈',   cost: 600, energy: 100, desc: '1.2 秒引爆倒數後全畫面核爆：敵人 260 傷害、Boss 400，清空所有敵彈' },
+  { id: 'chrono',      icon: '⏳', name: '時間停止', cost: 700, energy: 80,  desc: '敵人、敵彈與 Boss 凍結 3.5 秒；凍結中的敵人被打死會碎裂傷到周圍' },
+  { id: 'aegis',       icon: '🛡️', name: '聖盾脈衝', cost: 500, energy: 70,  desc: '全隊 +2 護盾（沒有護盾的機體 +40 生命），把周圍敵人推開並清掉附近敵彈' },
+  { id: 'singularity', icon: '🕳️', name: '奇異點',   cost: 900, energy: 90,  desc: '朝瞄準方向放出黑洞吸 4 秒（不會吸自己人），結束時爆炸造成 150 傷害' },
+  { id: 'overdrive',   icon: '⚡', name: '超載',     cost: 400, energy: 60,  desc: '6 秒：連射、傷害 ×1.5、速度 +30%、衝刺無冷卻' },
+];
+export const skillById = id => SKILLS.find(s => s.id === id) || SKILLS[0];
+export function skillUnlocked(id, unlocks) { return id === 'swarm' || (unlocks || []).includes('skill:' + id); }
+export const ENERGY = { max: 100, perKill: 4, perElite: 8, perBoss: 30, passive: 0.8 };
 export function shipUnlocked(id, unlocks) { return id === 'falcon' || (unlocks || []).includes('ship:' + id); }
 export function applyShip(p, shipId) { const s = shipById(shipId); s.apply(p); p.ship = s.id; }
 

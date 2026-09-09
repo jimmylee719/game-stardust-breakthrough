@@ -9,7 +9,7 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects, trackFrame } 
 import { ensureAudio, toggleMute, isMuted, setMood, getMusicVolume, setMusicVolume, getSfxEnabled, setSfxEnabled } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
+import { SKILLS, skillById, skillUnlocked, sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS, dayKey } from '../../shared/daily.js';
 import { ACHIEVEMENTS, QUESTS, dailyQuests, weeklyQuests, questText, runSummary, weekKey } from '../../shared/meta.js';
@@ -51,6 +51,7 @@ let ship = lsGet('stardust_ship') || 'falcon';   // 出擊用的機體
 let weapon = lsGet('stardust_weapon') || 'blaster';   // 出擊用的主武器
 let skin = lsGet('stardust_skin') || 'classic';       // 塗裝
 let arena = lsGet('stardust_arena') || 'space';       // 場地
+let skillSel = lsGet('stardust_skill') || 'swarm';    // 主動技能
 let runKind = 'solo';
 let runStartedAt = 0;   // 事件記錄用    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
@@ -141,7 +142,7 @@ function beginSolo(startWave = 0, daily = null) {
   world.players.length = 0;
   runKind = daily ? 'daily' : 'solo'; dailyInfo = daily;
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
-  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon(), skin: currentSkin() });
+  addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(), skill: currentSkill() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false; metaReported = false;
   startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena });
   runStartedAt = performance.now();
@@ -152,6 +153,23 @@ function beginSolo(startWave = 0, daily = null) {
 function currentShip() { if (!shipUnlocked(ship, profile.unlocks)) ship = 'falcon'; return ship; }
 function currentWeapon() { if (!weaponUnlocked(weapon, profile.unlocks)) weapon = 'blaster'; return weapon; }
 function currentSkin() { if (!skinUnlocked(skin, profile.unlocks)) skin = 'classic'; return skin; }
+function currentSkill() { if (!skillUnlocked(skillSel, profile.unlocks)) skillSel = 'swarm'; return skillSel; }
+function renderSkillCards() {
+  const cur = currentSkill();
+  $('skill-cards').innerHTML = SKILLS.map(s => {
+    const un = skillUnlocked(s.id, profile.unlocks);
+    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-skill="${s.id}"><div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="ds">${escapeHtml(tr(s.desc))}<br><span style="color:#b8ffff">⚡ ${s.energy}</span></div>${un ? `<div class="cost ok">${s.id === cur ? tr('使用中') : tr('已解鎖')}</div>` : `<div class="cost">✨ ${s.cost}</div>`}</div>`;
+  }).join('');
+  for (const el of $('skill-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
+    const id = el.dataset.skill;
+    $('hangar-err').textContent = '';
+    if (skillUnlocked(id, profile.unlocks)) { skillSel = id; lsSet('stardust_skill', id); ensureAudio(); renderSkillCards(); return; }
+    const s = skillById(id);
+    if (profile.dust < s.cost) { $('hangar-err').textContent = tr(`星塵不足，解鎖 ${s.name} 需要 ${s.cost}`); return; }
+    try { await buyPerk('skill:' + id); skillSel = id; lsSet('stardust_skill', id); ensureAudio(); renderHangar(); toast(tr(`已解鎖 ${s.icon} ${s.name}`)); }
+    catch (e) { $('hangar-err').textContent = { 'not enough dust': tr('星塵不足'), offline: tr('目前離線，無法解鎖') }[e.message] || e.message; }
+  });
+}
 function renderSkins() {
   const cur = currentSkin();
   $('skin-cards').innerHTML = SKINS.map(s => {
@@ -208,7 +226,7 @@ function renderShips() {
   });
 }
 function renderDust() {
-  renderShips(); renderWeapons(); renderSkins(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
+  renderShips(); renderWeapons(); renderSkins(); renderSkillCards(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
 
 // ---------- 機庫：永久強化 ----------
 function renderHangar() {
@@ -355,7 +373,7 @@ function beginOnline(code) {
   const name = takeName();
   errEl.textContent = '連線中…';
   net = connect({
-    name, code, acct: accountCredentials(), ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(),
+    name, code, acct: accountCredentials(), ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(), skill: currentSkill(),
     onWelcome(m) {
       mode = 'online'; myId = m.id; fx = createFx(myId);
       resetEffects(); predictor.reset(); lastSnapSeen = -1; metaReported = false;

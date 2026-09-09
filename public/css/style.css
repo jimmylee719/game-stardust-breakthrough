@@ -171,6 +171,8 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 
 @media (max-height: 520px) { #hint { display: none; } }
 .ships.skins { grid-template-columns: repeat(6, 1fr); }
+.ships.skills { grid-template-columns: repeat(3, 1fr); }
+.ships.skills .ship .ds { min-height: 4.6em; }
 .ships.skins .ship { padding: 10px 4px 8px; }
 .ships.skins .ship .ic { font-size: 22px; }
 .ships.skins .ship .nm { font-size: 13px; }

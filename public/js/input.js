@@ -16,7 +16,7 @@ export const touch = {
   active: false,                 // 曾經偵測到觸控 → 切換成觸控模式
   move: null,                    // { id, ox, oy, x, y, dx, dy, mag }  螢幕座標
   aim: null,                     // 同上
-  dash: false, dashId: null, blink: false, blinkId: null,
+  dash: false, dashId: null, blink: false, blinkId: null, skill: false, skillId: null,
   autoAngle: null,               // 自動瞄準的角度（給渲染畫提示）
 };
 const STICK_R = 64;              // 搖桿最大半徑（CSS px）
@@ -27,6 +27,7 @@ export function touchLayout(cw, ch) {
   return {
     dash: { x: cw - 86, y: ch - 86, r: 44 },
     blink: { x: cw - 176, y: ch - 70, r: 36 },
+    skill: { x: cw - 150, y: ch - 150, r: 34 },
     menu: { x: cw - 34, y: 34, r: 24 },
   };
 }
@@ -51,7 +52,7 @@ export function attachInput(canvas, toWorld, handlers) {
   window.addEventListener('keyup', e => { keys[e.code] = false; });
   window.addEventListener('blur', () => { for (const k of Object.keys(keys)) keys[k] = false; mouse.down = false; touch.move = touch.aim = null; touch.dash = touch.blink = false; touch.dashId = touch.blinkId = null; handlers.onBlur?.(); });
   canvas.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
-  canvas.addEventListener('mousedown', e => { updateMouse(e.clientX, e.clientY); if (e.button === 0) mouse.down = true; handlers.onMouseDown?.(e.button, e); });
+  canvas.addEventListener('mousedown', e => { updateMouse(e.clientX, e.clientY); if (e.button === 0) mouse.down = true; if (e.button === 2) mouse.skillClick = true; handlers.onMouseDown?.(e.button, e); });
   window.addEventListener('mouseup', () => { mouse.down = false; });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -68,12 +69,14 @@ export function attachInput(canvas, toWorld, handlers) {
     if (touch.aim && !live.has(touch.aim.id)) touch.aim = null;
     if (touch.dashId !== null && !live.has(touch.dashId)) { touch.dash = false; touch.dashId = null; }
     if (touch.blinkId !== null && !live.has(touch.blinkId)) { touch.blink = false; touch.blinkId = null; }
+    if (touch.skillId !== null && !live.has(touch.skillId)) { touch.skill = false; touch.skillId = null; }
     for (const t of e.changedTouches) {
       const x = t.clientX - r.left, y = t.clientY - r.top;
       if (inCircle(x, y, L.menu)) { handlers.onMenuTap?.(); continue; }
       const tapScene = handlers.isTapScene?.();
       if (!tapScene && inCircle(x, y, L.dash)) { touch.dash = true; touch.dashId = t.identifier; continue; }
       if (!tapScene && inCircle(x, y, L.blink)) { touch.blink = true; touch.blinkId = t.identifier; continue; }
+      if (!tapScene && inCircle(x, y, L.skill)) { touch.skill = true; touch.skillId = t.identifier; continue; }
       // 非遊戲場景（升級卡、結算）：當成點擊
       if (handlers.isTapScene?.()) { updateMouse(t.clientX, t.clientY); handlers.onMouseDown?.(0, e); continue; }
       const stick = { id: t.identifier, ox: x, oy: y, x, y, dx: 0, dy: 0, mag: 0 };
@@ -102,6 +105,7 @@ export function attachInput(canvas, toWorld, handlers) {
       if (touch.aim && touch.aim.id === t.identifier) touch.aim = null;
       if (touch.dashId === t.identifier) { touch.dash = false; touch.dashId = null; }
       if (touch.blinkId === t.identifier) { touch.blink = false; touch.blinkId = null; }
+      if (touch.skillId === t.identifier) { touch.skill = false; touch.skillId = null; }
     }
   };
   canvas.addEventListener('touchend', end, { passive: false });
@@ -109,6 +113,7 @@ export function attachInput(canvas, toWorld, handlers) {
 }
 
 /** 由目前輸入狀態組出玩家輸入（連線時直接序列化送伺服器） */
+function consumeSkillClick() { const v = !!mouse.skillClick; mouse.skillClick = false; return v; }
 export function buildInput(player, world) {
   if (touch.active) {
     const m = touch.move;
@@ -123,7 +128,8 @@ export function buildInput(player, world) {
     }
     const dash = touch.dash; touch.dash = false;   // 衝刺當作一次性按下
     const blink = touch.blink; touch.blink = false;
-    return { ix, iy, angle, fire, dash, blink };
+    const skill = touch.skill; touch.skill = false;
+    return { ix, iy, angle, fire, dash, blink, skill };
   }
   let ix = 0, iy = 0;
   if (keys.KeyW || keys.ArrowUp) iy -= 1;
@@ -140,5 +146,6 @@ export function buildInput(player, world) {
     ix, iy, angle, fire,
     dash: !!(keys.ShiftLeft || keys.ShiftRight),
     blink: !!keys.Space,
+    skill: !!(keys.KeyE || keys.KeyQ) || consumeSkillClick(),
   };
 }

@@ -1,6 +1,6 @@
 // 渲染：把世界狀態與特效畫到 Canvas。固定 1600x900 邏輯座標，等比縮放到視窗並加黑邊。
 import { TAU, rand, randInt, clamp } from '../../shared/math.js';
-import { PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById, arenaById, ELEMENTS, AFFIXES, EVENTS, EVOLUTIONS, ENEMY_TYPES, shipById, weaponById } from '../../shared/constants.js';
+import { skillById, PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById, arenaById, ELEMENTS, AFFIXES, EVENTS, EVOLUTIONS, ENEMY_TYPES, shipById, weaponById } from '../../shared/constants.js';
 import { tr } from './i18n.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
@@ -207,6 +207,7 @@ export function createRenderer(canvas, world) {
       if (e.sh) { ctx.save(); ctx.strokeStyle = '#4cc9f0'; ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = 12; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 11, 0, TAU); ctx.stroke(); ctx.restore(); }
       if (e.element && ELEMENTS[e.element]) { ctx.save(); ctx.globalAlpha = 0.85; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowBlur = 0; ctx.fillStyle = ELEMENTS[e.element].color; ctx.fillText(ELEMENTS[e.element].icon, e.x + e.r + 8, e.y - e.r - 4); ctx.restore(); }
       if (e.affixes && e.affixes.length) { ctx.save(); ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.shadowBlur = 0; ctx.fillStyle = '#ffd166'; ctx.fillText(e.affixes.map(a => (AFFIXES[a] || {}).name || a).join(' · '), e.x, e.y - e.r - (e.hunter ? 28 : 16)); ctx.restore(); }
+      if (e.warn) { ctx.save(); const red = e.warn > 1, pulse = 0.55 + 0.45 * Math.sin(Date.now() / (red ? 60 : 130)); ctx.globalAlpha = pulse; ctx.font = `bold ${red ? 22 : 17}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = red ? '#ff3860' : '#ffd166'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 14; ctx.fillText(red ? '!!' : '!', e.x, e.y - e.r - (e.affixes && e.affixes.length ? 26 : 12)); ctx.restore(); }
       if (e.hunter) { ctx.save(); ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = '#ff8c9c'; ctx.shadowColor = '#ff8c9c'; ctx.shadowBlur = 10; ctx.fillText(tr('🎯 追獵者'), e.x, e.y - e.r - 14); ctx.restore(); }
       if (e.cmd) { ctx.save(); ctx.globalAlpha = 0.35; ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 4, 0, TAU); ctx.stroke(); ctx.restore(); }
       if (e.aimT > 0 && e.aimA !== undefined) { ctx.save(); const k = 1 - e.aimT / 1.4; ctx.globalAlpha = 0.3 + 0.6 * k; ctx.strokeStyle = '#ff8c9c'; ctx.shadowColor = '#ff8c9c'; ctx.shadowBlur = 6; ctx.lineWidth = 1 + k * 2; ctx.setLineDash([10, 8]); ctx.lineDashOffset = -performance.now() / 4; ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + Math.cos(e.aimA) * 1400, e.y + Math.sin(e.aimA) * 1400); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
@@ -395,6 +396,8 @@ export function createRenderer(canvas, world) {
       const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 70); gr.addColorStop(0, '#000'); gr.addColorStop(0.8, '#000'); gr.addColorStop(1, 'rgba(0,0,0,0)'); ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, 70, 0, TAU); ctx.fill();
       ctx.restore();
     }
+    if (world.chrono > 0) { ctx.save(); ctx.globalAlpha = 0.18; ctx.fillStyle = '#b8ffff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 0.9; ctx.fillStyle = '#b8ffff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowColor = '#b8ffff'; ctx.shadowBlur = 12; ctx.fillText(tr(`時間停止 ${world.chrono.toFixed(1)}`), W / 2, 96); ctx.restore(); }
+    for (const q of world.players) if (q.novaT > 0) { ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = '#ff3860'; ctx.font = 'bold 26px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 16; ctx.fillText(tr(`☢ ${q.novaT.toFixed(1)}`), q.x, q.y - 60); ctx.restore(); }
     if (world.flare) {
       const F = world.flare; ctx.save();
       const warn = F.t > 0, sx = F.sx ?? (F.dir > 0 ? -760 : W + 760), sy = H / 2, R = Math.abs(F.x - sx);
@@ -672,7 +675,13 @@ export function createRenderer(canvas, world) {
       const bk = p.blinkCdMax ? 1 - (p.blinkCd || 0) / p.blinkCdMax : 1;
       ctx.fillStyle = (p.blinkCd || 0) <= 0 ? '#b8ffff' : 'rgba(184,255,255,.4)'; roundRect(bx + 130, by + 40, 90 * Math.max(0, bk), 6, 3); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText(tr('閃現 (空白鍵)'), bx + 130, by + 50);
-      let sx = bx, sy = by + 72;
+      // 技能能量條
+      { const S = skillById(p.skill || 'swarm'), en = Math.min(100, p.energy || 0), ready = en >= S.energy, ef = en / 100;
+        ctx.fillStyle = 'rgba(255,255,255,.1)'; roundRect(bx, by + 64, 220, 8, 4); ctx.fill();
+        ctx.fillStyle = ready ? '#ffd166' : 'rgba(255,209,102,.45)'; if (ready) { ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10 + 6 * Math.sin(Date.now() / 120); } roundRect(bx, by + 64, 220 * ef, 8, 4); ctx.fill(); ctx.shadowBlur = 0;
+        const th = 220 * S.energy / 100; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(bx + th - 1, by + 62, 2, 12);
+        ctx.fillStyle = ready ? '#ffd166' : 'rgba(255,255,255,.6)'; ctx.font = ready ? 'bold 11px sans-serif' : '11px sans-serif'; ctx.fillText(`${S.icon} ${tr(S.name)} ${Math.floor(en)}/${S.energy}${ready ? tr(' · E / 右鍵 施放') : ''}${p.overdrive > 0 ? tr(` · 超載 ${Math.ceil(p.overdrive)}s`) : ''}`, bx, by + 76); }
+      let sx = bx, sy = by + 98;
       const tag = (label, color) => { ctx.fillStyle = color; ctx.font = 'bold 11px sans-serif'; const w = ctx.measureText(label).width + 12; ctx.globalAlpha = .18; roundRect(sx, sy, w, 18, 9); ctx.fill(); ctx.globalAlpha = 1; ctx.fillText(label, sx + 6, sy + 3); sx += w + 6; };
       for (const id of Object.keys(p.syn || {})) { const s = SYNERGIES.find(x => x.id === id); if (s) tag(`${s.icon} ${s.name}`, '#ff8c42'); }
       if (p.spread > 1) tag(tr(`散射 ×${p.spread}`), '#ffd166');
@@ -920,6 +929,12 @@ export function createRenderer(canvas, world) {
       ctx.strokeStyle = bReady ? '#b8ffff' : 'rgba(255,255,255,.35)'; ctx.lineWidth = 3; ctx.shadowColor = '#b8ffff'; ctx.shadowBlur = bReady ? 12 : 0;
       ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r, -Math.PI / 2, -Math.PI / 2 + TAU * (me && me.blinkCdMax ? 1 - (me.blinkCd || 0) / me.blinkCdMax : 1)); ctx.stroke();
       ctx.shadowBlur = 0; ctx.fillStyle = bReady ? '#fff' : 'rgba(255,255,255,.5)'; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('閃現'), bl.x, bl.y);
+      // 技能鈕（能量弧）
+      { const sk = L.skill, S = skillById(me && me.skill || 'swarm'), en = me ? Math.min(100, me.energy || 0) : 0, sReady = en >= S.energy;
+        ctx.globalAlpha = 0.85; ctx.fillStyle = sReady ? 'rgba(255,209,102,.25)' : 'rgba(255,255,255,.08)'; ctx.beginPath(); ctx.arc(sk.x, sk.y, sk.r, 0, TAU); ctx.fill();
+        ctx.strokeStyle = sReady ? '#ffd166' : 'rgba(255,255,255,.35)'; ctx.lineWidth = 3; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = sReady ? 14 : 0;
+        ctx.beginPath(); ctx.arc(sk.x, sk.y, sk.r, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, en / S.energy)); ctx.stroke();
+        ctx.shadowBlur = 0; ctx.font = '22px sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText(S.icon, sk.x, sk.y); }
       // 自動瞄準提示
       if (touch.autoAngle !== null && me) {
         const p = view; const sx = p.ox + me.x * p.scale, sy = p.oy + me.y * p.scale;

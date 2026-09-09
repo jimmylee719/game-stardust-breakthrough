@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked } from '../shared/constants.js';
+import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { runSummary, applyRun, weekKey, dailyQuests, weeklyQuests, ACHIEVEMENTS } from '../shared/meta.js';
 import { ARENAS } from '../shared/constants.js';
@@ -344,6 +344,7 @@ wss.on('connection', ws => {
       const wantShip = SHIPS.some(s => s.id === m.ship) ? m.ship : 'falcon';
       const wantWeapon = WEAPONS.some(w => w.id === m.weapon) ? m.weapon : 'blaster';
       const wantSkin = SKINS.some(s => s.id === m.skin) ? m.skin : 'classic';
+      const wantSkill = SKILLS.some(s => s.id === m.skill) ? m.skill : 'swarm';
       // 先驗證帳號（取得永久強化與已解鎖機體），再把玩家放進世界，這樣中途加入也會拿到正確的機體
       (async () => {
         let acct = null;
@@ -353,9 +354,10 @@ wss.on('connection', ws => {
         const ship = shipUnlocked(wantShip, unlocks) ? wantShip : 'falcon';
         const weapon = weaponUnlocked(wantWeapon, unlocks) ? wantWeapon : 'blaster';
         const skin = skinUnlocked(wantSkin, unlocks) ? wantSkin : 'classic';
+        const skill = skillUnlocked(wantSkill, unlocks) ? wantSkill : 'swarm';
         const id = room.nextPlayerId++;
         const token = crypto.randomBytes(12).toString('base64url');
-        const opts = { id, name, token, acctId: acct?.id || null, perks: unlocks, ship, weapon, skin };
+        const opts = { id, name, token, acctId: acct?.id || null, perks: unlocks, ship, weapon, skin, skill };
         player = inProgress(room) ? joinMidGame(room.world, opts) : addPlayer(room.world, opts);
         room.clients.set(ws, player);
         if (room.hostId === null) room.hostId = id;
@@ -373,7 +375,7 @@ wss.on('connection', ws => {
       case 'input': {
         const clampN = (v, lim) => Math.max(-lim, Math.min(lim, Number(v) || 0));
         const cur = current();
-        if (cur) queueInput(cur, Number(m.seq) | 0, { ix: clampN(m.ix, 1), iy: clampN(m.iy, 1), angle: clampN(m.angle, Math.PI), fire: !!m.fire, dash: !!m.dash, blink: !!m.blink });
+        if (cur) queueInput(cur, Number(m.seq) | 0, { ix: clampN(m.ix, 1), iy: clampN(m.iy, 1), angle: clampN(m.angle, Math.PI), fire: !!m.fire, dash: !!m.dash, blink: !!m.blink, skill: !!m.skill });
         break;
       }
       case 'start':

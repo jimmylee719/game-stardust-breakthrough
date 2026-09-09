@@ -280,4 +280,18 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   step(world, 30); if (world.flare && world.flare.hit.length !== 2) fail('每位玩家只該被打一次');
   console.log('solar flare arc ok', Math.round(hitP), Math.round(hitQ));
 }
+// 21. 主動技能：能量施放（飛彈雨 / 原子彈 / 時間停止）與敵人技能預警
+{
+  const A = mk({ wave: 3 }); A.p.x = 400; A.p.y = 450; A.p.energy = 100; A.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false, skill: true };
+  enemy(A.world, 800, 450, 500); step(A.world, 20);
+  if (!(A.p.energy < 50)) fail('施放飛彈雨應扣能量'); if (!A.world.bullets.some(b => b.missile)) fail('飛彈雨應射出追蹤飛彈');
+  A.p.input.skill = false; step(A.world, 5); A.p.energy = 100; A.p.input.skill = true; step(A.world, 2); const e1 = A.p.energy; step(A.world, 5); if (A.p.energy < e1 - 5) fail('按住不放不該連續施放');
+  const N = mk({ wave: 3 }); N.p.skill = 'nova'; N.p.energy = 100; N.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false, skill: true };
+  const v = enemy(N.world, 900, 200, 200); step(N.world, 1); if (!(N.p.novaT > 0)) fail('原子彈應開始倒數'); step(N.world, 90); if (N.world.enemies.includes(v)) fail('原子彈應炸死全畫面敵人');
+  const C = mk({ wave: 3 }); C.p.skill = 'chrono'; C.p.energy = 100; C.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false, skill: true };
+  const m = enemy(C.world, 800, 450, 500, { speed: 200 }); step(C.world, 30); if (!(C.world.chrono > 0)) fail('時間停止應啟動'); if (Math.abs(m.x - 800) > 5) fail(`時間停止中敵人不該移動 ${m.x}`);
+  const S = mk({ wave: 8 }); S.p.x = 200; S.p.y = 450; S.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  const sn = enemy(S.world, 800, 450, 30, { type: 'sniper', kind: 'sniper', speed: 0, atkCd: 0, dodgeCd: 9 }); step(S.world, 10); if (sn.warn !== 2) fail(`瞄準中的狙擊手應顯示紅色預警，實際 ${sn.warn}`);
+  console.log('skills & warn ok');
+}
 console.log('PASS');

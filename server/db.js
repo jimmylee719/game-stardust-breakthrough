@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { MIN_RUN_SCORE, PERKS, SHIPS, WEAPONS, SKINS, perkLevels } from '../shared/constants.js';
+import { MIN_RUN_SCORE, PERKS, SHIPS, WEAPONS, SKINS, SKILLS, perkLevels } from '../shared/constants.js';
 import { weekStartMs } from '../shared/meta.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +17,12 @@ const WEEK_MS = 7 * 24 * 3600 * 1000;
 function priceOf(unlocks, perkId) {
   if (perkId.startsWith('skin:')) {
     const k = SKINS.find(x => x.id === perkId.slice(5));
+    if (!k || !k.cost) return { error: 'unknown perk' };
+    if ((unlocks || []).includes(perkId)) return { error: 'max level' };
+    return { ok: true, cost: k.cost };
+  }
+  if (perkId.startsWith('skill:')) {
+    const k = SKILLS.find(x => x.id === perkId.slice(6));
     if (!k || !k.cost) return { error: 'unknown perk' };
     if ((unlocks || []).includes(perkId)) return { error: 'max level' };
     return { ok: true, cost: k.cost };
