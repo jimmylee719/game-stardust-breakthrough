@@ -174,7 +174,7 @@ function renderSkins() {
   const cur = currentSkin();
   $('skin-cards').innerHTML = SKINS.map(s => {
     const un = skinUnlocked(s.id, profile.unlocks);
-    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-skin="${s.id}"><div class="sw" style="background:${s.hull};border-color:${s.stroke || '#4cc9f0'};box-shadow:0 0 10px ${s.glow || '#4cc9f0'}"></div><div class="nm">${s.name}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? '✔ 使用中' : '已解鎖') : '✨ ' + s.cost}</div></div>`;
+    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-skin="${s.id}"><div class="sw" style="background:${s.hull};border-color:${s.stroke || '#4cc9f0'};box-shadow:0 0 10px ${s.glow || '#4cc9f0'}"></div><div class="nm">${T(s.name)}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? tr('✔ 使用中') : tr('已解鎖')) : '✨ ' + s.cost}</div></div>`;
   }).join('');
   for (const el of $('skin-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.skin;
@@ -192,10 +192,10 @@ function renderWeapons() {
     const un = weaponUnlocked(w.id, profile.unlocks);
     const el = ELEMENTS[WEAPON_ELEMENT[w.id] === 'kinetic' || WEAPON_ELEMENT[w.id] === 'light' ? 'neutral' : WEAPON_ELEMENT[w.id]];
     const evo = EVOLUTIONS.find(e => e.weapon === w.id);
-    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-weapon="${w.id}"><div class="ic">${w.icon}</div><div class="nm">${T(w.name)}</div><div class="ds">${escapeHtml(w.desc)}<br><span style="color:#ffd166">${evo ? `${evo.icon} 進化：${evo.name}` : ''}</span></div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? '✔ 裝備中' : '已解鎖') : '✨ ' + w.cost}</div></div>`;
+    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-weapon="${w.id}"><div class="ic">${w.icon}</div><div class="nm">${T(w.name)}</div><div class="ds">${escapeHtml(tr(w.desc))}<br><span style="color:#ffd166">${evo ? `${evo.icon} ${tr("進化")}：${tr(evo.name)}` : ''}</span></div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? tr('✔ 裝備中') : tr('已解鎖')) : '✨ ' + w.cost}</div></div>`;
   }).join('');
   const M = WEAPON_MODS[cur] || {}, names = { spread: '散射道具', rapid: '連射道具', pierce: '穿甲彈', bounce: '反彈彈', homing: '追蹤導引', bigshot: '巨型彈體' };
-  $('weapon-mods').innerHTML = `${meleeOnly ? '<div style="color:#ff8c9c">劍聖只能使用光刃。</div>' : ''}<div><b>${T(weaponById(cur).name)}</b> 對升級 / 道具的反應：</div>` + Object.entries(M).map(([k, v]) => `<div><b>${names[k]}</b> → ${escapeHtml(v)}</div>`).join('');
+  $('weapon-mods').innerHTML = `${meleeOnly ? `<div style="color:#ff8c9c">${tr('劍聖只能使用光刃。')}</div>` : ''}<div><b>${T(weaponById(cur).name)}</b> ${tr('對升級 / 道具的反應：')}</div>` + Object.entries(M).map(([k, v]) => `<div><b>${tr(names[k])}</b> → ${escapeHtml(tr(v))}</div>`).join('');
   for (const el of $('weapon-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.weapon;
     $('hangar-err').textContent = '';
@@ -213,7 +213,7 @@ function renderShips() {
   const bar = (v) => { const w = Math.min(100, v * 62); return `<b><i class="${v > 1.02 ? 'hi' : v < 0.98 ? 'lo' : ''}" style="width:${w}%"></i></b>`; };
   $('ship-cards').innerHTML = SHIPS.map(s => {
     const un = shipUnlocked(s.id, profile.unlocks);
-    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-ship="${s.id}"><div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="st"><span>生命</span>${bar(s.stats.hp)}<span>速度</span>${bar(s.stats.speed)}<span>射速</span>${bar(s.stats.fire)}<span>傷害</span>${bar(s.stats.dmg)}</div><div class="ds"><span style="color:#ffd166">${escapeHtml(s.trait || '')}</span> · ${escapeHtml(s.desc)}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? '✔ 出擊中' : '已解鎖') : '✨ ' + s.cost}</div></div>`;
+    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-ship="${s.id}"><div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="st"><span>${tr('生命')}</span>${bar(s.stats.hp)}<span>${tr('速度')}</span>${bar(s.stats.speed)}<span>${tr('射速')}</span>${bar(s.stats.fire)}<span>${tr('傷害')}</span>${bar(s.stats.dmg)}</div><div class="ds"><span style="color:#ffd166">${escapeHtml(tr(s.trait || ''))}</span> · ${escapeHtml(tr(s.desc))}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? tr('✔ 出擊中') : tr('已解鎖')) : '✨ ' + s.cost}</div></div>`;
   }).join('');
   for (const el of $('ship-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.ship;
@@ -226,7 +226,7 @@ function renderShips() {
   });
 }
 function renderDust() {
-  renderShips(); renderWeapons(); renderSkins(); renderSkillCards(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ 星塵 ${profile.dust.toLocaleString()}（累計 ${profile.dustTotal.toLocaleString()}）`; }
+  renderShips(); renderWeapons(); renderSkins(); renderSkillCards(); $('dust').textContent = '✨ ' + profile.dust.toLocaleString(); $('hangar-dust').textContent = `✨ ${tr('星塵')} ${profile.dust.toLocaleString()}（${tr('累計')} ${profile.dustTotal.toLocaleString()}）`; }
 
 // ---------- 機庫：永久強化 ----------
 function renderHangar() {
@@ -235,7 +235,7 @@ function renderHangar() {
   $('perk-rows').innerHTML = PERKS.map(k => {
     const l = lv[k.id] || 0, maxed = l >= k.max, cost = maxed ? 0 : k.cost[l];
     const dots = Array.from({ length: k.max }, (_, i) => `<i class="${i < l ? 'on' : ''}"></i>`).join('');
-    return `<li><span class="ic">${k.icon}</span><span><span class="nm">${k.name}</span><span class="lv">${dots}</span><div class="ds">${k.desc(Math.max(1, Math.min(k.max, l + 1)))}${l ? `（目前：${k.desc(l)}）` : ''}</div></span><button data-perk="${k.id}" class="${maxed ? 'max' : ''}" ${maxed || profile.dust < cost ? 'disabled' : ''}>${maxed ? '已滿級' : '✨ ' + cost}</button></li>`;
+    return `<li><span class="ic">${k.icon}</span><span><span class="nm">${tr(k.name)}</span><span class="lv">${dots}</span><div class="ds">${tr(k.desc(Math.max(1, Math.min(k.max, l + 1))))}${l ? `（${tr('目前')}：${tr(k.desc(l))}）` : ''}</div></span><button data-perk="${k.id}" class="${maxed ? 'max' : ''}" ${maxed || profile.dust < cost ? 'disabled' : ''}>${maxed ? '已滿級' : '✨ ' + cost}</button></li>`;
   }).join('');
   for (const b of $('perk-rows').querySelectorAll('button[data-perk]')) b.addEventListener('click', async () => {
     $('hangar-err').textContent = '';
@@ -299,16 +299,16 @@ let metaCache = null;
 async function loadMeta() { const m = await fetchMeta(); if (m) metaCache = m; return metaCache; }
 function questRow(q, prog, done) {
   const v = Math.min(q.goal, prog || 0), pct = Math.round(100 * v / q.goal);
-  return `<li class="${done ? '' : ''}"><span class="ic">${q.icon}</span><span><span class="nm">${escapeHtml(q.name)}</span><div class="ds">${escapeHtml(questText(q))}</div><div class="bar"><i class="${done ? 'done' : ''}" style="width:${done ? 100 : pct}%"></i></div></span><span class="st ${done ? 'done' : ''}">${done ? '✔ 完成' : `${v} / ${q.goal}`}<br>✨ ${q.dust}</span></li>`;
+  return `<li class="${done ? '' : ''}"><span class="ic">${q.icon}</span><span><span class="nm">${escapeHtml(tr(q.name))}</span><div class="ds">${escapeHtml(tr(q.desc).replace('{n}', q.goal))}</div><div class="bar"><i class="${done ? 'done' : ''}" style="width:${done ? 100 : pct}%"></i></div></span><span class="st ${done ? 'done' : ''}">${done ? tr('✔ 完成') : `${v} / ${q.goal}`}<br>✨ ${q.dust}</span></li>`;
 }
 async function openQuests() {
   questsEl.hidden = false;
-  $('quests-sub').textContent = '載入中…';
+  $('quests-sub').textContent = tr('載入中…');
   const m = await loadMeta();
-  if (!m) { $('quests-sub').textContent = '無法連線到伺服器'; return; }
+  if (!m) { $('quests-sub').textContent = tr('無法連線到伺服器'); return; }
   const meta = m.meta || {}, d = meta.daily && meta.daily.key === m.day ? meta.daily : { prog: {}, done: [] }, w = meta.weekly && meta.weekly.key === m.week ? meta.weekly : { prog: {}, done: [] };
-  $('quests-sub').textContent = `每日任務每天換一組（${m.day}），每週任務跨局累計（週一重置，本週 ${m.week}）。完成直接拿星塵。`;
-  $('quests-daily-title').textContent = `每日任務 · ${m.day}`; $('quests-weekly-title').textContent = `每週任務 · ${m.week} 起`;
+  $('quests-sub').textContent = tr(`每日任務每天換一組（${m.day}），每週任務跨局累計（週一重置，本週 ${m.week}）。完成直接拿星塵。`);
+  $('quests-daily-title').textContent = `${tr('每日任務')} · ${m.day}`; $('quests-weekly-title').textContent = tr(`每週任務 · ${m.week} 起`);
   $('quests-daily').innerHTML = dailyQuests(m.day).map(q => questRow(q, d.prog[q.id], d.done.includes(q.id))).join('');
   $('quests-weekly').innerHTML = weeklyQuests(m.week).map(q => questRow(q, w.prog[q.id], w.done.includes(q.id))).join('');
 }
@@ -316,8 +316,8 @@ async function openAch() {
   achEl.hidden = false;
   const m = await loadMeta();
   const got = new Set((m && m.meta && m.meta.ach) || []);
-  $('ach-sub').textContent = `已解鎖 ${got.size} / ${ACHIEVEMENTS.length}${m ? '' : '（離線：顯示上次快取）'}`;
-  $('ach-rows').innerHTML = ACHIEVEMENTS.map(a => `<li class="${got.has(a.id) ? '' : 'locked'}"><span class="ic">${a.icon}</span><span><span class="nm">${escapeHtml(a.name)}</span><div class="ds">${escapeHtml(a.desc)}</div></span><span class="st ${got.has(a.id) ? 'done' : ''}">${got.has(a.id) ? '✔ 已解鎖' : '✨ ' + a.dust}</span></li>`).join('');
+  $('ach-sub').textContent = `${tr('已解鎖')} ${got.size} / ${ACHIEVEMENTS.length}${m ? '' : tr('（離線：顯示上次快取）')}`;
+  $('ach-rows').innerHTML = ACHIEVEMENTS.map(a => `<li class="${got.has(a.id) ? '' : 'locked'}"><span class="ic">${a.icon}</span><span><span class="nm">${escapeHtml(tr(a.name))}</span><div class="ds">${escapeHtml(tr(a.desc))}</div></span><span class="st ${got.has(a.id) ? 'done' : ''}">${got.has(a.id) ? tr('✔ 已解鎖') : '✨ ' + a.dust}</span></li>`).join('');
 }
 let codexTab = 'enemies';
 async function openCodex() {
@@ -329,23 +329,23 @@ async function openCodex() {
   const body = $('codex-body');
   if (codexTab === 'enemies') {
     const list = Object.entries(ENEMY_TYPES).filter(([k]) => k !== 'rock');
-    $('codex-sub').textContent = `見過 ${list.filter(([k]) => seen.enemies[k]).length} / ${list.length} 種敵人（打過就會記錄）`;
-    body.innerHTML = `<div class="grid">${list.map(([k, t]) => `<div class="card ${seen.enemies[k] ? '' : 'unseen'}"><div class="nm" style="color:${t.color}">${seen.enemies[k] ? escapeHtml(t.name) : '？？？'} ${t.element ? ELEMENTS[t.element].icon : ''}</div><div class="ds">${seen.enemies[k] ? escapeHtml(t.atk) : '尚未遭遇'}</div></div>`).join('')}</div>`;
+    $('codex-sub').textContent = tr(`見過 ${list.filter(([k]) => seen.enemies[k]).length} / ${list.length} 種敵人（打過就會記錄）`);
+    body.innerHTML = `<div class="grid">${list.map(([k, t]) => `<div class="card ${seen.enemies[k] ? '' : 'unseen'}"><div class="nm" style="color:${t.color}">${seen.enemies[k] ? escapeHtml(tr(t.name)) : '？？？'} ${t.element ? ELEMENTS[t.element].icon : ''}</div><div class="ds">${seen.enemies[k] ? escapeHtml(tr(t.atk)) : tr('尚未遭遇')}</div></div>`).join('')}</div>`;
   } else if (codexTab === 'bosses') {
     const list = Object.entries(BOSS_KINDS);
-    $('codex-sub').textContent = `遭遇過 ${list.filter(([k]) => seen.bosses[k]).length} / ${list.length} 種 Boss`;
-    body.innerHTML = `<div class="grid">${list.map(([k, b]) => `<div class="card ${seen.bosses[k] ? '' : 'unseen'}"><div class="nm" style="color:${b.color}">${seen.bosses[k] ? escapeHtml(b.name) : '？？？'}</div><div class="ds">${seen.bosses[k] ? escapeHtml(b.desc) : '尚未遭遇'}</div></div>`).join('')}</div>`;
+    $('codex-sub').textContent = tr(`遭遇過 ${list.filter(([k]) => seen.bosses[k]).length} / ${list.length} 種 Boss`);
+    body.innerHTML = `<div class="grid">${list.map(([k, b]) => `<div class="card ${seen.bosses[k] ? '' : 'unseen'}"><div class="nm" style="color:${b.color}">${seen.bosses[k] ? escapeHtml(tr(b.name)) : '？？？'}</div><div class="ds">${seen.bosses[k] ? escapeHtml(tr(b.desc)) : tr('尚未遭遇')}</div></div>`).join('')}</div>`;
   } else if (codexTab === 'arenas') {
-    $('codex-sub').textContent = '每個場地的最佳波次';
-    body.innerHTML = `<div class="grid">${ARENAS.map(a => `<div class="card"><div class="nm">${a.icon} ${escapeHtml(a.name)} <span style="color:#ffd166">${arenasProg[a.id] ? `最佳第 ${arenasProg[a.id]} 波` : '未挑戰'}</span></div><div class="ds">${escapeHtml(a.desc)}。${escapeHtml(a.hazard)}。原生生物：${escapeHtml(ENEMY_TYPES[a.unique].name)}</div></div>`).join('')}</div>`;
+    $('codex-sub').textContent = tr('每個場地的最佳波次');
+    body.innerHTML = `<div class="grid">${ARENAS.map(a => `<div class="card"><div class="nm">${a.icon} ${escapeHtml(tr(a.name))} <span style="color:#ffd166">${arenasProg[a.id] ? tr(`最佳第 ${arenasProg[a.id]} 波`) : tr('未挑戰')}</span></div><div class="ds">${escapeHtml(tr(a.desc))}。${escapeHtml(tr(a.hazard))}。${tr('原生生物')}：${escapeHtml(tr(ENEMY_TYPES[a.unique].name))}</div></div>`).join('')}</div>`;
   } else if (codexTab === 'events') {
     const list = Object.entries(EVENTS);
-    $('codex-sub').textContent = `遇過 ${list.filter(([k]) => seen.events[k]).length} / ${list.length} 種隨機事件`;
-    body.innerHTML = `<div class="grid">${list.map(([k, e]) => `<div class="card ${seen.events[k] ? '' : 'unseen'}"><div class="nm">${e.icon} ${seen.events[k] ? escapeHtml(e.name) : '？？？'}</div><div class="ds">${seen.events[k] ? escapeHtml(e.desc) : '尚未遭遇'}</div></div>`).join('')}</div>`;
+    $('codex-sub').textContent = tr(`遇過 ${list.filter(([k]) => seen.events[k]).length} / ${list.length} 種隨機事件`);
+    body.innerHTML = `<div class="grid">${list.map(([k, e]) => `<div class="card ${seen.events[k] ? '' : 'unseen'}"><div class="nm">${e.icon} ${seen.events[k] ? escapeHtml(tr(e.name)) : '？？？'}</div><div class="ds">${seen.events[k] ? escapeHtml(tr(e.desc)) : tr('尚未遭遇')}</div></div>`).join('')}</div>`;
   } else {
     const wel = ['kinetic', 'fire', 'ice', 'plasma', 'light'], wname = { kinetic: '動能（脈衝砲 / 光刃）', fire: '火焰槍', ice: '冰凍光線', plasma: '閃電鏈', light: '雷射砲' };
-    $('codex-sub').textContent = '敵人屬性 × 武器屬性 = 傷害倍率（綠色有效、紅色被抵抗）';
-    body.innerHTML = `<table><tr><th></th>${wel.map(w => `<th>${escapeHtml(wname[w])}</th>`).join('')}</tr>${Object.keys(ELEMENTS).map(el => `<tr><th style="color:${ELEMENTS[el].color}">${ELEMENTS[el].icon} ${escapeHtml(ELEMENTS[el].name)}</th>${wel.map(w => { const v = (AFFINITY[el] || {})[w] ?? 1; return `<td class="${v > 1 ? 'hi' : v < 1 ? 'lo' : ''}">×${v}</td>`; }).join('')}</tr>`).join('')}</table>`;
+    $('codex-sub').textContent = tr('敵人屬性 × 武器屬性 = 傷害倍率（綠色有效、紅色被抵抗）');
+    body.innerHTML = `<table><tr><th></th>${wel.map(w => `<th>${escapeHtml(tr(wname[w]))}</th>`).join('')}</tr>${Object.keys(ELEMENTS).map(el => `<tr><th style="color:${ELEMENTS[el].color}">${ELEMENTS[el].icon} ${escapeHtml(tr(ELEMENTS[el].name))}</th>${wel.map(w => { const v = (AFFINITY[el] || {})[w] ?? 1; return `<td class="${v > 1 ? 'hi' : v < 1 ? 'lo' : ''}">×${v}</td>`; }).join('')}</tr>`).join('')}</table>`;
   }
 }
 $('open-quests').addEventListener('click', openQuests); $('quests-close').addEventListener('click', () => { questsEl.hidden = true; });
