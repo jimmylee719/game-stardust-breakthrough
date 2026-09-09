@@ -34,7 +34,7 @@ const BUILD_ID = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 10) || Stri
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.webmanifest': 'application/manifest+json',
 };
 function resolveFile(urlPath) {
   let base = PUBLIC, rel = urlPath;
@@ -220,7 +220,19 @@ const server = http.createServer((req, res) => {
   if (!file) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404); res.end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
+    const range = req.headers.range && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
+    if (range) {
+      // 音樂等大檔支援 Range（Safari 沒有 206 不會播）
+      let start = range[1] ? Number(range[1]) : 0, end = range[2] ? Number(range[2]) : st.size - 1;
+      if (!range[1] && range[2]) { start = Math.max(0, st.size - Number(range[2])); end = st.size - 1; }
+      if (start > end || start >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); res.end(); return; }
+      end = Math.min(end, st.size - 1);
+      res.writeHead(206, { 'Content-Type': type, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('audio') ? 'public, max-age=86400' : 'no-cache' });
+      fs.createReadStream(file, { start, end }).pipe(res);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('audio') ? 'public, max-age=86400' : 'no-cache' });
     fs.createReadStream(file).pipe(res);
   });
 });

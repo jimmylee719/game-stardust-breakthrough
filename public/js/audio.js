@@ -20,7 +20,7 @@ export function ensureAudio() {
   }
   if (actx.state === 'suspended') actx.resume();
 }
-const musicLevel = () => (settings.music / 100) * 0.16;   // 100% 也只有 0.16
+const musicLevel = () => (settings.music / 100) * 0.45;   // 預設 35% → 0.16，刻意小聲
 export function isMuted() { return settings.muted; }
 export function toggleMute() { settings.muted = !settings.muted; localStorage.setItem('stardust_muted', settings.muted ? '1' : '0'); if (master) master.gain.setTargetAtTime(settings.muted ? 0 : 1, actx.currentTime, 0.05); return settings.muted; }
 export function getMusicVolume() { return settings.music; }
@@ -57,7 +57,34 @@ export const sfx = {
   gameover: () => { [440, 370, 311, 220].forEach((f, i) => setTimeout(() => beep(f, 0.35, 'triangle', 0.1), i * 220)); },
 };
 
-// ---------- 音樂 ----------
+// ---------- 音樂：授權曲目（public/music，使用者擁有版權）；載入失敗才退回合成器 ----------
+// 情境 → 曲目池：menu / over 用 Neon Veins（較沉），play / boss 用 Neon Pursuit（推進感）；同池內輪播、切情境時交叉淡出。
+const TRACKS = { calm: ['music/veins-1.mp3', 'music/veins-2.mp3'], action: ['music/pursuit-1.mp3', 'music/pursuit-2.mp3', 'music/veins-2.mp3'] };
+const poolOf = m => (m === 'play' || m === 'boss') ? 'action' : 'calm';
+let tracksOk = true, cur = null, curPool = null, fading = null, lastIdx = { calm: -1, action: -1 };
+function makeTrack(src) {
+  const el = new Audio(src); el.preload = 'auto'; el.crossOrigin = 'anonymous';
+  const node = actx.createMediaElementSource(el), g = actx.createGain(); g.gain.value = 0;
+  node.connect(g).connect(musicGain);
+  return { el, g, src };
+}
+function playPool(pool) {
+  const list = TRACKS[pool];
+  let i; do { i = Math.floor(Math.random() * list.length); } while (list.length > 1 && i === lastIdx[pool]);
+  lastIdx[pool] = i;
+  const t = makeTrack(list[i]);
+  t.el.addEventListener('ended', () => { if (cur === t) { cur = null; playPool(curPool); } });
+  t.el.addEventListener('error', () => { if (cur === t) { tracksOk = false; cur = null; startSynth(); } });
+  const p = t.el.play(); if (p && p.catch) p.catch(() => {});
+  t.g.gain.setValueAtTime(0, actx.currentTime); t.g.gain.linearRampToValueAtTime(1, actx.currentTime + 2.5);
+  if (cur) { const old = cur; old.g.gain.setTargetAtTime(0, actx.currentTime, 0.6); setTimeout(() => { try { old.el.pause(); old.el.src = ''; } catch {} }, 2500); }
+  cur = t; curPool = pool;
+}
+function switchPool(pool) { if (!tracksOk || !actx) return; if (pool === curPool && cur) return; playPool(pool); }
+/** 頁面被切到背景時暫停曲目 */
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (!cur) return; if (document.visibilityState === 'hidden') cur.el.pause(); else { const p = cur.el.play(); if (p && p.catch) p.catch(() => {}); } });
+
+// ---------- 合成器（備援）----------
 // 情境：menu（慢、明亮）、play（中速）、boss（快、小調、鼓更重）、over（極慢、只剩墊音）
 let mood = 'menu';
 let nextStep = 0, stepIdx = 0, timer = null, bar = 0;
@@ -105,11 +132,15 @@ function tick() {
     nextStep += s16;
   }
 }
-export function startMusic() {
+function startSynth() {
   if (!actx || timer) return;
   nextStep = actx.currentTime + 0.1; stepIdx = 0; bar = 0;
   timer = setInterval(tick, 100);
 }
+export function startMusic() {
+  if (!actx) return;
+  if (tracksOk) switchPool(poolOf(mood)); else startSynth();
+}
 /** 由主迴圈依場景呼叫：'menu' | 'play' | 'boss' | 'over' */
-export function setMood(m) { if (m !== mood) { mood = m; } }
+export function setMood(m) { if (m !== mood) { mood = m; if (actx && tracksOk) switchPool(poolOf(m)); } }
 export function getMood() { return mood; }
