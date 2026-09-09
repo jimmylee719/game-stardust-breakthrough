@@ -77,14 +77,19 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 
 ## 4. 目前的玩法規格（改動時保持一致）
 
+- 主動技能：`SKILLS / skillById / skillUnlocked / ENERGY`（constants），玩家 `p.skill / energy / overdrive / novaT / skillHeld`；輸入協定多一個 `skill`（E / Q / 右鍵 `mouse.skillClick` / 觸控 `touchLayout().skill`），**施放在 `update()` 玩家迴圈的 `castSkill`（不在 `stepPlayer`，預測不會跑到）**，按下邊緣觸發（`skillHeld`）。能量：`killEnemy` +perKill（菁英 +perElite）、`killBoss` 全隊 +perBoss、被動 passive/s。時間停止 = `world.chrono`（敵人每 tick 補 `e.stun`、敵彈迴圈直接 continue、Boss `slow`）；奇異點 = `world.hole.skill`（不拉玩家、結束 `blastHole`）；超載 = `p.overdrive`（`hitEnemy` ×1.5、`stepPlayer` 速度 ×1.3、`dashCd = 0`）。解鎖 id `skill:<id>`（db.js `priceOf`），join 帶 `skill` 由 `skillUnlocked` 驗證。
+- 敵人技能預警：`WARN[type]` → `e.warn`（0 / 1 黃 ! / 2 紅 !!），在敵人主迴圈開頭算（自爆蟲在 BEHAVE 內設）；快照 `warn`，render 畫在頭上。新敵種有技能就補一條 `WARN`。
 - 場地：`ARENAS`（6 個，`arenaById`），`startRun({arena})` → `world.arena`；危險在 game.js 的 `updateArena`（zones kind: lava / geyser / rift / fog / pressure / spike / emp / hex / fire，`world.wells / flare / blizzard / wind / drag`），區域效果在 `updateZones`。render 的背景與星色讀 `ARENAS[].bg/star`，`drawArenaBackdrop / drawHazards / drawWeather`。
 - 屬性：`ELEMENTS / AFFINITY / affinity(enemyEl, weaponEl) / WEAPON_ELEMENT`；敵人 `e.element` 在 `spawnEnemy` 依場地 `elements` 抽（`ENEMY_TYPES[].element` 固定者優先）。**對敵人造成傷害一律走 `hitEnemy(world, e, dmg, {by, x, y, element}, fx)`**（相剋、相位、精英護盾、護盾兵正面盾、統計），呼叫端再檢查 `hp <= 0 → killEnemy`。
 - 敵人 AI：新 kind 的行為在 `BEHAVE[kind]`（warden / sniper / mortar / kamikaze / hexer / sentinel / pulsar / spore / angler），回傳 `{tx, ty, steer}` 或 `'dead'`；chase 型的額外攻擊（蟲群衝撞、重裝砲、分裂體酸液、霜噬冰刺）在 chase 分支。精英詞綴 `AFFIXES`（`e.affixes`，計時在敵人迴圈頂端）。**敵人迴圈頂端要 `if (!e) continue`**（自爆會縮短陣列）。難度門檻用 `threat(world)`（波數 + 2×(人數-1)），敵方攻擊倍率 `dmgMul(world)` 在 `hurtPlayer` 內套用；`hurtPlayer(world, p, dmg, fx, src)` 的 `src {x, y, by, vamp}` 給正面盾與死亡畫面用。
 - 隨機事件：`EVENTS`，`startEvent(world, id, fx)`（export）/ `updateEvents`，`world.event / crate / hole / wind / eclipse / dustBonus`；補給箱走 beacon 的碰撞路徑（`const beacon = world.beacon || world.crate`）。小隊主題 `SQUADS` → `world.waveTheme`。
 - 武器：每把武器一個 `fireXxx(world, p, inp, dt, fx, lfx)`，升級 / 道具的差異寫在裡面（對照表 `WEAPON_MODS` 只是文字，改行為要改函式）；光束用 `beamSegments`（反彈）與 `bendAim`（追蹤）；`p.beam / beamW` 給 render；光刃 `fireBlade`（`p.swingT / swingDir`）。進化 `EVOLUTIONS / evolutionFor`，`offerUpgrades` 塞 `evoCard`，`chooseUpgrade(idx = -1)` = 放棄升級 +20 HP；snapshot 的 pending 用 `evo:<id>`。
 - 機體特性靠 `p.flags`（adapt / blinkStrike / noShield / frontShield / shieldBash / droneBoost / meleeOnly / bladeMaster / dashSlash / killResetBlink / turrets），`stepPlayer` 與武器函式讀它；`predict.js` 的 st 要有 `flags / syn / dashHits / turrets`。
-- 統計 `world.stats`（`freshStats`，snapshot 每 tick 送），死亡畫面與 `shared/meta.js` 的成就 / 任務都只看它；`runSummary(world, ctx)` → `POST /api/meta/run` → 伺服器 `applyRun`（players.meta JSONB）。成就 / 任務規則只改 `shared/meta.js`。
-- 公開房：`room.public / room.arena`，訊息 `arena / public`，`GET /api/rooms`、`POST /api/quickmatch`（沒房就開一間 `quick` 房，空房保留 60 秒）。
+- 太陽風暴：`world.flare = {x, sx, dir, w, t, speed, hit}`，以畫面外太陽 `(sx, H/2)` 為圓心的弧（半徑 `|x − sx|`），伺服器判定與 render 同一半徑。
+- 排程：`schedule(world, delay, fn, spawn)` — 只有 `spawn = true`（生怪）的排程會讓 `spawnPending()` 為真，波次清除 / 模式完成只看它（武器 / 音效排程不算）。敵人主迴圈是「拍名單 + indexOf」身分制，中途移除低索引敵人不會重跑或漏掉。
+- 統計 `world.stats`（`freshStats`；snapshot 只在 gameover / 每 30 tick 送），死亡畫面與 `shared/meta.js` 的成就 / 任務都只看它；`runSummary(world, ctx)` → `POST /api/meta/run` → 伺服器 `applyRun`（players.meta JSONB）。成就 / 任務規則只改 `shared/meta.js`。
+- 公開房：`room.public / room.arena`，訊息 `arena / public`，`GET /api/rooms`、`POST /api/quickmatch`（只列 `scene === 'lobby'` 的房；沒房就開一間 `quick` 房，空的 quick 房會被下一個人重用，60 秒後清）。join 時 `room.pendingJoins` 先佔名額。
+- 伺服器防護（server/index.js 頂部）：`allowPost(ip)` 每 10 秒 `RATE_LIMIT` 次 POST；`withAccountLock(id, fn)` 同帳號 meta 讀改寫排隊；`META_MIN_GAP`；`credsOf(req, url)`（POST body 或 GET query）；`SEC` 標頭；`tickRoom` try/catch → 出錯銷毀該房；離線玩家用 `offlineAtMs` 牆鐘在任何場景清。合作局的成就 / 任務在 `recordCoopRun` 用 `runSummary(room.world)` 算，`result.metaBy[acctId]` 回給客戶端 `announceMeta`；`/api/meta/run` 拒收 `coop: true`。`/api/runs` 分數上限 `600 × (wave+2)²`、`dustBonus ≤ 150`。測試環境用 `META_MIN_GAP_MS=0`、`RATE_LIMIT=1000`（test/api.js）。
 - 客戶端：`i18n.js`（`tr()` 精確表 + 規則；HTML 用 `data-i18n / data-i18n-ph / data-i18n-html`；浮字在 effects.js 的 `floatText` 翻譯）、`audio.js` 的音樂（`setMood`，master / sfx / music 三個 gain）、`input.js` 的 `opts.autoAim / autoFire`（null = 依裝置）、PWA（`manifest.json`、`sw.js` 由伺服器注入 `BUILD_ID`、`scripts/make-icons.cjs` 產圖示）。
 - 效能：`themes.js` 的 `themedContext` 在恆等主題時直接回傳原生 context（Proxy 是掉幀主因）；`effects.js` 的 `trackFrame` 自動切 `vfx.lowQ`，render 依此關光暈；粒子上限 600。
 - 閃電鏈沒目標時按住會蓄電（`p.arcCharge` 0–1.5，傷害最多 ×2），機頭 `fx.bolt` 噼啪 + render 的蓄電環；首頁動畫全在 style.css 的「首頁動畫」段（`prefers-reduced-motion` 會關）。
@@ -137,6 +142,8 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 - 事件名稱要在 `server/index.js` 的 `EVENT_NAMES` 白名單，新增事件記得同步加；`computeStats` 在 `server/stats.js` 用 JS 聚合，Postgres 與 JSON 檔共用。
 - 我方在正式榜留過測試資料：線上驗證用能刪除的帳號，或先在本機 `DATA_DIR` 隔離。
 - 無頭測試要**看事件不要看時機**：敵人會被互推到玩家身上吃掉護盾、震撼彈擊退會把目標推出射程，靠幀數等結果會偶發失敗；改成檢查 `fx.text` 收到的事件、把目標固定住或放在射程內。連跑 5 次確認穩定再 commit。
+- CSS 入場動畫 `animation-fill-mode: both` 會**永久覆蓋 inline transform**：JS 縮放要套在另一層（首頁 `.fitbox` 用 `zoom`），不要和動畫同一個元素。預覽窗格不會觸發真的 resize 事件、rAF 會被節流：驗證縮放要 `dispatchEvent(new Event('resize'))`，驗證模擬要手動 `update()`。
+- 大補丁的 `rep()` 一失敗就 exit，但前面的檔已寫入：重跑前把已套用的 `rep(` 改成 `false && rep(`，或一開始就一檔一個 rep 並先 `grep` 確認錨點（含空白數量：constants 的對齊空白常和 `cut` 顯示不同）。
 - Bash 裡的 `\`` 反引號和 `$` 在雙引號字串內會被展開（README 的 `code` 標記被吃掉過）：含這些字元的內容一律走 `.cjs` 檔或 Write 工具。
 
 ## 7. 遊玩說明（給使用者 / README 用）
@@ -180,4 +187,5 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 ### 第三輪（2026-09-09 下午起）：全系統 Bug 稽核
 
 - 已修（commit `3b72747`）：首頁改兩欄 + `.fitbox` 用 `zoom` 縮放（CSS 入場動畫 `fill-mode: both` 會永久覆蓋 inline transform，縮放一定要放在另一層）；太陽風暴改成以畫面外太陽（`flare.sx`）為圓心的弧形帶，伺服器判定與畫面同一半徑；核心邏輯約 45 處（`schedule(world, d, fn, spawn)` 只有生怪排程算波次未清、敵人主迴圈改「拍名單 + indexOf」身分制、燃燒記 `burnBy`、射速升級對火焰 / 冰凍 / 雷射有效、輸入額度防灌雙倍輸入、AI 冷卻用 dt…）；客戶端（僚機 / 砲塔子彈 `ELEMENTS['kinetic']` 崩潰、frame loop try/catch、localStorage 防呆、音訊曲目快取）。
-- **未修（先做）**：伺服器安全與崩潰（`decodeURIComponent` 未 try/catch、tick 無 try/catch、無速率限制、分數 / 成就全信客戶端、`/api/stats` Host 偽造、密鑰在 query string、join TOCTOU、gameover 房列在公開房、stats 每 tick 全量廣播、db 檔案非原子寫入）；`i18n-extra.js` 英文字典（421 條，目前佔位）；README / 本檔規格補寫。細節在記憶 `stardust-pending-audit`。
+- 2026-09-09 下午已完成：主動技能 ×6 + 能量、敵人技能預警、移除雷射道具、伺服器防護全部（見第 4 節）、英文字典。**仍欠：手把支援、美術素材。**
+- ~~未修（先做）~~：伺服器安全與崩潰（`decodeURIComponent` 未 try/catch、tick 無 try/catch、無速率限制、分數 / 成就全信客戶端、`/api/stats` Host 偽造、密鑰在 query string、join TOCTOU、gameover 房列在公開房、stats 每 tick 全量廣播、db 檔案非原子寫入）；`i18n-extra.js` 英文字典（421 條，目前佔位）；README / 本檔規格補寫。細節在記憶 `stardust-pending-audit`。
