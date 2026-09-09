@@ -13,7 +13,7 @@ export function snapshotWorld(world) {
     crate: world.crate ? { kind: 'crate', x: world.crate.x, y: world.crate.y, r: world.crate.r, hp: Math.round(world.crate.hp), maxHp: world.crate.maxHp, hitFlash: world.crate.hitFlash > 0 ? 1 : 0, alive: world.crate.alive } : null,
     hole: world.hole ? { x: world.hole.x, y: world.hole.y, r: world.hole.r, life: r1(world.hole.life) } : null,
     wells: world.wells.map(w => ({ id: w.id, x: w.x, y: w.y, r: w.r, life: r1(w.life) })),
-    flare: world.flare ? { x: r1(world.flare.x), w: world.flare.w, t: r1(world.flare.t), dir: world.flare.dir } : null,
+    drag: world.drag !== 1 ? world.drag : undefined, flare: world.flare ? { x: r1(world.flare.x), sx: world.flare.sx, w: world.flare.w, t: r1(world.flare.t), dir: world.flare.dir } : null,
     blizzard: world.blizzard > 0 ? r1(world.blizzard) : undefined, wind: world.wind ? { x: r1(world.wind.x), y: r1(world.wind.y) } : null, eclipse: world.eclipse > 0 ? r1(world.eclipse) : undefined,
     stats: world.stats,
     beacon: world.beacon ? { x: r1(world.beacon.x), y: r1(world.beacon.y), r: world.beacon.r, hp: Math.round(world.beacon.hp), maxHp: world.beacon.maxHp, hitFlash: world.beacon.hitFlash > 0 ? 1 : 0, alive: world.beacon.alive, kind: world.beacon.kind } : null,
@@ -24,7 +24,7 @@ export function snapshotWorld(world) {
       r: p.r, hp: Math.round(p.hp), maxHp: p.maxHp, dead: p.dead, downed: p.downed, downTimer: r1(p.downTimer), reviveProgress: r1(p.reviveProgress), offline: p.offline,
       shield: p.shield, rapid: r1(p.rapid), spread: p.spread, laser: r1(p.laser), laserOn: p.laserOn || undefined, ship: p.ship, syn: Object.keys(p.syn), weapon: p.weapon, weaponOn: p.weaponOn || undefined, arcCharge: p.arcCharge ? r1(p.arcCharge) : undefined, skin: p.skin, blinkCd: r1(p.blinkCd), blinkCdMax: p.blinkCdMax, blinkFlash: p.blinkFlash > 0 ? 1 : undefined,
       beam: p.beam || undefined, beamW: p.beam ? r1(p.beamW) : undefined, swingT: p.swingT > 0 ? r1(p.swingT) : undefined, swingDir: p.swingDir || undefined, turrets: p.turrets && p.turrets.length ? p.turrets.map(t => ({ x: r1(t.x), y: r1(t.y), a: r1(t.a * 100) / 100, life: r1(t.life) })) : undefined,
-      evolved: p.evolved || undefined, emp: p.emp > 0 ? r1(p.emp) : undefined, frozen: p.frozen > 0 ? r1(p.frozen) : undefined, hexed: p.hexed > 0 ? 1 : undefined, fs: p.flags && p.flags.frontShield ? 1 : undefined, fa: p.weaponOn && p.weapon === 'flame' ? r1(p.fa * 100) / 100 : undefined, fr: p.fr ? Math.round(p.fr) : undefined, fc: p.fc ? r1(p.fc * 100) / 100 : undefined,
+      evolved: p.evolved || undefined, emp: p.emp > 0 ? r1(p.emp) : undefined, frozen: p.frozen > 0 ? r1(p.frozen) : undefined, hexed: p.hexed > 0 ? 1 : undefined, fs: p.flags && p.flags.frontShield ? 1 : undefined, sb: p.flags && p.flags.shieldBash ? 1 : undefined, speedMul: p.speedMul !== 1 ? r1(p.speedMul * 100) / 100 : undefined, bs: p.bulletSize !== 1 ? r1(p.bulletSize * 100) / 100 : undefined, fa: p.weaponOn && p.weapon === 'flame' ? r1(p.fa * 100) / 100 : undefined, fr: p.fr ? Math.round(p.fr) : undefined, fc: p.fc ? r1(p.fc * 100) / 100 : undefined,
       dashCd: r1(p.dashCd), dashCdMax: r1(p.dashCdMax), dashing: r1(p.dashing), inv: r1(p.inv), seq: p.lastSeq, kills: p.kills, upgrades: p.upgrades,
       drones: p.drones.map(d => ({ x: r1(d.x ?? p.x), y: r1(d.y ?? p.y), a: r1(d.a) })),
     })),
@@ -58,7 +58,7 @@ function lerpList(prevList, currList, t, angleKey) {
 export function applySnapshot(world, prev, curr, t) {
   const s = curr;
   Object.assign(world, { scene: s.scene, time: s.time, wave: s.wave, waveTimer: s.waveTimer, score: s.score, combo: s.combo, comboTimer: s.comboTimer, bossWarn: s.bossWarn, waveMode: s.waveMode, modeTimer: s.modeTimer, abandoned: !!s.abandoned, won: !!s.won, endless: !!s.endless,
-    arena: s.arena || 'space', waveTheme: s.waveTheme || null, event: s.event || null, dustBonus: s.dustBonus || 0, crate: s.crate || null, hole: s.hole || null, wells: s.wells || [], flare: s.flare || null, blizzard: s.blizzard || 0, wind: s.wind || null, eclipse: s.eclipse || 0 });
+    arena: s.arena || 'space', waveTheme: s.waveTheme || null, event: s.event || null, dustBonus: s.dustBonus || 0, crate: s.crate || null, hole: s.hole || null, wells: s.wells || [], flare: s.flare || null, drag: s.drag || 1, blizzard: s.blizzard || 0, wind: s.wind || null, eclipse: s.eclipse || 0 });
   if (s.stats) world.stats = s.stats;
   world.beacon = s.beacon && prev && prev.beacon ? { ...s.beacon, x: lerp(prev.beacon.x, s.beacon.x, t), y: lerp(prev.beacon.y, s.beacon.y, t) } : s.beacon;
   world.zones = (s.zones || []).slice(); world.safeZones = (s.safeZones || []).slice(); world.doom = s.doom || null;

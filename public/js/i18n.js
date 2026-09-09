@@ -48,6 +48,25 @@ const EXACT = {
   '護盾': 'Shielded', '易爆': 'Volatile', '疾速': 'Hasted', '相位 ': 'Phasing', '分裂': 'Splitting', '再生': 'Regen', '指揮官': 'Commander', '荊棘': 'Thorns',
 };
 const RULES = [
+  [/^(.+) 倒地 (\d+)s$/, (m) => `${m[1]} down ${m[2]}s`],
+  [/^(.+)：(\d+) 擊殺$/, (m) => `${m[1]}: ${m[2]} kills`],
+  [/^🏆 (.+) 第 (\d+) 名$/, (m) => `🏆 ${tr(m[1])} #${m[2]}`],
+  [/^第 (\d+) 名$/, (m) => `#${m[1]}`],
+  [/^星塵 \+(\d+)$/, (m) => `Stardust +${m[1]}`],
+  [/^含 (\d+) 星塵碎片$/, (m) => `incl. ${m[1]} dust shards`],
+  [/^全員出擊（(\d+) 人）$/, (m) => `Launch (${m[1]} players)`],
+  [/^散射 ×(\d+)$/, (m) => `Spread ×${m[1]}`],
+  [/^連射 (\d+)s$/, (m) => `Rapid ${m[1]}s`],
+  [/^護盾 ×(\d+)$/, (m) => `Shield ×${m[1]}`],
+  [/^雷射 (\d+)s$/, (m) => `Laser ${m[1]}s`],
+  [/^  剩餘 (\d+)$/, (m) => `  ${m[1]} left`],
+  [/^毀滅攻擊 (\d+)$/, (m) => `Doomsday ${m[1]}`],
+  [/^下一波倒數 (\d+)$/, (m) => `Next wave in ${m[1]}`],
+  [/^第 (\d+) 波 清除！$/, (m) => `Wave ${m[1]} cleared!`],
+  [/^等待其他玩家選擇強化（(\d+) 人尚未選擇）$/, (m) => `Waiting for others to pick (${m[1]} left)`],
+  [/^擊破殲滅者 Ω，撐過 (\d+) 波$/, (m) => `Annihilator Ω destroyed, ${m[1]} waves survived`],
+  [/^組合技 (.+)$/, (m) => `Synergy ${m[1].replace(/^(\S+) (.+)$/, (_, i, n) => i + ' ' + tr(n))}`],
+  [/^你的最佳：(\d+) 分（第 (\d+) 波）· 全部時間第 (\d+) 名 · 共 (\d+) 局$/, (m) => `Your best: ${m[1]} (wave ${m[2]}) · all-time #${m[3]} · ${m[4]} runs`],
   [/^第 (\d+) 波$/, (m) => `Wave ${m[1]}`],
   [/^第 (\d+) 波 · (.+)$/, (m) => `Wave ${m[1]} · ${tr(m[2])}`],
   [/^第 (\d+) 波 清除！$/, (m) => `Wave ${m[1]} cleared!`],
@@ -60,7 +79,7 @@ const RULES = [
   [/^敵方小隊：(.+)$/, (m) => `Enemy squad: ${tr(m[1])}`],
   [/^(.+) 成功 \+(\d+)$/, (m) => `${tr(m[1])} success +${m[2]}`],
   [/^(.+) 失敗$/, (m) => `${tr(m[1])} failed`],
-  [/^(.+) 擊破 \+(\d+)$/, (m) => `${m[1]} destroyed +${m[2]}`],
+  [/^(.+) 擊破 \+(\d+)$/, (m) => `${tr(m[1])} destroyed +${m[2]}`],
   [/^組合技 (.+)！$/, (m) => `Synergy ${m[1]}!`],
   [/^武器進化 (.+)！$/, (m) => `Weapon evolved: ${tr(m[1].replace(/^\S+ /, ''))}!`],
   [/^效果拔群 ×([\d.]+)$/, (m) => `Super effective ×${m[1]}`],
@@ -94,6 +113,22 @@ const RULES = [
   [/^(.+)（目前：(.+)）$/, (m) => `${tr(m[1])} (now: ${tr(m[2])})`],
 ];
 /** 翻譯一段顯示文字（中文 → 目前語言） */
+import { EXTRA, RULES_EXTRA } from './i18n-extra.js';
+Object.assign(EXACT, {
+  '遊玩說明': 'How to play', '隱私說明': 'Privacy', '衝刺': 'Dash', '閃現': 'Blink', '衝刺 (Shift)': 'Dash (Shift)', '閃現 (空白鍵)': 'Blink (Space)',
+  '複製邀請連結': 'Copy invite link', '從 Boss 戰開始（Boss 挑戰）': 'Start at the boss fight (Boss rush)', '公開房間（會出現在公開房間列表，讓其他玩家加入）': 'Public room (listed so other players can join)',
+  '出擊': 'Launch', '等待房主開始…': 'Waiting for the host…', '離開房間': 'Leave room', '重新整理': 'Refresh', '敵人': 'Enemies', '場地': 'Arenas', '事件': 'Events', '屬性相剋': 'Elements',
+  '機體（點選出擊用的機體，每台玩法不同）': 'Ships (pick one to fly; each plays differently)', '主武器（每把武器對升級的反應都不同）': 'Main weapon (each reacts differently to upgrades)', '塗裝（純外觀）': 'Skins (cosmetic)', '永久強化（每局開局自動套用）': 'Perks (applied at the start of every run)', '帳號轉移（換裝置繼續累積）': 'Account transfer (continue on another device)',
+  '你的進度綁在這台裝置的匿名帳號上。要在另一台裝置繼續，複製下面的轉移碼貼到那邊的「匯入」即可。轉移碼等同帳號密碼，不要公開。': 'Your progress is tied to this device\'s anonymous account. To continue on another device, copy the transfer code below and paste it into "Import" there. The code works like a password — keep it private.',
+  '複製': 'Copy', '匯入': 'Import', '貼上另一台裝置的轉移碼': 'Paste the transfer code from another device', '今日排行榜': 'Today\'s leaderboard', '請將手機轉成橫向遊玩': 'Rotate your phone to landscape',
+  'WASD / 方向鍵 移動 · 滑鼠 瞄準射擊 · Shift 衝刺 · Esc 選單': 'WASD / arrows move · mouse aims & fires · Shift dash · Esc menu', '單獨出擊（可等朋友加入）': 'Launch solo (friends can still join)',
+  '救援中…': 'Reviving…', '靠近 3 秒救援': 'Stay close 3 s to revive', '安全區': 'Safe zone', '進入白色安全區！其他地方會被打到只剩 1 點生命': 'Get into a white safe zone! Everywhere else drops you to 1 HP', '運輸艦': 'Convoy', '🔇 靜音 (M)': '🔇 Muted (M)', '偵測到巨型敵艦接近': 'Massive enemy vessel approaching', '  · 隱形': '  · CLOAKED',
+  '選擇一項強化（點擊卡片或按 1 / 2 / 3）': 'Pick an upgrade (click a card or press 1 / 2 / 3)', '突圍成功': 'BREAKOUT!', '無盡模式終結': 'Endless run over', '已離開戰鬥': 'Left the fight', '撤退': 'Retreated', '全員陣亡': 'Squad wiped', '艦艇損毀': 'Ship destroyed',
+  '合作排行榜': 'Co-op leaderboard', '今日挑戰': 'Daily challenge', '單人排行榜': 'Solo leaderboard', '合作成績會在隊伍結束時一併結算，你的擊殺數會計入': 'Co-op results are tallied when the team finishes; your kills count',
+  '每日挑戰結束 · L 今日排行榜 · 點擊 或 Esc 回到選單': 'Daily challenge over · L today\'s board · click or Esc for menu', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到大廳': 'Click or Enter to play again · L leaderboard · Esc lobby', '等待房主再開一局 · L 排行榜 · Esc 回到大廳': 'Waiting for the host to restart · L leaderboard · Esc lobby', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到選單': 'Click or Enter to play again · L leaderboard · Esc menu',
+  '暫停': 'Paused', '按 P 繼續': 'Press P to resume',
+}, EXTRA);
+RULES.push(...RULES_EXTRA);
 export function tr(text) {
   if (lang === 'zh' || text == null) return text;
   const s = String(text);

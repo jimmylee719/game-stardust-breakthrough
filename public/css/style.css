@@ -4,7 +4,7 @@ html, body { width: 100%; height: 100%; background: var(--bg); overflow: hidden;
 canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 #hint { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.35); font-size: 12px; letter-spacing: .1em; pointer-events: none; user-select: none; }
 
-.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: auto; }
 .overlay[hidden] { display: none; }
 .panel { text-align: center; width: min(92vw, 460px); max-height: 94vh; overflow-y: auto; padding: 28px 32px; border-radius: 20px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); box-shadow: 0 0 60px color-mix(in srgb, var(--accent) 20%, transparent); backdrop-filter: blur(6px); }
 .panel h1 { font-size: 56px; letter-spacing: .08em; text-shadow: 0 0 30px color-mix(in srgb, var(--accent) 80%, transparent); }
@@ -138,7 +138,29 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 .transfer .row button { flex: 0 0 auto; padding: 9px 14px; }
 
 /* 首頁：不捲動，整塊依視窗自動縮放；按鈕邊距統一 */
-.panel.fit { position: relative; max-height: none; overflow: visible; transform-origin: center center; padding: 24px 34px 22px; }
+.fitbox { flex: 0 0 auto; margin: auto; }
+.panel.fit { position: relative; max-height: none; overflow: visible; padding: 22px 30px 18px; width: min(96vw, 460px); }
+.panel.fit .cols { display: grid; grid-template-columns: 1fr; gap: 0 36px; align-items: start; }
+.panel.fit .col { min-width: 0; }
+.panel.fit .row.main { margin-top: 14px; }
+/* 寬螢幕：兩欄，把左右空間用起來（左：標題／出擊；右：場地／連線） */
+@media (min-width: 760px) {
+  .panel.fit { width: min(96vw, 1040px); padding: 26px 40px 18px; }
+  .panel.fit .cols { grid-template-columns: 1fr 1.15fr; }
+  .panel.fit .col:first-child { padding-top: 6px; }
+  .panel.fit .col:last-child { padding-top: 10px; }
+  .panel.fit .col:last-child .divider.tight { margin-top: 0; }
+  .panel.fit .arenas { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .panel.fit .arena { padding: 10px 6px 8px; }
+  .panel.fit .arena .ic { font-size: 30px; }
+  .panel.fit .arena .nm { font-size: 13px; margin-top: 6px; }
+  .panel.fit .arena-desc { font-size: 12px; min-height: 3.2em; }
+  .panel.fit .row.meta.three button { font-size: 14px; }
+}
+@media (min-width: 1200px) {
+  .panel.fit { width: min(94vw, 1120px); }
+  .panel.fit h1 { font-size: 60px; }
+}
 .panel.fit h1 { font-size: 52px; }
 .panel.fit .sub { margin-bottom: 18px; }
 .panel.fit .divider { margin: 20px 0 12px; }

@@ -266,4 +266,18 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (!marked || !exploded) fail('迫擊砲應先標記再爆炸');
   console.log('sniper & mortar ok');
 }
+// 20. 太陽風暴是以畫面外太陽為圓心的弧形帶：中線玩家先中、偏離中線的玩家晚一點才中；同一玩家只中一次
+{
+  const { world, p } = mk({ arena: 'mercury', wave: 3 });
+  addPlayer(world, { id: 2, name: 'U', local: false }); const q = world.players[1];
+  for (const z of [p, q]) { z.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; z.inv = 0; z.shield = 0; z.x = 500; }
+  p.y = world.H / 2; q.y = world.H / 2 + 300; const hp0 = p.hp, hq0 = q.hp;
+  world.flare = { x: -60, sx: -760, dir: 1, w: 90, t: 0, speed: 280, hit: [] };
+  let hitP = null, hitQ = null;
+  for (let i = 0; i < 60 * 4 && (hitP === null || hitQ === null); i++) { update(world, 1 / 60, fx); if (hitP === null && p.hp < hp0) hitP = world.flare.x; if (hitQ === null && q.hp < hq0) hitQ = world.flare.x; }
+  if (hitP === null || hitQ === null) fail('弧形太陽風暴應打到兩位玩家');
+  if (!(hitQ > hitP + 20)) fail(`偏離中線的玩家應比中線玩家晚中（弧形）：mid ${hitP.toFixed(0)} off ${hitQ.toFixed(0)}`);
+  step(world, 30); if (world.flare && world.flare.hit.length !== 2) fail('每位玩家只該被打一次');
+  console.log('solar flare arc ok', Math.round(hitP), Math.round(hitQ));
+}
 console.log('PASS');

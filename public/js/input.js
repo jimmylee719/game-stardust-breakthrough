@@ -49,7 +49,7 @@ export function attachInput(canvas, toWorld, handlers) {
     handlers.onKeyDown?.(e.code, e);
   });
   window.addEventListener('keyup', e => { keys[e.code] = false; });
-  window.addEventListener('blur', () => { for (const k of Object.keys(keys)) keys[k] = false; mouse.down = false; touch.move = touch.aim = null; touch.dash = false; handlers.onBlur?.(); });
+  window.addEventListener('blur', () => { for (const k of Object.keys(keys)) keys[k] = false; mouse.down = false; touch.move = touch.aim = null; touch.dash = touch.blink = false; touch.dashId = touch.blinkId = null; handlers.onBlur?.(); });
   canvas.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
   canvas.addEventListener('mousedown', e => { updateMouse(e.clientX, e.clientY); if (e.button === 0) mouse.down = true; handlers.onMouseDown?.(e.button, e); });
   window.addEventListener('mouseup', () => { mouse.down = false; });
@@ -71,8 +71,9 @@ export function attachInput(canvas, toWorld, handlers) {
     for (const t of e.changedTouches) {
       const x = t.clientX - r.left, y = t.clientY - r.top;
       if (inCircle(x, y, L.menu)) { handlers.onMenuTap?.(); continue; }
-      if (inCircle(x, y, L.dash)) { touch.dash = true; touch.dashId = t.identifier; continue; }
-      if (inCircle(x, y, L.blink)) { touch.blink = true; touch.blinkId = t.identifier; continue; }
+      const tapScene = handlers.isTapScene?.();
+      if (!tapScene && inCircle(x, y, L.dash)) { touch.dash = true; touch.dashId = t.identifier; continue; }
+      if (!tapScene && inCircle(x, y, L.blink)) { touch.blink = true; touch.blinkId = t.identifier; continue; }
       // 非遊戲場景（升級卡、結算）：當成點擊
       if (handlers.isTapScene?.()) { updateMouse(t.clientX, t.clientY); handlers.onMouseDown?.(0, e); continue; }
       const stick = { id: t.identifier, ox: x, oy: y, x, y, dx: 0, dy: 0, mag: 0 };
@@ -100,7 +101,7 @@ export function attachInput(canvas, toWorld, handlers) {
       if (touch.move && touch.move.id === t.identifier) touch.move = null;
       if (touch.aim && touch.aim.id === t.identifier) touch.aim = null;
       if (touch.dashId === t.identifier) { touch.dash = false; touch.dashId = null; }
-      if (touch.blinkId === t.identifier) { touch.blinkId = null; }
+      if (touch.blinkId === t.identifier) { touch.blink = false; touch.blinkId = null; }
     }
   };
   canvas.addEventListener('touchend', end, { passive: false });

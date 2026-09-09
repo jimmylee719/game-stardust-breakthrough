@@ -44,8 +44,8 @@ export const ENEMY_TYPES = {
   spore:    { r: 26, hp: 60, speed: 35,  color: '#3ddc84', score: 40, kind: 'spore', contact: 15, name: '孢子母體', atk: '釋放追蹤孢子；死亡時炸出毒區', element: 'toxic' },
   angler:   { r: 28, hp: 95, speed: 45,  color: '#4cc9f0', score: 60, kind: 'angler', contact: 26, name: '燈籠魚', atk: '燈籠會把靠近的機體拉過去咬', element: 'water' },
   frostbite:{ r: 17, hp: 32, speed: 190, color: '#b8ffff', score: 35, kind: 'chase', contact: 12, name: '霜噬', atk: '撞到會讓你短暫凍住；射冰刺減速', element: 'ice', freezeTouch: true },
-  lancer:   { r: 20, hp: 46, speed: 75,  color: '#e040fb', score: 45, kind: 'lancer', contact: 18 },   // 雷射兵：遠距預警後發射貫穿雷射
-  bounty:   { r: 24, hp: 240, speed: 250, color: '#ffd166', score: 300, kind: 'flee', contact: 20 },   // 懸賞目標：逃跑、閃現、還擊
+  lancer:   { r: 20, hp: 46, speed: 75,  color: '#e040fb', score: 45, kind: 'lancer', contact: 18, name: '雷射兵', atk: '遠距預警後發射貫穿雷射', element: 'plasma' },   // 雷射兵：遠距預警後發射貫穿雷射
+  bounty:   { r: 24, hp: 240, speed: 250, color: '#ffd166', score: 300, kind: 'flee',   contact: 20, name: '懸賞目標', atk: '逃跑、閃現、還擊；限時擊殺有額外分數', element: 'neutral' },   // 懸賞目標：逃跑、閃現、還擊
 };
 
 /** 難度曲線：隨波次成長的倍率（玩家升級變強，敵人也要跟上） */
@@ -189,7 +189,7 @@ export const UPGRADES = [
  */
 export const PERKS = [
   { id: 'armor',  icon: '🛡️', name: '裝甲塗層', max: 3, cost: [200, 400, 800],  desc: l => `最大生命 +${l * 10}`, apply: (p, l) => { p.maxHp += 10 * l; p.hp = p.maxHp; } },
-  { id: 'shield', icon: '🔵', name: '起始護盾', max: 1, cost: [300],            desc: () => '每局開局自帶 1 層護盾', apply: (p, l) => { p.shield += l; } },
+  { id: 'shield', icon: '🔵', name: '起始護盾', max: 1, cost: [300],            desc: () => '每局開局自帶 1 層護盾', apply: (p, l) => { if (!p.flags || !p.flags.noShield) p.shield += l; } },
   { id: 'magnet', icon: '🧭', name: '牽引器',   max: 2, cost: [250, 500],       desc: l => `道具吸附範圍 +${l * 30}%`, apply: (p, l) => { p.magnetR *= 1 + 0.3 * l; } },
   { id: 'dash',   icon: '⚡', name: '推進冷卻', max: 2, cost: [350, 700],       desc: l => `衝刺冷卻 -${l * 10}%`, apply: (p, l) => { p.dashCdMax *= 1 - 0.1 * l; } },
   { id: 'luck',   icon: '🍀', name: '幸運星',   max: 2, cost: [400, 800],       desc: l => `道具掉落率 +${l * 25}%`, apply: (p, l) => { p.luck = 0.25 * l; } },
@@ -209,7 +209,7 @@ export const SHIPS = [
   { id: 'bastion', icon: '🛡️', name: '堡壘',   cost: 800,  desc: '重裝：生命 170、傷害 +30%，正面 120° 能量盾擋住敵彈；閃現變成盾擊（短距衝撞、擊退並傷害）；速度 -20%、射速 -25%', trait: '正面護盾',
     stats: { hp: 1.7, speed: 0.8, fire: 0.75, dmg: 1.3 }, apply: p => { p.maxHp = 170; p.hp = 170; p.speedMul *= 0.8; p.fireRate *= 1.33; p.damage *= 1.3; p.bulletSize += 0.3; p.dashCdMax = 1.6; p.r = 16; p.flags.frontShield = true; p.flags.shieldBash = true; } },
   { id: 'carrier', icon: '🛸', name: '母艦',   cost: 1200, desc: '航艦：自身武器傷害 -35%，但開局 3 台僚機、僚機繼承主武器屬性且傷害 ×1.4，「無人僚機」升級每級 +2 台；生命 110', trait: '僚機艦隊',
-    stats: { hp: 1.1, speed: 0.95, fire: 0.85, dmg: 0.65 }, apply: p => { p.maxHp = 110; p.hp = 110; p.speedMul *= 0.95; p.damage *= 0.65; p.flags.droneBoost = true; for (let i = 0; i < 3; i++) p.drones.push({ a: i * TAU / 3, cd: 0.2 * i, x: p.x, y: p.y }); } },
+    stats: { hp: 1.1, speed: 0.95, fire: 0.85, dmg: 0.65 }, apply: p => { p.maxHp = 110; p.hp = 110; p.speedMul *= 0.95; p.fireRate *= 1.18; p.damage *= 0.65; p.flags.droneBoost = true; for (let i = 0; i < 3; i++) p.drones.push({ a: i * TAU / 3, cd: 0.2 * i, x: p.x, y: p.y }); } },
   { id: 'ronin',   icon: '⚔️', name: '劍聖',   cost: 1500, desc: '只能用光刃：光刃傷害 ×2、每次命中回 2 生命、衝刺帶斬擊、格擋子彈回 1 生命；生命 120；不能裝其他武器', trait: '純近戰',
     stats: { hp: 1.2, speed: 1.1, fire: 1, dmg: 2 }, apply: p => { p.maxHp = 120; p.hp = 120; p.speedMul *= 1.1; p.weapon = 'blade'; p.flags.meleeOnly = true; p.flags.bladeMaster = true; p.flags.dashSlash = true; } },
   { id: 'wraith',  icon: '👻', name: '幽靈',   cost: 1500, desc: '玻璃大砲：生命 60、永遠沒有護盾，但閃現冷卻 0.6 秒、每次擊殺重置閃現；傷害 +15%', trait: '無限閃現',

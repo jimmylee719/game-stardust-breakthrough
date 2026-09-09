@@ -8,6 +8,8 @@ const TICK_DT = 1 / TICK_RATE;
 const FIELDS = ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'r', 'speedMul', 'dashCdMax', 'color', 'blinkCd', 'blinkCdMax', 'emp', 'frozen', 'hexed'];
 
 export function createPredictor(world) {
+  const NO_ENEMIES = [];
+  const runStep = input => { const saved = world.enemies; world.enemies = NO_ENEMIES; try { stepPlayer(world, st, input, TICK_DT, NULL_FX); } finally { world.enemies = saved; } };
   const st = { x: 0, y: 0, vx: 0, vy: 0, dashing: 0, dashCd: 0, inv: 0, r: 14, speedMul: 1, dashCdMax: 1.2, color: '#fff', angle: 0, blinkCd: 0, blinkCdMax: 3, blinkFlash: 0, syn: {}, flags: {}, dashHits: new Set(), turrets: [], emp: 0, frozen: 0, hexed: 0 };
   let seq = 0, acc = 0, pending = [], lastAck = -1, smoothX = 0, smoothY = 0, ready = false;
 
@@ -25,7 +27,7 @@ export function createPredictor(world) {
       while (acc >= TICK_DT && guard++ < 4) {
         const input = buildInput(st);
         seq++;
-        stepPlayer(world, st, input, TICK_DT, NULL_FX);
+        runStep(input);
         pending.push({ seq, input });
         out.push({ ...input, seq });
         acc -= TICK_DT;
@@ -47,9 +49,11 @@ export function createPredictor(world) {
       const beforeX = st.x + smoothX, beforeY = st.y + smoothY;
       // 以權威狀態為起點
       for (const f of ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'speedMul', 'dashCdMax', 'blinkCd', 'blinkCdMax', 'emp', 'frozen', 'hexed']) st[f] = serverMe[f] !== undefined ? serverMe[f] : (f === 'emp' || f === 'frozen' || f === 'hexed' ? 0 : st[f]);
-      if (serverMe.fs) st.flags.frontShield = true; st.flags.shieldBash = !!serverMe.fs;
+      st.flags.frontShield = !!serverMe.fs; st.flags.shieldBash = !!serverMe.sb;
+      if (serverMe.speedMul === undefined) st.speedMul = 1;
+      if (Array.isArray(serverMe.syn)) st.syn = Object.fromEntries(serverMe.syn.map(id => [id, true]));
       pending = pending.filter(q => q.seq > ack);
-      for (const q of pending) stepPlayer(world, st, q.input, TICK_DT, NULL_FX);
+      for (const q of pending) runStep(q.input);
       // 校正差異放進平滑偏移；差太大（被撞飛、瞬移）就直接跳
       const dx = beforeX - st.x, dy = beforeY - st.y;
       if (Math.hypot(dx, dy) < 120) { smoothX = dx; smoothY = dy; } else { smoothX = smoothY = 0; }

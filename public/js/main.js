@@ -37,7 +37,9 @@ let net = null;
 let myId = 1;
 let hostId = null;
 let fx = createFx(myId);
-let best = +(localStorage.getItem('stardust_best') || 0);
+const lsGet = (k, d = null) => { try { return lsGet(k) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { lsSet(k, v); } catch {} };
+let best = +(lsGet('stardust_best') || 0);
 let uiTime = 0;
 const predictor = createPredictor(world);
 let lastSnapSeen = -1;
@@ -45,10 +47,10 @@ let toastTimer = 0;
 let lastResult = null;   // 結算畫面用：{ rank, mode }
 let leftTeam = false;    // 多人：主動離開隊伍後的本機結算畫面
 let soloSubmitted = false;
-let ship = localStorage.getItem('stardust_ship') || 'falcon';   // 出擊用的機體
-let weapon = localStorage.getItem('stardust_weapon') || 'blaster';   // 出擊用的主武器
-let skin = localStorage.getItem('stardust_skin') || 'classic';       // 塗裝
-let arena = localStorage.getItem('stardust_arena') || 'space';       // 場地
+let ship = lsGet('stardust_ship') || 'falcon';   // 出擊用的機體
+let weapon = lsGet('stardust_weapon') || 'blaster';   // 出擊用的主武器
+let skin = lsGet('stardust_skin') || 'classic';       // 塗裝
+let arena = lsGet('stardust_arena') || 'space';       // 場地
 let runKind = 'solo';
 let runStartedAt = 0;   // 事件記錄用    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
@@ -63,7 +65,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 function takeName() {
   const name = sanitizeName(nameInput.value);
   nameInput.value = name;
-  localStorage.setItem('stardust_name', name);
+  lsSet('stardust_name', name);
   ensureAccount(name);   // 背景同步匿名帳號（首次自動註冊）
   return name;
 }
@@ -78,11 +80,11 @@ function renderArenas(container, current, onPick, disabled = false) {
   if (!d || !d.classList.contains('arena-desc')) { d = document.createElement('div'); d.className = 'arena-desc'; container.after(d); }
   d.textContent = `${tr(A.desc)}${getLang() === 'zh' ? '。' + A.hazard : ''}`;
 }
-function renderMenuArenas() { renderArenas($('arena-cards'), arena, id => { arena = id; localStorage.setItem('stardust_arena', id); renderMenuArenas(); requestAnimationFrame(fitMenu); }); }
+function renderMenuArenas() { renderArenas($('arena-cards'), arena, id => { arena = id; lsSet('stardust_arena', id); renderMenuArenas(); requestAnimationFrame(fitMenu); }); }
 
 // ---------- 選單 ----------
 nameInput.maxLength = NAME_MAX_LEN;
-nameInput.value = localStorage.getItem('stardust_name') || '';
+nameInput.value = lsGet('stardust_name') || '';
 codeInput.value = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
 function showMenu(msg = '') {
   if (net) { net.close(); net = null; }
@@ -116,13 +118,17 @@ function toggleFullscreen() {
 }
 /** 首頁面板：依視窗大小整塊縮放，保證所有資訊同時看得到、不出現捲軸 */
 function fitMenu() {
-  const panel = menuEl.querySelector('.panel');
+  const box = menuEl.querySelector('.fitbox'), panel = box && box.querySelector('.panel');
   if (!panel || menuEl.hidden) return;
-  panel.style.transform = 'none';
-  const s = Math.min(1, (innerHeight - 20) / panel.offsetHeight, (innerWidth - 12) / panel.offsetWidth);
-  panel.style.transform = s < 1 ? `scale(${s.toFixed(3)})` : 'none';
+  // 用 zoom（會跟著改版面尺寸，置中正確、放得下就不會出現捲軸）；入場動畫的 transform 在 .panel 上，不會互相覆蓋
+  box.style.zoom = '1';
+  const s = Math.min(1, (innerHeight - 16) / panel.offsetHeight, (innerWidth - 12) / panel.offsetWidth);
+  box.style.zoom = s < 1 ? Math.max(0.5, s).toFixed(3) : '1';   // 最小縮到 0.5，再放不下就讓覆蓋層捲動
 }
-window.addEventListener('resize', fitMenu);
+// resize 事件有時在版面重排前就觸發（媒體查詢切欄、字型載入）→ 下一幀再量一次，並用 ResizeObserver 盯著面板尺寸
+window.addEventListener('resize', () => { fitMenu(); requestAnimationFrame(fitMenu); setTimeout(fitMenu, 150); setTimeout(fitMenu, 450); });
+if ('ResizeObserver' in window) { const ro = new ResizeObserver(() => fitMenu()); const pn = menuEl.querySelector('.panel'); if (pn) ro.observe(pn); }
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitMenu());
 document.addEventListener('fullscreenchange', () => { fitMenu(); const b = $('fs-toggle'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶'; });
 $('fs-toggle').addEventListener('click', toggleFullscreen);
 $('lang-toggle').addEventListener('click', () => { setLang(getLang() === 'zh' ? 'en' : 'zh'); });
@@ -155,10 +161,10 @@ function renderSkins() {
   for (const el of $('skin-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.skin;
     $('hangar-err').textContent = '';
-    if (skinUnlocked(id, profile.unlocks)) { skin = id; localStorage.setItem('stardust_skin', id); ensureAudio(); renderSkins(); return; }
+    if (skinUnlocked(id, profile.unlocks)) { skin = id; lsSet('stardust_skin', id); ensureAudio(); renderSkins(); return; }
     const s = skinById(id);
     if (profile.dust < s.cost) { $('hangar-err').textContent = `星塵不足，解鎖 ${s.name} 塗裝需要 ${s.cost}`; return; }
-    try { await buyPerk('skin:' + id); skin = id; localStorage.setItem('stardust_skin', id); ensureAudio(); renderHangar(); toast(`已解鎖塗裝 ${s.name}`); }
+    try { await buyPerk('skin:' + id); skin = id; lsSet('stardust_skin', id); ensureAudio(); renderHangar(); toast(`已解鎖塗裝 ${s.name}`); }
     catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', offline: '目前離線，無法解鎖' }[e.message] || e.message; }
   });
 }
@@ -175,10 +181,10 @@ function renderWeapons() {
   for (const el of $('weapon-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.weapon;
     $('hangar-err').textContent = '';
-    if (weaponUnlocked(id, profile.unlocks)) { weapon = id; localStorage.setItem('stardust_weapon', id); ensureAudio(); renderWeapons(); return; }
+    if (weaponUnlocked(id, profile.unlocks)) { weapon = id; lsSet('stardust_weapon', id); ensureAudio(); renderWeapons(); return; }
     const w = weaponById(id);
     if (profile.dust < w.cost) { $('hangar-err').textContent = `星塵不足，解鎖 ${w.name} 需要 ${w.cost}`; return; }
-    try { await buyPerk('weapon:' + id); weapon = id; localStorage.setItem('stardust_weapon', id); ensureAudio(); renderHangar(); toast(`已解鎖 ${w.icon} ${w.name}`); }
+    try { await buyPerk('weapon:' + id); weapon = id; lsSet('stardust_weapon', id); ensureAudio(); renderHangar(); toast(`已解鎖 ${w.icon} ${w.name}`); }
     catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', offline: '目前離線，無法解鎖' }[e.message] || e.message; }
   });
   $('xfer-code').value = exportCode();
@@ -194,10 +200,10 @@ function renderShips() {
   for (const el of $('ship-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.ship;
     $('hangar-err').textContent = '';
-    if (shipUnlocked(id, profile.unlocks)) { ship = id; localStorage.setItem('stardust_ship', id); ensureAudio(); renderShips(); renderWeapons(); return; }
+    if (shipUnlocked(id, profile.unlocks)) { ship = id; lsSet('stardust_ship', id); ensureAudio(); renderShips(); renderWeapons(); return; }
     const s = shipById(id);
     if (profile.dust < s.cost) { $('hangar-err').textContent = `星塵不足，解鎖 ${s.name} 需要 ${s.cost}`; return; }
-    try { await buyPerk('ship:' + id); ship = id; localStorage.setItem('stardust_ship', id); ensureAudio(); renderHangar(); toast(`已解鎖 ${s.icon} ${s.name}`); }
+    try { await buyPerk('ship:' + id); ship = id; lsSet('stardust_ship', id); ensureAudio(); renderHangar(); toast(`已解鎖 ${s.icon} ${s.name}`); }
     catch (e) { $('hangar-err').textContent = { 'not enough dust': '星塵不足', offline: '目前離線，無法解鎖' }[e.message] || e.message; }
   });
 }
@@ -228,7 +234,7 @@ $('hangar-close').addEventListener('click', () => { hangarEl.hidden = true; rend
 $('xfer-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('xfer-code').value); toast('已複製轉移碼'); } catch { $('xfer-code').select(); } });
 $('xfer-import').addEventListener('click', async () => {
   $('hangar-err').textContent = '';
-  try { const me = await importCode($('xfer-in').value); nameInput.value = me.name; localStorage.setItem('stardust_name', me.name); $('xfer-in').value = ''; renderHangar(); toast(`已切換到 ${me.name} 的帳號`); }
+  try { const me = await importCode($('xfer-in').value); nameInput.value = me.name; lsSet('stardust_name', me.name); $('xfer-in').value = ''; renderHangar(); toast(`已切換到 ${me.name} 的帳號`); }
   catch (e) { $('hangar-err').textContent = /unauthorized|HTTP/.test(e.message) ? '轉移碼無效' : e.message; }
 });
 
@@ -370,7 +376,7 @@ function beginOnline(code) {
       $('lobby-start').hidden = !host; $('lobby-boss-row').hidden = !host; $('lobby-public-row').hidden = !host;
       $('lobby-public').checked = roomPublic;
       $('lobby-wait').hidden = host;
-      $('lobby-start').textContent = m.players.length === 1 ? '單獨出擊（可等朋友加入）' : `全員出擊（${m.players.length} 人）`;
+      $('lobby-start').textContent = tr(m.players.length === 1 ? '單獨出擊（可等朋友加入）' : `全員出擊（${m.players.length} 人）`);
       renderArenas($('lobby-arena'), roomArena, id => net?.send({ t: 'arena', id }), !host);
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
@@ -470,13 +476,13 @@ function finishSoloRun() {
   if (soloSubmitted) return;
   soloSubmitted = true;
   track('run_end', runEndProps(world.abandoned ? 'abandon' : world.won ? (world.endless ? 'endless' : 'victory') : 'dead'));
-  if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); }
+  if (world.score > best) { best = world.score; lsSet('stardust_best', String(best)); }
   const kind = runKind, day = dailyInfo?.key || null;
-  submitRun(world.score + (world.dustBonus || 0) * 0, world.wave, { mode: kind, day }).then(r => {
+  submitRun(world.score, world.wave, { mode: kind, day, dustBonus: world.dustBonus || 0 }).then(r => {
     if (!r) return;
-    lastResult = { rank: r.rank, mode: kind, dust: r.dust + (world.dustBonus || 0) };
+    lastResult = { rank: r.rank, mode: kind, dust: r.dust };
     renderDust();
-    toast(`${kind === 'daily' ? '今日挑戰' : '單人排行榜'}${r.rank ? ` 第 ${r.rank} 名` : ''} · 星塵 +${r.dust}${world.dustBonus ? ` (+${world.dustBonus} 星塵碎片)` : ''}`, 4000);
+    toast(`${tr(kind === 'daily' ? '今日挑戰' : '單人排行榜')}${r.rank ? ' ' + tr(`第 ${r.rank} 名`) : ''} · ${tr(`星塵 +${r.dust}`)}${r.bonus ? ` (${tr(`含 ${r.bonus} 星塵碎片`)})` : ''}`, 4000);
   });
   reportMeta();
 }
@@ -513,7 +519,7 @@ attachInput(canvas, renderer.toWorld, {
       else openPause();
       return;
     }
-    if (!pauseEl.hidden || !settingsEl.hidden) return;
+    if (overlayOpen()) return;
     if (code === 'KeyL' && world.scene === 'gameover') { lb.mode = leftTeam || mode === 'online' ? 'coop' : runKind; openLeaderboard(); return; }
     if (code === 'KeyM') toggleMute();
     if (code === 'KeyP' && mode === 'solo') { if (world.scene === 'pause') closePause(); else openPause(); }
@@ -556,6 +562,10 @@ window.addEventListener('resize', renderer.resize);
 renderer.resize();
 let last = performance.now();
 function loop(now) {
+  requestAnimationFrame(loop);
+  try { frame(now); } catch (e) { if (!loop.errCount) loop.errCount = 0; if (loop.errCount++ < 3) console.error('frame error', e); }
+}
+function frame(now) {
   const rawDt = Math.min(0.05, (now - last) / 1000); last = now;
   uiTime += rawDt; trackFrame((now - last + rawDt * 1000) / 1000);
   const p = me();
@@ -574,7 +584,7 @@ function loop(now) {
     const mine = me();
     if (mine && !mine.downed) predictor.applyTo(mine);
     if (net.curr && (world.scene === 'play' || world.scene === 'upgrade') && !lobbyEl.hidden) lobbyEl.hidden = true;
-    if (prevScene !== 'gameover' && world.scene === 'gameover') { if (world.score > best) { best = world.score; localStorage.setItem('stardust_best', String(best)); } track('run_end', { ...runEndProps(world.won ? 'victory' : 'dead'), mode: 'coop' }); reportMeta(); }
+    if (prevScene !== 'gameover' && world.scene === 'gameover') { if (world.score > best) { best = world.score; lsSet('stardust_best', String(best)); } track('run_end', { ...runEndProps(world.won ? 'victory' : 'dead'), mode: 'coop' }); reportMeta(); }
     updateEffects(rawDt);
     renderer.updateStars(rawDt, mine);
   } else if (world.scene === 'play') {
@@ -595,7 +605,6 @@ function loop(now) {
   decayEffects(rawDt);
   setMood(world.scene === 'menu' || !menuEl.hidden ? 'menu' : world.scene === 'gameover' || world.scene === 'victory' ? 'over' : (world.bosses && world.bosses.length) || world.bossWarn > 0 ? 'boss' : 'play');
   renderer.draw({ time: uiTime, mouse, me: me(), best, muted: isMuted(), online: mode === 'online', isHost: hostId === myId, result: lastResult, left: leftTeam, daily: runKind === 'daily', arena });
-  requestAnimationFrame(loop);
 }
 showMenu();
 if (codeInput.value) $('join').click(); // 用邀請連結進來：自動加入

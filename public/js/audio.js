@@ -3,10 +3,12 @@
 // 整體音量刻意小（有聽到就好）。
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let actx = null, master = null, sfxGain = null, musicGain = null;
+const lsGet = (k, d = null) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { lsSet(k, v); } catch {} };
 const settings = {
-  muted: localStorage.getItem('stardust_muted') === '1',
-  music: Number(localStorage.getItem('stardust_music') ?? 35),   // 0–100
-  sfx: localStorage.getItem('stardust_sfx') !== '0',
+  muted: lsGet('stardust_muted') === '1',
+  music: Number(lsGet('stardust_music') ?? 35),   // 0–100
+  sfx: lsGet('stardust_sfx') !== '0',
 };
 
 export function ensureAudio() {
@@ -22,11 +24,11 @@ export function ensureAudio() {
 }
 const musicLevel = () => (settings.music / 100) * 0.45;   // 預設 35% → 0.16，刻意小聲
 export function isMuted() { return settings.muted; }
-export function toggleMute() { settings.muted = !settings.muted; localStorage.setItem('stardust_muted', settings.muted ? '1' : '0'); if (master) master.gain.setTargetAtTime(settings.muted ? 0 : 1, actx.currentTime, 0.05); return settings.muted; }
+export function toggleMute() { settings.muted = !settings.muted; lsSet('stardust_muted', settings.muted ? '1' : '0'); if (master) master.gain.setTargetAtTime(settings.muted ? 0 : 1, actx.currentTime, 0.05); return settings.muted; }
 export function getMusicVolume() { return settings.music; }
-export function setMusicVolume(v) { settings.music = Math.max(0, Math.min(100, Number(v) || 0)); localStorage.setItem('stardust_music', String(settings.music)); if (musicGain) musicGain.gain.setTargetAtTime(musicLevel(), actx.currentTime, 0.1); }
+export function setMusicVolume(v) { settings.music = Math.max(0, Math.min(100, Number(v) || 0)); lsSet('stardust_music', String(settings.music)); if (musicGain) musicGain.gain.setTargetAtTime(musicLevel(), actx.currentTime, 0.1); }
 export function getSfxEnabled() { return settings.sfx; }
-export function setSfxEnabled(on) { settings.sfx = !!on; localStorage.setItem('stardust_sfx', on ? '1' : '0'); if (sfxGain) sfxGain.gain.setTargetAtTime(on ? 1 : 0, actx.currentTime, 0.05); }
+export function setSfxEnabled(on) { settings.sfx = !!on; lsSet('stardust_sfx', on ? '1' : '0'); if (sfxGain) sfxGain.gain.setTargetAtTime(on ? 1 : 0, actx.currentTime, 0.05); }
 
 export function beep(freq, dur, type = 'square', vol = 0.08, slide = 0) {
   if (!actx || settings.muted || !settings.sfx) return;
@@ -62,27 +64,32 @@ export const sfx = {
 const TRACKS = { calm: ['music/veins-1.mp3', 'music/veins-2.mp3'], action: ['music/pursuit-1.mp3', 'music/pursuit-2.mp3', 'music/veins-2.mp3'] };
 const poolOf = m => (m === 'play' || m === 'boss') ? 'action' : 'calm';
 let tracksOk = true, cur = null, curPool = null, fading = null, lastIdx = { calm: -1, action: -1 };
+const trackCache = new Map();
 function makeTrack(src) {
-  const el = new Audio(src); el.preload = 'auto'; el.crossOrigin = 'anonymous';
+  if (trackCache.has(src)) { const t = trackCache.get(src); try { t.el.currentTime = 0; } catch {} return t; }
+  const el = new Audio(src); el.preload = 'auto';
   const node = actx.createMediaElementSource(el), g = actx.createGain(); g.gain.value = 0;
   node.connect(g).connect(musicGain);
-  return { el, g, src };
+  const t = { el, g, src };
+  el.addEventListener('ended', () => { if (cur === t) { cur = null; playPool(curPool); } });
+  el.addEventListener('error', () => { trackCache.delete(src); try { el.src = ''; } catch {} if (cur === t) { tracksOk = false; cur = null; startSynth(); } });
+  trackCache.set(src, t);
+  return t;
 }
 function playPool(pool) {
   const list = TRACKS[pool];
   let i; do { i = Math.floor(Math.random() * list.length); } while (list.length > 1 && i === lastIdx[pool]);
   lastIdx[pool] = i;
   const t = makeTrack(list[i]);
-  t.el.addEventListener('ended', () => { if (cur === t) { cur = null; playPool(curPool); } });
-  t.el.addEventListener('error', () => { if (cur === t) { tracksOk = false; cur = null; startSynth(); } });
+  if (cur === t) return;
   const p = t.el.play(); if (p && p.catch) p.catch(() => {});
   t.g.gain.setValueAtTime(0, actx.currentTime); t.g.gain.linearRampToValueAtTime(1, actx.currentTime + 2.5);
-  if (cur) { const old = cur; old.g.gain.setTargetAtTime(0, actx.currentTime, 0.6); setTimeout(() => { try { old.el.pause(); old.el.src = ''; } catch {} }, 2500); }
+  if (cur) { const old = cur; old.g.gain.setTargetAtTime(0, actx.currentTime, 0.6); setTimeout(() => { if (cur !== old) { try { old.el.pause(); } catch {} } }, 2500); }
   cur = t; curPool = pool;
 }
 function switchPool(pool) { if (!tracksOk || !actx) return; if (pool === curPool && cur) return; playPool(pool); }
 /** 頁面被切到背景時暫停曲目 */
-if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (!cur) return; if (document.visibilityState === 'hidden') cur.el.pause(); else { const p = cur.el.play(); if (p && p.catch) p.catch(() => {}); } });
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (!cur) return; if (document.visibilityState === 'hidden') cur.el.pause(); else if (!settings.muted && settings.music > 0) { const p = cur.el.play(); if (p && p.catch) p.catch(() => {}); } });
 
 // ---------- 合成器（備援）----------
 // 情境：menu（慢、明亮）、play（中速）、boss（快、小調、鼓更重）、over（極慢、只剩墊音）
