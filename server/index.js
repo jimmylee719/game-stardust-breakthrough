@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked } from '../shared/constants.js';
+import { OFFLINE_GRACE, TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { runSummary, applyRun, weekKey, dailyQuests, weeklyQuests, ACHIEVEMENTS } from '../shared/meta.js';
 import { ARENAS } from '../shared/constants.js';
@@ -18,6 +18,20 @@ import { openDb } from './db.js';
 import { computeStats } from './stats.js';
 
 const db = await openDb();
+process.on('uncaughtException', e => console.error('[uncaught]', e));
+process.on('unhandledRejection', e => console.error('[unhandled]', e));
+const SEC = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' };
+// 每個 IP 的 POST 速率限制（token bucket：每 10 秒 RATE_LIMIT 次）
+const RATE_LIMIT = Number(process.env.RATE_LIMIT ?? 40), buckets = new Map();
+function allowPost(ip) { const now = Date.now(); let b = buckets.get(ip); if (!b || now - b.t > 10000) { b = { t: now, n: 0 }; buckets.set(ip, b); } return ++b.n <= RATE_LIMIT; }
+setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now - b.t > 30000) buckets.delete(k); }, 60000).unref();
+// 同一帳號的 meta 讀改寫要排隊（否則兩個同時到的請求會互相蓋掉、重複發星塵）
+const locks = new Map();
+function withAccountLock(id, fn) { const prev = locks.get(id) || Promise.resolve(); const next = prev.catch(() => {}).then(fn); locks.set(id, next); next.finally(() => { if (locks.get(id) === next) locks.delete(id); }); return next; }
+const META_MIN_GAP = Number(process.env.META_MIN_GAP_MS ?? 8000), metaLast = new Map();
+/** 帳號憑證：POST 放在 body（不進 log）；GET query 仍相容舊客戶端 */
+async function credsOf(req, url) { if (req.method === 'POST') { const b = await readBody(req); return { id: String(b.id || ''), secret: String(b.secret || '') }; } return { id: url.searchParams.get('id') || '', secret: url.searchParams.get('secret') || '' }; }
+const taipeiHour = () => new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 /** 伺服器自己記的事件（房間、合作局） */
 function logEvent(name, props = {}, acct = null) { db.addEvents([{ at: Date.now(), acct, sid: 'server', name, props }]).catch(() => {}); }
@@ -41,11 +55,11 @@ function resolveFile(urlPath) {
   if (urlPath === '/shared' || urlPath.startsWith('/shared/')) { base = SHARED; rel = urlPath.slice('/shared'.length); }
   if (rel === '' || rel === '/') rel = '/index.html';
   const abs = path.normalize(path.join(base, rel));
-  if (!abs.startsWith(base)) return null;
+  if (abs !== base && !abs.startsWith(base + path.sep)) return null;
   return abs;
 }
 // ---------- REST API：帳號與排行榜 ----------
-function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); }
+function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SEC }); res.end(JSON.stringify(obj)); }
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let buf = '';
@@ -57,6 +71,7 @@ function readBody(req) {
 const MODES = new Set(['solo', 'coop', 'daily']);
 async function handleApi(req, res, url) {
   try {
+    if (req.method === 'POST' && !allowPost(req.socket.remoteAddress || '?')) return json(res, 429, { error: 'too many requests' });
     if (req.method === 'POST' && url.pathname === '/api/register') {
       const b = await readBody(req);
       return json(res, 200, await db.register(sanitizeName(b.name)));
@@ -82,11 +97,13 @@ async function handleApi(req, res, url) {
         if (await db.dailyRun(me.id, day)) return json(res, 400, { error: 'daily already played' });
       }
       const prof = await db.profile(me.id);
-      const dust = dustFor(score, wave, prof?.unlocks);
+      if (score > 600 * (wave + 2) ** 2) return json(res, 400, { error: 'implausible' });
+      const bonus = Math.max(0, Math.min(150, Number(b.dustBonus) | 0));   // 星塵碎片（事件撿到的），上限 150
+      const dust = dustFor(score, wave, prof?.unlocks) + bonus;
       await db.grantDust(me.id, dust);
       let rank = null, id = null;
       if (score >= MIN_RUN_SCORE || mode === 'daily') { const r = await db.addRun({ mode, score, wave, party: [{ id: me.id, name: me.name }], day }); rank = r.rank; id = r.id; }
-      return json(res, 200, { id, rank, dust, total: (prof?.dust || 0) + dust, mode, day });
+      return json(res, 200, { id, rank, dust, bonus, total: (prof?.dust || 0) + dust, mode, day });
     }
     if (req.method === 'POST' && url.pathname === '/api/perks/buy') {
       const b = await readBody(req);
@@ -96,11 +113,12 @@ async function handleApi(req, res, url) {
       if (r.ok) logEvent('perk_buy', { perk: String(b.perk) }, me.id);
       return json(res, r.error ? 400 : 200, r);
     }
-    if (req.method === 'GET' && url.pathname === '/api/daily') {
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/daily') {
       // 今天的挑戰規則 + 若有帳號則附上是否已挑戰過
       const c = dailyChallenge(dayKey());
       const out = { key: c.key, seed: c.seed, mods: c.mods.map(m => m.id) };
-      const me = url.searchParams.get('id') ? await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '') : null;
+      const cr = await credsOf(req, url);
+      const me = cr.id ? await db.auth(cr.id, cr.secret) : null;
       if (me) { const prof = await db.profile(me.id); out.started = prof?.dailyStarted === c.key; out.run = await db.dailyRun(me.id, c.key); }
       return json(res, 200, out);
     }
@@ -142,27 +160,29 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/api/stats') {
       // 管理用：需要 ADMIN_KEY（環境變數）；沒設定時只允許本機
       const key = url.searchParams.get('key') || '';
-      const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(req.headers.host || '');
-      if (ADMIN_KEY ? key !== ADMIN_KEY : !local) return json(res, 401, { error: 'unauthorized' });
+      const ip = req.socket.remoteAddress || '';
+      const local = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+      const ok = ADMIN_KEY ? (key.length === ADMIN_KEY.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(ADMIN_KEY))) : local;
+      if (!ok) return json(res, 401, { error: 'unauthorized' });
       const days = Math.max(1, Math.min(365, Number(url.searchParams.get('days')) || 30));
       return json(res, 200, computeStats(await db.events(days)));
     }
     if (req.method === 'GET' && url.pathname === '/api/rooms') {
       // 公開房間列表：在大廳、未滿的房
-      const list = [...rooms.values()].filter(r => r.public && !inProgress(r) && r.clients.size > 0 && r.clients.size < MAX_PLAYERS)
+      const list = [...rooms.values()].filter(r => r.public && r.world.scene === 'lobby' && r.clients.size > 0 && r.clients.size + (r.pendingJoins || 0) < MAX_PLAYERS)
         .map(r => ({ code: r.code, players: r.clients.size, max: MAX_PLAYERS, arena: r.arena, host: r.world.players.find(p => p.id === r.hostId)?.name || '', age: Math.round((Date.now() - r.createdAt) / 1000) }));
       return json(res, 200, { rooms: list });
     }
     if (req.method === 'POST' && url.pathname === '/api/quickmatch') {
       // 快速配對：找一間有人的公開大廳；沒有就開一間公開房讓下一個人配到
-      const open = [...rooms.values()].filter(r => r.public && !inProgress(r) && r.clients.size > 0 && r.clients.size < MAX_PLAYERS).sort((a, b) => b.clients.size - a.clients.size)[0];
+      const open = [...rooms.values()].filter(r => r.public && r.world.scene === 'lobby' && (r.clients.size > 0 || r.quick) && r.clients.size + (r.pendingJoins || 0) < MAX_PLAYERS).sort((a, b) => b.clients.size - a.clients.size)[0];
       if (open) { logEvent('quickmatch', { kind: 'join', players: open.clients.size }); return json(res, 200, { code: open.code, created: false }); }
       const r = createRoom(makeRoomCode()); r.public = true; r.quick = true;
       logEvent('quickmatch', { kind: 'create' });
       return json(res, 200, { code: r.code, created: true });
     }
-    if (req.method === 'GET' && url.pathname === '/api/meta') {
-      const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/meta') {
+      const cr = await credsOf(req, url); const me = await db.auth(cr.id, cr.secret);
       if (!me) return json(res, 401, { error: 'unauthorized' });
       const meta = await db.meta(me.id);
       return json(res, 200, { meta, day: dayKey(), week: weekKey(), daily: dailyQuests(dayKey()).map(q => ({ id: q.id, goal: q.goal, dust: q.dust })), weekly: weeklyQuests(weekKey()).map(q => ({ id: q.id, goal: q.goal, dust: q.dust })) });
@@ -174,23 +194,28 @@ async function handleApi(req, res, url) {
       if (!me) return json(res, 401, { error: 'unauthorized' });
       const run = sanitizeRun(b.run);
       if (!run) return json(res, 400, { error: 'bad run' });
-      const meta = await db.meta(me.id);
-      const r = applyRun(meta, run, dayKey(), weekKey());
-      await db.setMeta(me.id, meta);
-      if (r.dust) await db.grantDust(me.id, r.dust);
+      if (run.coop) return json(res, 400, { error: 'coop runs are recorded by the server' });
+      const last = metaLast.get(me.id) || 0;
+      if (Date.now() - last < META_MIN_GAP) return json(res, 429, { error: 'too fast' });
+      metaLast.set(me.id, Date.now());
+      const { r, meta } = await withAccountLock(me.id, async () => { const meta = await db.meta(me.id); const r = applyRun(meta, run, dayKey(), weekKey()); await db.setMeta(me.id, meta); if (r.dust) await db.grantDust(me.id, r.dust); return { r, meta }; });
       for (const id of r.ach) logEvent('achievement', { id }, me.id);
       for (const id of r.quests) logEvent('quest', { id }, me.id);
       const prof = await db.profile(me.id);
       return json(res, 200, { ach: r.ach, quests: r.quests, dust: r.dust, total: prof?.dust || 0, meta });
     }
-    if (req.method === 'GET' && url.pathname === '/api/me') {
-      const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
+    if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/me') {
+      const cr = await credsOf(req, url); const me = await db.auth(cr.id, cr.secret);
       if (!me) return json(res, 401, { error: 'unauthorized' });
       const prof = await db.profile(me.id);
       return json(res, 200, { id: me.id, name: me.name, stats: await db.me(me.id), dust: prof?.dust || 0, dustTotal: prof?.dustTotal || 0, unlocks: prof?.unlocks || [] });
     }
     return json(res, 404, { error: 'not found' });
-  } catch (e) { return json(res, 400, { error: e.message }); }
+  } catch (e) {
+    if (e && (e.message === 'bad json' || e.message === 'too large')) return json(res, 400, { error: e.message });
+    console.error('[api]', url.pathname, e);
+    return json(res, 500, { error: 'server error' });
+  }
 }
 
 /** 只留下 meta.js 會用到的欄位，數值夾在合理範圍 */
@@ -213,10 +238,11 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((a, r) => a + r.clients.size, 0), db: db.kind })); return; }
   if (url.pathname === '/sw.js') {
     // Service worker：注入版本號（每次部署不同），讓舊快取自動失效
-    fs.readFile(path.join(PUBLIC, 'sw.js'), 'utf8', (err, src) => { if (err) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); res.end('self.__SW_VERSION__ = ' + JSON.stringify(BUILD_ID) + ';\n' + src); });
+    fs.readFile(path.join(PUBLIC, 'sw.js'), 'utf8', (err, src) => { if (err) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/', ...SEC }); res.end('self.__SW_VERSION__ = ' + JSON.stringify(BUILD_ID) + ';\n' + src); });
     return;
   }
-  const file = resolveFile(decodeURIComponent(url.pathname));
+  let decoded; try { decoded = decodeURIComponent(url.pathname); } catch { res.writeHead(400, SEC); res.end('Bad Request'); return; }
+  const file = resolveFile(decoded);
   if (!file) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404); res.end('Not found'); return; }
@@ -228,11 +254,11 @@ const server = http.createServer((req, res) => {
       if (!range[1] && range[2]) { start = Math.max(0, st.size - Number(range[2])); end = st.size - 1; }
       if (start > end || start >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); res.end(); return; }
       end = Math.min(end, st.size - 1);
-      res.writeHead(206, { 'Content-Type': type, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('audio') ? 'public, max-age=86400' : 'no-cache' });
+      res.writeHead(206, { ...SEC, 'Content-Type': type, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('audio') ? 'public, max-age=86400' : 'no-cache' });
       fs.createReadStream(file, { start, end }).pipe(res);
       return;
     }
-    res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('audio') ? 'public, max-age=86400' : 'no-cache' });
+    res.writeHead(200, { ...SEC, 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes', 'Cache-Control': type.startsWith('audio') ? 'public, max-age=86400' : 'no-cache' });
     fs.createReadStream(file).pipe(res);
   });
 });
@@ -278,24 +304,40 @@ async function recordCoopRun(room) {
   if (room.recorded) return;
   room.recorded = true;
   for (const p of w.players) logEvent('run_end', { mode: 'coop', ship: p.ship, wave: w.wave, score: w.score, reason: w.won ? 'victory' : 'dead', dur: Math.round(w.time), kills: p.kills, ups: Object.keys(p.upgrades), syn: Object.keys(p.syn), players: w.players.length + room.departed.length }, p.acctId || null);
-  if (w.score < MIN_RUN_SCORE) { broadcast(room, { t: 'result', rank: null, score: w.score, wave: w.wave, dustBy: {} }); return; }
+  const metaBy = {};
+  for (const p of w.players) if (p.acctId) {
+    try {
+      const out = await withAccountLock(p.acctId, async () => { const meta = await db.meta(p.acctId); const r = applyRun(meta, runSummary(w, { coop: true, ship: p.ship, weapon: p.weapon, hour: taipeiHour() }), dayKey(), weekKey()); await db.setMeta(p.acctId, meta); if (r.dust) await db.grantDust(p.acctId, r.dust); return r; });
+      metaBy[p.acctId] = { ach: out.ach, quests: out.quests, dust: out.dust };
+      for (const id of out.ach) logEvent('achievement', { id }, p.acctId);
+      for (const id of out.quests) logEvent('quest', { id }, p.acctId);
+    } catch (e) { console.error('coop meta failed', e.message); }
+  }
+  if (w.score < MIN_RUN_SCORE) { broadcast(room, { t: 'result', rank: null, score: w.score, wave: w.wave, dustBy: {}, metaBy }); return; }
   // 隊伍名單：仍在場的玩家 + 中途離隊的玩家（離隊者的擊殺數也計入）
   const party = [...w.players.map(p => ({ id: p.acctId || null, name: p.name, kills: p.kills })), ...room.departed];
   try {
     const r = await db.addRun({ mode: 'coop', score: w.score, wave: w.wave, party });
     const dustBy = {};
     for (const m of party) if (m.id) { const prof = await db.profile(m.id); const d = dustFor(w.score, w.wave, prof?.unlocks); await db.grantDust(m.id, d); dustBy[m.id] = d; }
-    broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave, dustBy });
+    broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave, dustBy, metaBy });
     console.log(`[room ${room.code}] coop run recorded: score ${w.score} wave ${w.wave} rank #${r.rank}`);
   } catch (e) { console.error('record run failed', e.message); }
 }
 function tickRoom(room) {
+  try { tickRoomInner(room); }
+  catch (e) { console.error(`[room ${room.code}] tick failed`, e); broadcast(room, { t: 'error', msg: '房間發生錯誤，請重新建立房間' }); destroyRoom(room); }
+}
+function tickRoomInner(room) {
   const w = room.world;
+  // 離線玩家超過寬限就移除（不論場景，用牆鐘；遊戲中的 world.time 在升級 / 暫停時不會走）
+  for (let i = w.players.length - 1; i >= 0; i--) { const p = w.players[i]; if (p.offline && p.offlineAtMs && Date.now() - p.offlineAtMs > OFFLINE_GRACE * 1000) { w.players.splice(i, 1); dropPendingUpgrade(w, p.id); } }
   if (w.scene === 'play') update(w, 1 / TICK_RATE, room.fx);
   if (w.scene === 'gameover') recordCoopRun(room);
   room.tick++;
   if (w.scene === 'lobby') return;
   const msg = { t: 'snap', tick: room.tick, s: snapshotWorld(w) };
+  if (w.scene !== 'gameover' && w.scene !== 'victory' && room.tick % 30 !== 0) delete msg.s.stats;   // 統計只在結算與每秒送一次
   if (room.events.length) msg.ev = room.events.splice(0);
   broadcast(room, msg);
 }
@@ -339,14 +381,14 @@ wss.on('connection', ws => {
         return;
       }
 
-      if (r.clients.size >= MAX_PLAYERS) { send({ t: 'error', msg: '房間已滿（最多 4 人）' }); return; }
-      room = r;
+      if (r.clients.size + (r.pendingJoins || 0) >= MAX_PLAYERS) { send({ t: 'error', msg: '房間已滿（最多 4 人）' }); return; }
+      room = r; r.pendingJoins = (r.pendingJoins || 0) + 1;
       const wantShip = SHIPS.some(s => s.id === m.ship) ? m.ship : 'falcon';
       const wantWeapon = WEAPONS.some(w => w.id === m.weapon) ? m.weapon : 'blaster';
       const wantSkin = SKINS.some(s => s.id === m.skin) ? m.skin : 'classic';
       const wantSkill = SKILLS.some(s => s.id === m.skill) ? m.skill : 'swarm';
       // 先驗證帳號（取得永久強化與已解鎖機體），再把玩家放進世界，這樣中途加入也會拿到正確的機體
-      (async () => {
+      (async () => { try {
         let acct = null;
         if (m.acct && m.acct.id && m.acct.secret) { try { acct = await db.auth(String(m.acct.id), String(m.acct.secret)); } catch {} }
         if (ws.readyState !== ws.OPEN || !rooms.has(room.code)) return;
@@ -366,7 +408,7 @@ wss.on('connection', ws => {
         if (inProgress(room)) room.fx.text(room.world.W / 2, room.world.H / 2 - 120, `${name} 加入戰鬥`, player.color, 24, 2);
         if (room.clients.size > 1) logEvent('room', { kind: inProgress(room) ? 'midjoin' : 'join', players: room.clients.size }, acct?.id || null);
         console.log(`[room ${room.code}] ${name}#${id} joined (${room.clients.size}/${MAX_PLAYERS})${inProgress(room) ? ' mid-game' : ''} ship=${ship}`);
-      })();
+      } finally { r.pendingJoins = Math.max(0, (r.pendingJoins || 1) - 1); } })();
       return;
     }
     if (!room || !player) return;
@@ -429,7 +471,7 @@ wss.on('connection', ws => {
     if (cur) {
       if (inProgress(room) && !cur.dead) {
         // 遊戲中斷線：保留角色一段時間等重連
-        cur.offline = true; cur.offlineAt = w.time; cur.inputQueue.length = 0;
+        cur.offline = true; cur.offlineAt = w.time; cur.offlineAtMs = Date.now(); cur.inputQueue.length = 0;
         dropPendingUpgrade(w, cur.id);
         if (w.scene === 'play' && !w.players.some(p => !p.dead && !p.downed && !p.offline)) { w.scene = 'gameover'; recordCoopRun(room); }
       } else {

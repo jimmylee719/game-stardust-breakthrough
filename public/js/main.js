@@ -357,10 +357,14 @@ for (const b of codexEl.querySelectorAll('[data-codex]')) b.addEventListener('cl
 async function reportMeta() {
   if (metaReported) return;
   metaReported = true;
+  if (mode === 'online' || leftTeam) return;   // 合作局由伺服器用自己的統計算，隨 result 訊息回來（announceMeta）
   const p = me() || {};
-  const summary = runSummary(world, { coop: mode === 'online' || leftTeam, ship: p.ship || currentShip(), weapon: p.weapon || currentWeapon() });
+  const summary = runSummary(world, { coop: false, ship: p.ship || currentShip(), weapon: p.weapon || currentWeapon() });
   const r = await reportRun(summary);
   if (!r) return;
+  announceMeta(r);
+}
+function announceMeta(r) {
   renderDust();
   let delay = 0;
   for (const id of r.ach) { const a = ACHIEVEMENTS.find(x => x.id === id); if (a) setTimeout(() => { toast(`成就解鎖 ${a.icon} ${a.name} · ✨ +${a.dust}`, 4000); fx.sfx('wave'); }, delay); delay += 4200; }
@@ -399,7 +403,7 @@ function beginOnline(code) {
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
     onStarted() { runStartedAt = performance.now(); track('run_start', { mode: 'coop', ship: currentShip(), weapon: currentWeapon(), arena: roomArena }); resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; metaReported = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
-    onResult(m) { const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
+    onResult(m) { const mb = m.metaBy?.[getAccount()?.id]; if (mb) { if (mb.dust) { profile.dust += mb.dust; profile.dustTotal += mb.dust; } setTimeout(() => announceMeta(mb), 4200); fetchMeta(); } const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
     onClose() { if (mode === 'online') showMenu('與伺服器的連線已中斷'); },

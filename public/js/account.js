@@ -48,7 +48,7 @@ export function exportCode() { return acct ? `SD1-${acct.id}-${acct.secret}` : '
 export async function importCode(code) {
   const m = String(code || '').trim().match(/^SD1-([A-Za-z0-9_-]+)-([A-Za-z0-9_-]+)$/);
   if (!m) throw new Error('轉移碼格式不對');
-  const me = await api(`/api/me?id=${encodeURIComponent(m[1])}&secret=${encodeURIComponent(m[2])}`);
+  const me = await api('/api/me', { method: 'POST', body: JSON.stringify({ id: m[1], secret: m[2] }) });
   acct = { id: m[1], secret: m[2], name: me.name }; localStorage.setItem(KEY, JSON.stringify(acct));
   Object.assign(profile, { dust: me.dust, dustTotal: me.dustTotal, unlocks: me.unlocks }); cacheProfile();
   return me;
@@ -83,7 +83,7 @@ export async function fetchMe() {
   if (pending) await pending;
   if (!acct) return null;
   try {
-    const me = await api(`/api/me?id=${encodeURIComponent(acct.id)}&secret=${encodeURIComponent(acct.secret)}`);
+    const me = await api('/api/me', { method: 'POST', body: JSON.stringify(creds()) });
     Object.assign(profile, { dust: me.dust, dustTotal: me.dustTotal, unlocks: me.unlocks }); cacheProfile();
     return me;
   } catch { return null; }
@@ -99,7 +99,7 @@ export async function buyPerk(perkId) {
 export async function fetchMeta() {
   if (pending) await pending;
   if (!acct) return null;
-  try { const m = await api(`/api/meta?id=${encodeURIComponent(acct.id)}&secret=${encodeURIComponent(acct.secret)}`); profile.meta = m.meta; cacheProfile(); return m; } catch { return null; }
+  try { const m = await api('/api/meta', { method: 'POST', body: JSON.stringify(creds()) }); profile.meta = m.meta; cacheProfile(); return m; } catch { return null; }
 }
 /** 一局結束：送統計摘要給伺服器算任務與成就；回傳 {ach, quests, dust, meta} 或 null */
 export async function reportRun(summary) {
@@ -111,8 +111,7 @@ export async function quickMatch() { return api('/api/quickmatch', { method: 'PO
 /** 今天的每日挑戰狀態：{key, seed, mods[], started, run} */
 export async function fetchDaily() {
   if (pending) await pending;
-  const q = acct ? `?id=${encodeURIComponent(acct.id)}&secret=${encodeURIComponent(acct.secret)}` : '';
-  return api('/api/daily' + q);
+  return acct ? api('/api/daily', { method: 'POST', body: JSON.stringify(creds()) }) : api('/api/daily');
 }
 /** 開始每日挑戰（用掉今天的機會）；回傳 {key, seed, mods[]}，已玩過則丟錯 */
 export async function startDaily() {

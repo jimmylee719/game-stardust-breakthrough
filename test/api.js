@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 const PORT = 19765 + Math.floor(Math.random() * 1000);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stardust-'));
 // 讓測試用獨立的資料檔（DATA_DIR 指到暫存目錄）
-const server = spawn(process.execPath, [path.resolve('server/index.js')], { env: { ...process.env, PORT: String(PORT), DATABASE_URL: '', DATA_DIR: tmp, ADMIN_KEY: 'test-key' }, stdio: ['ignore', 'pipe', 'inherit'] });
+const server = spawn(process.execPath, [path.resolve('server/index.js')], { env: { ...process.env, PORT: String(PORT), DATABASE_URL: '', DATA_DIR: tmp, ADMIN_KEY: 'test-key', META_MIN_GAP_MS: '0', RATE_LIMIT: '1000' }, stdio: ['ignore', 'pipe', 'inherit'] });
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const fail = msg => { console.error('FAIL:', msg); server.kill(); process.exit(1); };
 await new Promise(resolve => server.stdout.on('data', d => { if (String(d).includes('server →')) resolve(); }));

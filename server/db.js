@@ -75,6 +75,7 @@ async function createPg(url) {
   `);
   const since = (period, day) => period === 'week' ? `AND created_at >= to_timestamp(${Math.floor(weekStartMs() / 1000)})` : period === 'day' ? `AND day = '${day.replace(/[^0-9-]/g, '')}'` : '';
   const rankOf = async (mode, score, day) => (await pool.query(`SELECT COUNT(*)::int + 1 AS rank FROM runs WHERE mode=$1 AND score > $2 ${mode === 'daily' && day ? `AND day='${day.replace(/[^0-9-]/g, '')}'` : ''}`, [mode, score])).rows[0].rank;
+  setInterval(() => pool.query("DELETE FROM events WHERE at < now() - interval '90 days'").catch(() => {}), 24 * 3600 * 1000).unref();
   return {
     kind: 'postgres',
     async register(name) {
@@ -150,9 +151,10 @@ async function createPg(url) {
 // ---------- JSON 檔 ----------
 function createFileStore() {
   let data = { players: {}, runs: [], nextRun: 1, events: [] };
-  try { data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch {}
+  try { data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
+  catch (e) { if (fs.existsSync(DATA_FILE)) { console.error('store.json 損壞，拒絕啟動以免清空資料：', e.message); process.exit(1); } }
   let saveTimer = null;
-  const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); fs.writeFileSync(DATA_FILE, JSON.stringify(data)); } catch (e) { console.error('store save failed', e.message); } }, 200); };
+  const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data)); fs.renameSync(tmp, DATA_FILE); } catch (e) { console.error('store save failed', e.message); } }, 200); };
   const inPeriod = (r, period, day) => period === 'week' ? new Date(r.at).getTime() >= weekStartMs() : period === 'day' ? r.day === day : true;
   const rankOf = (mode, score, day) => data.runs.filter(r => r.mode === mode && r.score > score && (mode !== 'daily' || !day || r.day === day)).length + 1;
   const pl = id => { const p = data.players[id]; if (p) { p.dust ??= 0; p.dustTotal ??= 0; p.unlocks ??= []; } return p; };
