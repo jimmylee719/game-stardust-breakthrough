@@ -5,10 +5,10 @@ import { stepPlayer, NULL_FX } from './game.js';
 import { TICK_RATE } from '../../shared/constants.js';
 
 const TICK_DT = 1 / TICK_RATE;
-const FIELDS = ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'r', 'speedMul', 'dashCdMax', 'color', 'blinkCd', 'blinkCdMax'];
+const FIELDS = ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'r', 'speedMul', 'dashCdMax', 'color', 'blinkCd', 'blinkCdMax', 'emp', 'frozen', 'hexed'];
 
 export function createPredictor(world) {
-  const st = { x: 0, y: 0, vx: 0, vy: 0, dashing: 0, dashCd: 0, inv: 0, r: 14, speedMul: 1, dashCdMax: 1.2, color: '#fff', angle: 0, blinkCd: 0, blinkCdMax: 3, blinkFlash: 0 };
+  const st = { x: 0, y: 0, vx: 0, vy: 0, dashing: 0, dashCd: 0, inv: 0, r: 14, speedMul: 1, dashCdMax: 1.2, color: '#fff', angle: 0, blinkCd: 0, blinkCdMax: 3, blinkFlash: 0, syn: {}, flags: {}, dashHits: new Set(), turrets: [], emp: 0, frozen: 0, hexed: 0 };
   let seq = 0, acc = 0, pending = [], lastAck = -1, smoothX = 0, smoothY = 0, ready = false;
 
   return {
@@ -46,7 +46,8 @@ export function createPredictor(world) {
       lastAck = ack;
       const beforeX = st.x + smoothX, beforeY = st.y + smoothY;
       // 以權威狀態為起點
-      for (const f of ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'speedMul', 'dashCdMax', 'blinkCd', 'blinkCdMax']) if (serverMe[f] !== undefined) st[f] = serverMe[f];
+      for (const f of ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'speedMul', 'dashCdMax', 'blinkCd', 'blinkCdMax', 'emp', 'frozen', 'hexed']) st[f] = serverMe[f] !== undefined ? serverMe[f] : (f === 'emp' || f === 'frozen' || f === 'hexed' ? 0 : st[f]);
+      if (serverMe.fs) st.flags.frontShield = true; st.flags.shieldBash = !!serverMe.fs;
       pending = pending.filter(q => q.seq > ack);
       for (const q of pending) stepPlayer(world, st, q.input, TICK_DT, NULL_FX);
       // 校正差異放進平滑偏移；差太大（被撞飛、瞬移）就直接跳

@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { MIN_RUN_SCORE, PERKS, SHIPS, WEAPONS, SKINS, perkLevels } from '../shared/constants.js';
+import { weekStartMs } from '../shared/meta.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'store.json');
@@ -52,6 +53,7 @@ async function createPg(url) {
     ALTER TABLE players ADD COLUMN IF NOT EXISTS dust_total INT NOT NULL DEFAULT 0;
     ALTER TABLE players ADD COLUMN IF NOT EXISTS unlocks TEXT[] NOT NULL DEFAULT '{}';
     ALTER TABLE players ADD COLUMN IF NOT EXISTS daily_started TEXT;
+    ALTER TABLE players ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}';
     CREATE TABLE IF NOT EXISTS runs (
       id SERIAL PRIMARY KEY, mode TEXT NOT NULL, score INT NOT NULL, wave INT NOT NULL,
       party JSONB NOT NULL, player_ids TEXT[] NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
@@ -65,7 +67,7 @@ async function createPg(url) {
     );
     CREATE INDEX IF NOT EXISTS events_at ON events (at);
   `);
-  const since = (period, day) => period === 'week' ? `AND created_at > now() - interval '7 days'` : period === 'day' ? `AND day = '${day.replace(/[^0-9-]/g, '')}'` : '';
+  const since = (period, day) => period === 'week' ? `AND created_at >= to_timestamp(${Math.floor(weekStartMs() / 1000)})` : period === 'day' ? `AND day = '${day.replace(/[^0-9-]/g, '')}'` : '';
   const rankOf = async (mode, score, day) => (await pool.query(`SELECT COUNT(*)::int + 1 AS rank FROM runs WHERE mode=$1 AND score > $2 ${mode === 'daily' && day ? `AND day='${day.replace(/[^0-9-]/g, '')}'` : ''}`, [mode, score])).rows[0].rank;
   return {
     kind: 'postgres',
@@ -119,6 +121,8 @@ async function createPg(url) {
       return { ok: true, dust: r.rows[0].dust, unlocks: r.rows[0].unlocks };
     },
     async dailyStart(id, day) { await pool.query('UPDATE players SET daily_started=$2 WHERE id=$1', [id, day]); },
+    async meta(id) { const r = await pool.query('SELECT meta FROM players WHERE id=$1', [id]); return r.rows[0]?.meta || {}; },
+    async setMeta(id, meta) { await pool.query('UPDATE players SET meta=$2 WHERE id=$1', [id, JSON.stringify(meta)]); },
     async dailyRun(id, day) {
       const r = await pool.query(`SELECT id, score, wave FROM runs WHERE mode='daily' AND day=$2 AND $1 = ANY(player_ids) LIMIT 1`, [id, day]);
       if (!r.rows[0]) return null;
@@ -143,7 +147,7 @@ function createFileStore() {
   try { data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch {}
   let saveTimer = null;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true }); fs.writeFileSync(DATA_FILE, JSON.stringify(data)); } catch (e) { console.error('store save failed', e.message); } }, 200); };
-  const inPeriod = (r, period, day) => period === 'week' ? Date.now() - new Date(r.at).getTime() < WEEK_MS : period === 'day' ? r.day === day : true;
+  const inPeriod = (r, period, day) => period === 'week' ? new Date(r.at).getTime() >= weekStartMs() : period === 'day' ? r.day === day : true;
   const rankOf = (mode, score, day) => data.runs.filter(r => r.mode === mode && r.score > score && (mode !== 'daily' || !day || r.day === day)).length + 1;
   const pl = id => { const p = data.players[id]; if (p) { p.dust ??= 0; p.dustTotal ??= 0; p.unlocks ??= []; } return p; };
   return {
@@ -190,6 +194,8 @@ function createFileStore() {
       return { ok: true, dust: p.dust, unlocks: p.unlocks.slice() };
     },
     async dailyStart(id, day) { const p = pl(id); if (p) { p.dailyStarted = day; save(); } },
+    async meta(id) { const p = pl(id); return p ? (p.meta ||= {}) : {}; },
+    async setMeta(id, meta) { const p = pl(id); if (p) { p.meta = meta; save(); } },
     async dailyRun(id, day) {
       const r = data.runs.find(r => r.mode === 'daily' && r.day === day && r.ids.includes(id));
       return r ? { id: r.id, score: r.score, wave: r.wave, rank: rankOf('daily', r.score, day) } : null;

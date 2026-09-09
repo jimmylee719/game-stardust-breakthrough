@@ -4,6 +4,12 @@
 import { nearestTarget } from './game.js';
 
 export const keys = {};
+/** 玩家選項：autoAim / autoFire（null = 依裝置預設：觸控開、電腦關） */
+export const opts = { autoAim: null, autoFire: null };
+try { Object.assign(opts, JSON.parse(localStorage.getItem('stardust_opts') || '{}')); } catch {}
+export function saveOpts() { try { localStorage.setItem('stardust_opts', JSON.stringify(opts)); } catch {} }
+export function autoAimOn() { return opts.autoAim === null ? touch.active || matchMedia('(pointer: coarse)').matches : !!opts.autoAim; }
+export function autoFireOn() { return opts.autoFire === null ? touch.active || matchMedia('(pointer: coarse)').matches : !!opts.autoFire; }
 export const mouse = { x: 0, y: 0, sx: 0, sy: 0, down: false };
 /** 觸控狀態（渲染用來畫搖桿與按鈕） */
 export const touch = {
@@ -109,8 +115,8 @@ export function buildInput(player, world) {
     let angle = player.angle, fire = false;
     if (touch.aim && touch.aim.mag > DEAD) { angle = Math.atan2(touch.aim.dy, touch.aim.dx); fire = true; touch.autoAngle = null; }
     else {
-      const t = world ? nearestTarget(world, player.x, player.y, 1400) : null;
-      if (t) { angle = Math.atan2(t.y - player.y, t.x - player.x); fire = true; touch.autoAngle = angle; }
+      const t = world && autoAimOn() ? nearestTarget(world, player.x, player.y, 1400) : null;
+      if (t) { angle = Math.atan2(t.y - player.y, t.x - player.x); fire = autoFireOn(); touch.autoAngle = angle; }
       else touch.autoAngle = null;
       if (touch.aim) fire = true;   // 手指按著但沒拖：朝目前方向開火
     }
@@ -123,10 +129,14 @@ export function buildInput(player, world) {
   if (keys.KeyS || keys.ArrowDown) iy += 1;
   if (keys.KeyA || keys.ArrowLeft) ix -= 1;
   if (keys.KeyD || keys.ArrowRight) ix += 1;
+  let angle = Math.atan2(mouse.y - player.y, mouse.x - player.x), fire = mouse.down;
+  // 電腦也可以開自動瞄準 / 自動射擊（設定）
+  if (world && (autoAimOn() || autoFireOn())) {
+    const t = nearestTarget(world, player.x, player.y, 1400);
+    if (t) { if (autoAimOn() && !mouse.down) angle = Math.atan2(t.y - player.y, t.x - player.x); if (autoFireOn()) fire = true; }
+  }
   return {
-    ix, iy,
-    angle: Math.atan2(mouse.y - player.y, mouse.x - player.x),
-    fire: mouse.down,
+    ix, iy, angle, fire,
     dash: !!(keys.ShiftLeft || keys.ShiftRight),
     blink: !!keys.Space,
   };

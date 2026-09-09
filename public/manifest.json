@@ -1,0 +1,16 @@
+{
+  "name": "星塵突圍 Stardust Breakout",
+  "short_name": "星塵突圍",
+  "description": "霓虹風 2D 合作太空射擊：六個場地、七種機體、武器進化、每日挑戰、全球排行榜。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#03040a",
+  "theme_color": "#03040a",
+  "lang": "zh-Hant",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

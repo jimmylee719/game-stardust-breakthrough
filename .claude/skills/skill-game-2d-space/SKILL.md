@@ -77,6 +77,15 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 
 ## 4. 目前的玩法規格（改動時保持一致）
 
+- 場地：`ARENAS`（6 個，`arenaById`），`startRun({arena})` → `world.arena`；危險在 game.js 的 `updateArena`（zones kind: lava / geyser / rift / fog / pressure / spike / emp / hex / fire，`world.wells / flare / blizzard / wind / drag`），區域效果在 `updateZones`。render 的背景與星色讀 `ARENAS[].bg/star`，`drawArenaBackdrop / drawHazards / drawWeather`。
+- 屬性：`ELEMENTS / AFFINITY / affinity(enemyEl, weaponEl) / WEAPON_ELEMENT`；敵人 `e.element` 在 `spawnEnemy` 依場地 `elements` 抽（`ENEMY_TYPES[].element` 固定者優先）。**對敵人造成傷害一律走 `hitEnemy(world, e, dmg, {by, x, y, element}, fx)`**（相剋、相位、精英護盾、護盾兵正面盾、統計），呼叫端再檢查 `hp <= 0 → killEnemy`。
+- 敵人 AI：新 kind 的行為在 `BEHAVE[kind]`（warden / sniper / mortar / kamikaze / hexer / sentinel / pulsar / spore / angler），回傳 `{tx, ty, steer}` 或 `'dead'`；chase 型的額外攻擊（蟲群衝撞、重裝砲、分裂體酸液、霜噬冰刺）在 chase 分支。精英詞綴 `AFFIXES`（`e.affixes`，計時在敵人迴圈頂端）。**敵人迴圈頂端要 `if (!e) continue`**（自爆會縮短陣列）。難度門檻用 `threat(world)`（波數 + 2×(人數-1)），敵方攻擊倍率 `dmgMul(world)` 在 `hurtPlayer` 內套用；`hurtPlayer(world, p, dmg, fx, src)` 的 `src {x, y, by, vamp}` 給正面盾與死亡畫面用。
+- 隨機事件：`EVENTS`，`startEvent(world, id, fx)`（export）/ `updateEvents`，`world.event / crate / hole / wind / eclipse / dustBonus`；補給箱走 beacon 的碰撞路徑（`const beacon = world.beacon || world.crate`）。小隊主題 `SQUADS` → `world.waveTheme`。
+- 武器：每把武器一個 `fireXxx(world, p, inp, dt, fx, lfx)`，升級 / 道具的差異寫在裡面（對照表 `WEAPON_MODS` 只是文字，改行為要改函式）；光束用 `beamSegments`（反彈）與 `bendAim`（追蹤）；`p.beam / beamW` 給 render；光刃 `fireBlade`（`p.swingT / swingDir`）。進化 `EVOLUTIONS / evolutionFor`，`offerUpgrades` 塞 `evoCard`，`chooseUpgrade(idx = -1)` = 放棄升級 +20 HP；snapshot 的 pending 用 `evo:<id>`。
+- 機體特性靠 `p.flags`（adapt / blinkStrike / noShield / frontShield / shieldBash / droneBoost / meleeOnly / bladeMaster / dashSlash / killResetBlink / turrets），`stepPlayer` 與武器函式讀它；`predict.js` 的 st 要有 `flags / syn / dashHits / turrets`。
+- 統計 `world.stats`（`freshStats`，snapshot 每 tick 送），死亡畫面與 `shared/meta.js` 的成就 / 任務都只看它；`runSummary(world, ctx)` → `POST /api/meta/run` → 伺服器 `applyRun`（players.meta JSONB）。成就 / 任務規則只改 `shared/meta.js`。
+- 公開房：`room.public / room.arena`，訊息 `arena / public`，`GET /api/rooms`、`POST /api/quickmatch`（沒房就開一間 `quick` 房，空房保留 60 秒）。
+- 客戶端：`i18n.js`（`tr()` 精確表 + 規則；HTML 用 `data-i18n / data-i18n-ph / data-i18n-html`；浮字在 effects.js 的 `floatText` 翻譯）、`audio.js` 的音樂（`setMood`，master / sfx / music 三個 gain）、`input.js` 的 `opts.autoAim / autoFire`（null = 依裝置）、PWA（`manifest.json`、`sw.js` 由伺服器注入 `BUILD_ID`、`scripts/make-icons.cjs` 產圖示）。
 - 效能：`themes.js` 的 `themedContext` 在恆等主題時直接回傳原生 context（Proxy 是掉幀主因）；`effects.js` 的 `trackFrame` 自動切 `vfx.lowQ`，render 依此關光暈；粒子上限 600。
 - 閃電鏈沒目標時按住會蓄電（`p.arcCharge` 0–1.5，傷害最多 ×2），機頭 `fx.bolt` 噼啪 + render 的蓄電環；首頁動畫全在 style.css 的「首頁動畫」段（`prefers-reduced-motion` 會關）。
 - 閃現：`PLAYER_BASE.blinkDist/blinkCd/blinkInv`，`stepPlayer` 內處理（`inp.blink`），輸入協定 `{ix,iy,angle,fire,dash,blink}`，`predict.js` FIELDS 含 `blinkCd/blinkCdMax`；觸控 `touchLayout().blink`。
@@ -141,10 +150,22 @@ npm test > "$TEMP/t.out" 2>&1; grep -E "PASS|FAIL|CRASH" "$TEMP/t.out"; if grep 
 - 視覺鎖定霓虹，不做主題切換、不上傳圖檔。
 - 抒壓小遊戲：不做登入、不做名字髒話過濾。
 - **不做結算分享圖**。
+- **不放廣告**（永遠）；首頁與隱私頁底部固定「© 凡圖有限公司 Vanture Co., Ltd. · getvanture.com」。
+- 難度不分等級：只有一條越來越狠的曲線（敵人更聰明、更多、更快、更痛），多人時整體再加重；遊戲目的是挑戰與體驗，不是讓人破關。
+- 每個敵人都要有攻擊方式，不做只會飄的敵人；新敵人要精美且聰明。
+- 六個場地全部免費；武器對升級的反應必須不同；機體必須有玩法差異（不是數值差）。
+- 音樂用程式合成、整體小聲；使用者說他有附上喜歡的音樂類型附件，但這個對話沒收到——目前是合成器風，之後可依附件調整。
+- 手把支援先欠著（使用者要求提醒）。
+- 美術：目前仍是向量圖；使用者問過可以用哪個生圖 skill / connector，可選：本工作區的 Hugging Face 生圖工具（`gr1_z_image_turbo_generate`）、Canva / Adobe / Figma 連接器；若要導入圖片素材需先改「不上傳圖檔」的決策。
 - 每日挑戰只在單機跑（伺服器多房共用亂數，固定種子會互相干擾）。
 - 之後的調整依儀表板數據（流失波次、回訪率、機體平均波次）決定，不憑感覺加內容。
 
-## 9. 成長路線（已全部完成，2026-09-07）
+## 9. 成長路線
+
+2026-09-09 第二輪（全部完成）：場地 ×6 + 屬性相剋、敵人全攻擊 + 新敵種 + 詞綴 + 小隊、單一難度曲線、隨機事件 ×9、武器差異化 + 光刃 + 進化 ×6、機體玩法差異 ×7、死亡畫面、任務 / 成就 / 圖鑑、公開房 + 快速配對、PWA、設定（自動瞄準 / 射擊、音量、語言）、音樂、英文化、行事曆週榜、版權頁尾。
+欠著：手把支援；音樂風格依使用者附件調整；美術素材（需先決定是否引入圖片）。
+
+### 第一輪（2026-09-07）
 
 1. ✅ 局外成長（星塵 + 機庫）+ 每日挑戰
 2. ~~結算一鍵分享圖~~（使用者決定不做）

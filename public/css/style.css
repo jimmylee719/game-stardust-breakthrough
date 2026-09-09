@@ -177,3 +177,45 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 .row button:hover, .panel button.small:hover { transform: translateY(-2px) scale(1.03); filter: brightness(1.15); }
 .row button:active { transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) { .panel.fit, .panel.fit > *, .panel.fit h1, .row .primary, .row .primary::after, .row .boss { animation: none; } }
+
+/* 場地選擇、設定、公開房間、任務 / 成就 / 圖鑑、版權 */
+.divider.tight { margin: 12px 0 8px; }
+.arenas { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.arena { padding: 8px 4px 6px; border-radius: 12px; background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--text) 14%, transparent); cursor: pointer; text-align: center; transition: border-color .15s, transform .1s, box-shadow .15s; }
+.arena .ic { font-size: 22px; line-height: 1; }
+.arena .nm { font-size: 11px; font-weight: 700; margin-top: 4px; white-space: nowrap; }
+.arena:hover { transform: translateY(-2px); }
+.arena.on { border-color: var(--gold); box-shadow: 0 0 16px color-mix(in srgb, var(--gold) 35%, transparent); }
+.arena-desc { font-size: 11px; color: color-mix(in srgb, var(--text) 60%, transparent); min-height: 2.6em; margin-top: 6px; line-height: 1.4; }
+.row.meta.three button { font-size: 13px; padding: 9px 4px; letter-spacing: 0; }
+.panel .x.lang { right: 54px; font-size: 12px; font-weight: 800; letter-spacing: .05em; }
+.copy { margin-top: 12px; font-size: 11px; color: color-mix(in srgb, var(--text) 45%, transparent); letter-spacing: .02em; }
+.copy a { color: var(--accent); text-decoration: none; }
+.copy a:hover { text-decoration: underline; }
+.panel.doc .opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; font-weight: 700; margin: 14px 0 4px; color: var(--text); }
+.panel.doc .opt input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+.panel.doc .opt input[type=range] { width: 55%; accent-color: var(--accent); }
+.panel.doc .opt select { font-size: 14px; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.08); color: var(--text); border: 1px solid rgba(255,255,255,.2); }
+.panel.doc .ds { font-size: 12px; color: color-mix(in srgb, var(--text) 55%, transparent); }
+.quests li { grid-template-columns: 40px 1fr auto; }
+.quests .bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; margin-top: 6px; }
+.quests .bar i { display: block; height: 100%; background: var(--accent); }
+.quests .bar i.done { background: var(--good); }
+.quests .st { font-size: 12px; font-weight: 700; color: var(--gold); min-width: 70px; text-align: right; }
+.quests .st.done { color: var(--good); }
+.quests li.locked { opacity: .55; }
+.codex { text-align: left; max-height: 50vh; overflow-y: auto; padding: 6px; background: color-mix(in srgb, var(--text) 5%, transparent); border-radius: 12px; font-size: 13px; }
+.codex .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.codex .card { padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--text) 10%, transparent); }
+.codex .card.unseen { opacity: .45; }
+.codex .nm { font-weight: 800; }
+.codex .ds { font-size: 11px; color: color-mix(in srgb, var(--text) 60%, transparent); margin-top: 2px; line-height: 1.4; }
+.codex table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.codex td, .codex th { padding: 5px 4px; text-align: center; border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent); }
+.codex td.hi { color: var(--good); font-weight: 800; } .codex td.lo { color: var(--danger); }
+.wmods { text-align: left; font-size: 11px; color: color-mix(in srgb, var(--text) 65%, transparent); margin-top: 6px; line-height: 1.6; padding: 6px 10px; background: color-mix(in srgb, var(--text) 4%, transparent); border-radius: 10px; }
+.wmods b { color: var(--gold); }
+.lb-rows li.room { grid-template-columns: 70px 1fr auto auto; }
+.lb-rows li.room .rk { font-size: 16px; color: var(--gold); letter-spacing: .1em; }
+.lb-rows li.room button { margin: 0; width: auto; padding: 6px 12px; font-size: 12px; letter-spacing: .05em; }
+@media (max-width: 560px) { .arenas { grid-template-columns: repeat(3, 1fr); } }

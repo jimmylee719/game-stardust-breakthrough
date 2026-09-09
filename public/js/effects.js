@@ -3,6 +3,7 @@
 import { rand, TAU } from '../../shared/math.js';
 import { NULL_FX } from './game.js';
 import { sfx as SFX, beep, noise } from './audio.js';
+import { tr } from './i18n.js';
 
 export const vfx = { shake: 0, flash: 0, slowmo: 0, hitStop: 0, hitStopCd: 0, aberr: 0, crossPunch: 0, crossRecoil: 0, zoom: 0, lowQ: false };
 const MAX_PARTICLES = 600;
@@ -48,7 +49,7 @@ export function muzzle(x, y, a) {
   burstDir(x, y, '#ffe9a8', 3, a, 0.35, 220, 0.15, 2);
 }
 export function floatText(x, y, text, color = '#fff', size = 16, life = 0.9) {
-  floatTexts.push({ x, y, text, color, size, life, maxLife: life });
+  floatTexts.push({ x, y, text: tr(text), color, size, life, maxLife: life });
 }
 export function shake(v) { vfx.shake = Math.min(vfx.shake + v, 24); }
 /** 定格：依玩家回饋，只保留 Boss 擊破那一瞬（sec >= 0.2）；一般擊殺與命中不再停畫面 */

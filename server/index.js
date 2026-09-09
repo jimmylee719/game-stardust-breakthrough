@@ -12,6 +12,8 @@ import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, d
 import { snapshotWorld } from '../shared/snapshot.js';
 import { TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
+import { runSummary, applyRun, weekKey, dailyQuests, weeklyQuests, ACHIEVEMENTS } from '../shared/meta.js';
+import { ARENAS } from '../shared/constants.js';
 import { openDb } from './db.js';
 import { computeStats } from './stats.js';
 
@@ -19,13 +21,14 @@ const db = await openDb();
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 /** 伺服器自己記的事件（房間、合作局） */
 function logEvent(name, props = {}, acct = null) { db.addEvents([{ at: Date.now(), acct, sid: 'server', name, props }]).catch(() => {}); }
-const EVENT_NAMES = new Set(['session', 'run_start', 'run_end', 'upgrade', 'daily_start', 'perk_buy']);
+const EVENT_NAMES = new Set(['session', 'run_start', 'run_end', 'upgrade', 'daily_start', 'perk_buy', 'quest', 'achievement', 'quickmatch']);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PUBLIC = path.join(ROOT, 'public');
 const SHARED = path.join(ROOT, 'shared');
 const PORT = Number(process.env.PORT) || 8765;
+const BUILD_ID = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 10) || String(Date.now());
 
 // ---------- 靜態檔 ----------
 const MIME = {
@@ -144,6 +147,42 @@ async function handleApi(req, res, url) {
       const days = Math.max(1, Math.min(365, Number(url.searchParams.get('days')) || 30));
       return json(res, 200, computeStats(await db.events(days)));
     }
+    if (req.method === 'GET' && url.pathname === '/api/rooms') {
+      // 公開房間列表：在大廳、未滿的房
+      const list = [...rooms.values()].filter(r => r.public && !inProgress(r) && r.clients.size > 0 && r.clients.size < MAX_PLAYERS)
+        .map(r => ({ code: r.code, players: r.clients.size, max: MAX_PLAYERS, arena: r.arena, host: r.world.players.find(p => p.id === r.hostId)?.name || '', age: Math.round((Date.now() - r.createdAt) / 1000) }));
+      return json(res, 200, { rooms: list });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/quickmatch') {
+      // 快速配對：找一間有人的公開大廳；沒有就開一間公開房讓下一個人配到
+      const open = [...rooms.values()].filter(r => r.public && !inProgress(r) && r.clients.size > 0 && r.clients.size < MAX_PLAYERS).sort((a, b) => b.clients.size - a.clients.size)[0];
+      if (open) { logEvent('quickmatch', { kind: 'join', players: open.clients.size }); return json(res, 200, { code: open.code, created: false }); }
+      const r = createRoom(makeRoomCode()); r.public = true; r.quick = true;
+      logEvent('quickmatch', { kind: 'create' });
+      return json(res, 200, { code: r.code, created: true });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/meta') {
+      const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      const meta = await db.meta(me.id);
+      return json(res, 200, { meta, day: dayKey(), week: weekKey(), daily: dailyQuests(dayKey()).map(q => ({ id: q.id, goal: q.goal, dust: q.dust })), weekly: weeklyQuests(weekKey()).map(q => ({ id: q.id, goal: q.goal, dust: q.dust })) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/meta/run') {
+      // 一局結束：用統計摘要算任務與成就（規則在 shared/meta.js），發星塵
+      const b = await readBody(req);
+      const me = await db.auth(String(b.id || ''), String(b.secret || ''));
+      if (!me) return json(res, 401, { error: 'unauthorized' });
+      const run = sanitizeRun(b.run);
+      if (!run) return json(res, 400, { error: 'bad run' });
+      const meta = await db.meta(me.id);
+      const r = applyRun(meta, run, dayKey(), weekKey());
+      await db.setMeta(me.id, meta);
+      if (r.dust) await db.grantDust(me.id, r.dust);
+      for (const id of r.ach) logEvent('achievement', { id }, me.id);
+      for (const id of r.quests) logEvent('quest', { id }, me.id);
+      const prof = await db.profile(me.id);
+      return json(res, 200, { ach: r.ach, quests: r.quests, dust: r.dust, total: prof?.dust || 0, meta });
+    }
     if (req.method === 'GET' && url.pathname === '/api/me') {
       const me = await db.auth(url.searchParams.get('id') || '', url.searchParams.get('secret') || '');
       if (!me) return json(res, 401, { error: 'unauthorized' });
@@ -154,10 +193,29 @@ async function handleApi(req, res, url) {
   } catch (e) { return json(res, 400, { error: e.message }); }
 }
 
+/** 只留下 meta.js 會用到的欄位，數值夾在合理範圍 */
+function sanitizeRun(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const n = (v, max) => Math.max(0, Math.min(max, Number(v) || 0));
+  const obj = (o, max) => { const out = {}; if (o && typeof o === 'object') for (const [k, v] of Object.entries(o).slice(0, 40)) out[String(k).slice(0, 24)] = n(v, max); return out; };
+  const arr = (a, max) => Array.isArray(a) ? a.slice(0, max).map(x => String(x).slice(0, 24)) : [];
+  return {
+    wave: n(raw.wave, 999), won: !!raw.won, endless: !!raw.endless, coop: !!raw.coop, arena: ARENAS.some(a => a.id === raw.arena) ? raw.arena : 'space', ship: raw.ship ? String(raw.ship).slice(0, 16) : null, weapon: raw.weapon ? String(raw.weapon).slice(0, 16) : null, hour: new Date(Date.now() + 8 * 3600 * 1000).getUTCHours(), players: n(raw.players, 4),
+    kills: obj(raw.kills, 100000), elites: n(raw.elites, 10000), bosses: n(raw.bosses, 1000), blinks: n(raw.blinks, 100000), dashes: n(raw.dashes, 100000), pickups: n(raw.pickups, 100000), grazes: n(raw.grazes, 100000), maxCombo: n(raw.maxCombo, 100000), swings: n(raw.swings, 1e6), parries: n(raw.parries, 1e6),
+    bestNoFire: n(raw.bestNoFire, 1e5), bestNoHit: n(raw.bestNoHit, 1e5), bestStill: n(raw.bestStill, 1e5), upgrades: n(raw.upgrades, 1000), crateHp: Number(raw.crateHp) === 1 ? 1 : Number(raw.crateHp) >= 0 ? n(raw.crateHp, 1) : -1, doomSurvived: !!raw.doomSurvived, kamiKills: n(raw.kamiKills, 1e5), sniperKills: n(raw.sniperKills, 1e5),
+    weaponKills: obj(raw.weaponKills, 100000), evolved: raw.evolved ? String(raw.evolved).slice(0, 16) : null, hoard: n(raw.hoard, 1000), events: arr(raw.events, 30), bossesSeen: arr(raw.bossesSeen, 8), doubleBoss: !!raw.doubleBoss, dmgDealt: n(raw.dmgDealt, 1e9), dmgTaken: n(raw.dmgTaken, 1e9), timeAlive: n(raw.timeAlive, 1e6),
+  };
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname.startsWith('/api/')) { handleApi(req, res, url); return; }
   if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((a, r) => a + r.clients.size, 0), db: db.kind })); return; }
+  if (url.pathname === '/sw.js') {
+    // Service worker：注入版本號（每次部署不同），讓舊快取自動失效
+    fs.readFile(path.join(PUBLIC, 'sw.js'), 'utf8', (err, src) => { if (err) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); res.end('self.__SW_VERSION__ = ' + JSON.stringify(BUILD_ID) + ';\n' + src); });
+    return;
+  }
   const file = resolveFile(decodeURIComponent(url.pathname));
   if (!file) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.stat(file, (err, st) => {
@@ -185,7 +243,7 @@ function makeRecorder(events) {
   return mk(null);
 }
 function createRoom(code) {
-  const room = { code, world: createWorld(), clients: new Map(), hostId: null, events: [], nextPlayerId: 1, tick: 0, interval: null, createdAt: Date.now(), departed: [], recorded: false };
+  const room = { code, world: createWorld(), clients: new Map(), hostId: null, events: [], nextPlayerId: 1, tick: 0, interval: null, createdAt: Date.now(), departed: [], recorded: false, arena: 'space', public: false };
   room.world.scene = 'lobby';
   room.fx = makeRecorder(room.events);
   room.interval = setInterval(() => tickRoom(room), 1000 / TICK_RATE);
@@ -200,7 +258,7 @@ function broadcast(room, msg) {
   for (const ws of room.clients.keys()) if (ws.readyState === ws.OPEN) ws.send(data);
 }
 function lobbyMsg(room) {
-  return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color, ship: p.ship })) };
+  return { t: 'lobby', code: room.code, hostId: room.hostId, scene: room.world.scene, arena: room.arena, public: room.public, players: room.world.players.filter(p => !p.offline).map(p => ({ id: p.id, name: p.name, color: p.color, ship: p.ship })) };
 }
 function inProgress(room) { const s = room.world.scene; return s === 'play' || s === 'upgrade' || s === 'pause' || s === 'victory'; }
 async function recordCoopRun(room) {
@@ -309,12 +367,18 @@ wss.on('connection', ws => {
       case 'start':
         if (player.id !== room.hostId) return;
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
-          startRun(room.world, { startWave: m.boss ? 4 : 0 });
+          startRun(room.world, { startWave: m.boss ? 4 : 0, arena: room.arena });
           room.events.length = 0; room.departed = []; room.recorded = false;
           for (const p of room.world.players) logEvent('run_start', { mode: 'coop', ship: p.ship, wave0: m.boss ? 4 : 0, players: room.world.players.length }, p.acctId || null);
           broadcast(room, { t: 'started' });
           console.log(`[room ${room.code}] run started with ${room.world.players.length} players${m.boss ? ' (boss rush)' : ''}`);
         }
+        break;
+      case 'arena':
+        if (player.id === room.hostId && ARENAS.some(a => a.id === m.id) && !inProgress(room)) { room.arena = m.id; broadcast(room, lobbyMsg(room)); }
+        break;
+      case 'public':
+        if (player.id === room.hostId) { room.public = !!m.on; broadcast(room, lobbyMsg(room)); }
         break;
       case 'endless':
         if (player.id === room.hostId && continueEndless(room.world)) console.log(`[room ${room.code}] endless mode`);
@@ -359,7 +423,7 @@ wss.on('connection', ws => {
       }
     }
     console.log(`[room ${room.code}] ${player.name}#${player.id} disconnected`);
-    if (room.clients.size === 0) { destroyRoom(room); return; }
+    if (room.clients.size === 0) { if (room.quick && Date.now() - room.createdAt < 60000) { broadcast(room, lobbyMsg(room)); return; } destroyRoom(room); return; }
     if (room.hostId === player.id) pickHost(room);
     broadcast(room, lobbyMsg(room));
   });

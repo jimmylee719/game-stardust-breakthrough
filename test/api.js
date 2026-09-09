@@ -72,6 +72,37 @@ const skOk = await post('/api/perks/buy', { id: a.id, secret: a.secret, perk: 's
 if (!skOk.ok || !skOk.unlocks.includes('skin:ember')) fail('解鎖塗裝失敗 ' + JSON.stringify(skOk));
 console.log('ships ok:', shipOk.unlocks.join(','), 'dust', shipOk.dust, '| weapon:', wOk.unlocks.filter(u => u.startsWith('weapon:')).join(','), '| skin:', skOk.unlocks.filter(u => u.startsWith('skin:')).join(','));
 
+// 任務 / 成就：送一局摘要 → 解鎖、發星塵；同一成就不重複發
+const metaBefore = await get(`/api/meta?id=${a.id}&secret=${a.secret}`);
+if (!metaBefore.daily || metaBefore.daily.length !== 3 || metaBefore.weekly.length !== 3) fail('meta 應回今天 3 個每日任務與 3 個每週任務');
+const run = { wave: 7, won: false, kills: { drifter: 40, kamikaze: 20 }, elites: 2, bosses: 1, blinks: 45, grazes: 5, maxCombo: 30, parries: 0, bestNoFire: 0, bestNoHit: 10, upgrades: 0, crateHp: -1, weaponKills: { blaster: 60 }, events: ['supply'], bossesSeen: ['annihilator'], dmgDealt: 3000, dmgTaken: 50, arena: 'inferno' };
+const r1m = await post('/api/meta/run', { id: a.id, secret: a.secret, run });
+if (!r1m.ach.includes('blinker') || !r1m.ach.includes('naked')) fail('應解鎖閃現狂與裸裝突圍：' + JSON.stringify(r1m.ach));
+if (!(r1m.dust >= 700)) fail('成就應發星塵');
+const r2m = await post('/api/meta/run', { id: a.id, secret: a.secret, run });
+if (r2m.ach.length !== 0) fail('同一成就不該重複解鎖');
+if (!(r2m.meta.prog.kills >= 120) || r2m.meta.prog.arenas.inferno !== 7 || !r2m.meta.prog.seen.enemies.kamikaze) fail('累計進度應更新：' + JSON.stringify(r2m.meta.prog));
+const badRun = await post('/api/meta/run', { id: a.id, secret: a.secret, run: 'x' });
+if (!badRun.error) fail('壞的摘要應被拒絕');
+console.log('meta ok: ach', r1m.ach.join(','), 'dust', r1m.dust, 'quests', r1m.quests.join(','));
+
+// 公開房間與快速配對
+const qm = await post('/api/quickmatch', {});
+if (!qm.code || !qm.created) fail('沒有公開房時快速配對應開一間');
+const rooms0 = await get('/api/rooms');
+if (rooms0.rooms.length !== 0) fail('沒人的房間不該出現在列表');
+const wsQ = new WebSocket(`ws://localhost:${PORT}`);
+await new Promise(r => wsQ.on('open', r)); wsQ.send(JSON.stringify({ t: 'join', name: '配對者', code: qm.code }));
+await wait(200);
+const rooms1 = await get('/api/rooms');
+if (rooms1.rooms.length !== 1 || rooms1.rooms[0].code !== qm.code || rooms1.rooms[0].players !== 1) fail('公開房有人後應出現在列表：' + JSON.stringify(rooms1));
+const qm2 = await post('/api/quickmatch', {});
+if (qm2.code !== qm.code || qm2.created) fail('第二個人快速配對應配到同一間');
+wsQ.send(JSON.stringify({ t: 'arena', id: 'abyss' })); await wait(100);
+const rooms2 = await get('/api/rooms'); if (rooms2.rooms[0].arena !== 'abyss') fail('房主換場地應反映在列表');
+wsQ.close(); await wait(100);
+console.log('rooms & quickmatch ok:', qm.code);
+
 
 // 每日挑戰：今天規則固定、一天一次、獨立榜
 const d0 = await get(`/api/daily?id=${a.id}&secret=${encodeURIComponent(a.secret)}`);

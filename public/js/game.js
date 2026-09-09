@@ -6,6 +6,7 @@ import {
   WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS, BOSS_KINDS, BOSS_DOUBLE_FROM_WAVE, BOSS_DOUBLE_CHANCE, AMBIENT, PERFECT_WAVE_BONUS, GRAZE_SCORE, ENEMY_BLINK_FROM_WAVE,
   UPGRADES, UPGRADE_EVERY_WAVES, WAVE_MODES, MODE_SCHEDULE, MODE_CHANCE_AFTER, MODE_CHANCE,
   DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName, applyPerks, applyShip, activeSynergies, SYNERGIES, WIN_WAVE, WIN_BONUS, WEAPON_STATS,
+  ARENAS, arenaById, affinity, WEAPON_ELEMENT, AFFIXES, EVENTS, EVENT_FROM_WAVE, EVENT_CD, EVOLUTIONS, evolutionFor, ELEMENTS,
 } from '../../shared/constants.js';
 
 // ---------- fx 介面（預設全部 no-op，讓邏輯可在無視聽環境執行） ----------
@@ -29,12 +30,20 @@ export function createWorld() {
     ambientCd: 25, waveDamaged: false, graze: 0,
     zones: [], safeZones: [], doom: null,   // 生化毒區、母艦毀滅攻擊的安全區與倒數
     waveMode: null, modeTimer: 0, modeSpawnCd: 0, beacon: null, lastMode: null,
+    arena: 'space', hazardCd: 6, wells: [], flare: null, blizzard: 0, wind: null, drag: 1,   // 場地與其危險（updateArena）
+    event: null, eventCd: 30, crate: null, hole: null, eclipse: 0, dustBonus: 0, lastEvent: null,   // 隨機事件
+    stats: freshStats(),
     pendingUpgrades: new Map(),
     timers: [],
     nextId: 1,
   };
 }
 
+/** 一局的統計（死亡畫面、成就、任務都靠這個） */
+export function freshStats() {
+  return { dmgDealt: 0, dmgTaken: 0, kills: {}, elites: 0, bosses: 0, blinks: 0, dashes: 0, pickups: 0, grazes: 0, maxCombo: 0, swings: 0, parries: 0,
+    noFireT: 0, bestNoFire: 0, noHitT: 0, bestNoHit: 0, stillT: 0, bestStill: 0, killedBy: null, events: [], evolved: null, upgrades: 0, crateHp: -1, bossesSeen: [], doubleBoss: false, doomHit: false, doomSurvived: false, kamiKills: 0, recentPickups: [], hoard: 0, sniperKills: 0, weaponKills: {}, timeAlive: 0 };
+}
 export function addPlayer(world, { id, name, local = false, token = null, acctId = null, perks = null, ship = 'falcon', weapon = 'blaster', skin = 'classic' }) {
   const pid = id ?? world.nextId++;
   const idx = world.players.length;
@@ -54,8 +63,10 @@ export function addPlayer(world, { id, name, local = false, token = null, acctId
     luck: 0, perks: [], ship: 'falcon',
     syn: {}, killStreak: 0, dashHits: new Set(),
     weapon, weaponOn: false, skin, blinkCd: 0, blinkCdMax: PLAYER_BASE.blinkCd, blinkFlash: 0, toxicT: 0,
+    flags: {}, emp: 0, frozen: 0, turrets: [], evolved: null, lastHitBy: null, swingT: 0, swingCd: 0, laserRamp: 0, stormCd: 0, adaptMul: 1,
   };
   applyShip(p, ship);
+  if (p.flags.meleeOnly) p.weapon = 'blade';
   applyPerks(p, perks);
   if (world.mods.glass) { p.maxHp = Math.round(p.maxHp / 2); p.hp = p.maxHp; p.damage *= 1.5; }
   world.players.push(p);
@@ -70,10 +81,12 @@ export function joinMidGame(world, opts) {
 }
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
-export function startRun(world, { startWave = 0, mods = null, daily = false } = {}) {
-  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship, weapon: p.weapon, skin: p.skin }));
+export function startRun(world, { startWave = 0, mods = null, daily = false, arena = null } = {}) {
+  const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship, weapon: p.flags?.meleeOnly ? p.baseWeapon || p.weapon : p.weapon, skin: p.skin }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
+  world.arena = arenaById(arena || world.arena).id;
+  if (world.arena === 'abyss') world.drag = 0.85;
   world.mods = Object.fromEntries((mods || []).map(m => [typeof m === 'string' ? m : m.id, true]));
   if (daily) world.mods.daily = true;
   roster.forEach(r => addPlayer(world, r));
@@ -116,6 +129,37 @@ export function nearestTarget(world, x, y, maxD) {
   return best;
 }
 function nPlayers(world) { return Math.max(1, world.players.filter(p => !p.offline).length); }
+/** AI 威脅等級：波數 + 每多一位玩家再加幾波。所有「第 N 波起」的 AI 門檻都用這個 */
+function threat(world) { return world.wave + (nPlayers(world) - 1) * DIFFICULTY.perPlayer.threat; }
+/** 敵人攻擊力倍率：每波遞增、多人再加成 */
+function dmgMul(world) { return Math.min(DIFFICULTY.dmgCap, (1 + world.wave * DIFFICULTY.dmgPerWave) * (1 + (nPlayers(world) - 1) * DIFFICULTY.perPlayer.dmg)); }
+const ENEMY_LABEL = { lead: '射手', shard: '碎片', ufo: '飛碟', mine: '地雷', shell: '重砲', acid: '酸液', snipe: '狙擊手', mortar: '迫擊砲', hex: '咒球', spore: '孢子', ice: '冰刺', void: '虛空球', plasma: '脈衝體' };
+function enemyLabel(e) { return e.name || (ENEMY_TYPES[e.type] && ENEMY_TYPES[e.type].name) || e.type; }
+/**
+ * 對敵人造成傷害的唯一入口（子彈 / 光束 / 光刃 / 爆炸 / 僚機都走這裡）。
+ * 處理：屬性相剋、相位免疫、精英護盾、護盾兵正面盾、統計。回傳實際造成的傷害；呼叫端再檢查 hp <= 0 → killEnemy。
+ */
+function hitEnemy(world, e, dmg, opts = {}, fx = NULL_FX) {
+  if (!e || e.hp <= 0) return 0;
+  if (e.phaseT > 0) { if (rnd() < 0.3) fx.text(e.x, e.y - e.r - 6, '相位', '#c77dff', 11, 0.4); return 0; }
+  const by = opts.by || null;
+  // 護盾兵：正面 ±60° 擋掉
+  if (e.kind === 'warden' && opts.x !== undefined && e.shieldUp) {
+    const facing = Math.atan2(e.fy ?? 0, e.fx ?? 1), fromA = Math.atan2(opts.y - e.y, opts.x - e.x);
+    if (Math.abs(angleDiff(fromA, facing)) < 1.05) { fx.burst(opts.x, opts.y, '#4cc9f0', 4, 120, 0.25, 2); if (rnd() < 0.25) fx.text(e.x, e.y - e.r - 8, '盾擋', '#4cc9f0', 11, 0.4); fx.beep(500, 0.05, 'triangle', 0.03, -200); return 0; }
+  }
+  let mul = 1;
+  const el = opts.element || (by ? WEAPON_ELEMENT[by.weapon] : null);
+  if (el && e.element) { mul = affinity(e.element, el); if (mul !== 1 && !e.affTold) { e.affTold = true; fx.text(e.x, e.y - e.r - 12, mul > 1 ? `效果拔群 ×${mul}` : `抗性 ×${mul}`, mul > 1 ? '#ffd166' : '#8890a0', 12, 0.9); } }
+  if (e.armored) mul *= 0.7;
+  let real = dmg * mul;
+  if (e.shieldHp > 0) { const a = Math.min(e.shieldHp, real); e.shieldHp -= a; real -= a; fx.burst(e.x, e.y, '#4cc9f0', 3, 100, 0.25, 2); if (e.shieldHp <= 0) fx.ring(e.x, e.y, '#4cc9f0', e.r, e.r + 30, 0.3, 3); }
+  e.hp -= real; e.hitFlash = 0.08;
+  if (e.hp <= 0 && by) e.killer = by;
+  world.stats.dmgDealt += real;
+  if (by && el && world.stats.weaponKills) e.lastWeapon = by.weapon;
+  return real;
+}
 
 // ---------- 敵人 ----------
 function edgeSpawn(world, side = randInt(0, 3)) {
@@ -131,8 +175,10 @@ function spawnEnemy(world, type, x, y, scale = 1, opts = {}) {
   const w = world.wave, n = nPlayers(world);
   const elite = !!opts.elite;
   const sizeMul = 1 + Math.min(DIFFICULTY.sizeCap, w * DIFFICULTY.sizePerWave);
-  const hpMul = (1 + w * DIFFICULTY.hpPerWave) * (1 + (n - 1) * 0.35) * (elite ? 3 : 1) * (world.mods.swarm ? 0.75 : 1);
-  const spdMod = world.mods.fast ? 1.3 : 1;
+  const hpMul = (1 + w * DIFFICULTY.hpPerWave) * (1 + (n - 1) * DIFFICULTY.perPlayer.hp) * (elite ? 3 : 1) * (world.mods.swarm ? 0.75 : 1);
+  const A = arenaById(world.arena);
+  const element = opts.element || t.element || A.elements[randInt(0, A.elements.length - 1)];
+  const spdMod = (world.mods.fast ? 1.3 : 1) * (element === 'ice' ? 1.05 : 1);
   const e = {
     id: world.nextId++, type, x, y, vx: 0, vy: 0,
     r: t.r * scale * sizeMul * (elite ? 1.5 : 1),
@@ -148,7 +194,15 @@ function spawnEnemy(world, type, x, y, scale = 1, opts = {}) {
     dodgeCd: rand(0, 1), mineCd: rand(AI.mineCd[0], AI.mineCd[1]),
     laserCd: rand(1.5, 3), laserId: null,
     blinkCd: AI.bountyBlinkCd, blinkFlash: 0,
+    element, affixes: [], shieldHp: 0, shieldCd: 6, phaseT: 0, phaseCd: 3, atkCd: rand(1.5, 3), fx: 1, fy: 0, shieldUp: t.kind === 'warden', hunter: !!opts.hunter,
   };
+  if (element !== 'neutral') e.color = ELEMENTS[element].color;
+  if (elite) {
+    const keys = Object.keys(AFFIXES), k = w >= DIFFICULTY.affixFromWave && rnd() < 0.5 ? 2 : 1;
+    while (e.affixes.length < (opts.affixes ?? k)) { const a = keys[randInt(0, keys.length - 1)]; if (!e.affixes.includes(a)) e.affixes.push(a); }
+    if (e.affixes.includes('hasted')) e.speed *= 1.4;
+    if (e.affixes.includes('shielded')) e.shieldHp = 40;
+  }
   if (t.kind === 'drift') { const a = opts.dir ?? Math.atan2(world.H / 2 - y, world.W / 2 - x) + rand(-0.6, 0.6); e.vx = Math.cos(a) * e.speed; e.vy = Math.sin(a) * e.speed; }
   world.enemies.push(e);
   return e;
@@ -193,10 +247,10 @@ function enemyBlink(world, e, fx) {
   }
 }
 /** 直接扣血（毒區、毀滅攻擊）：無視護盾與無敵，但會走倒地 / 陣亡流程 */
-function drainPlayer(world, p, amount, fx) {
+function drainPlayer(world, p, amount, fx, by = '毒區') {
   if (p.dead || p.downed || p.offline || amount <= 0) return;
-  p.hp -= amount; world.waveDamaged = true;
-  if (p.hp <= 0) { p.hp = 0; playerDown(world, p, fx); }
+  p.hp -= amount; world.waveDamaged = true; world.stats.dmgTaken += amount; world.stats.noHitT = 0; p.lastHitBy = by;
+  if (p.hp <= 0) { p.hp = 0; world.stats.killedBy = by; playerDown(world, p, fx); }
 }
 function playerDown(world, p, fx) {
   const others = world.players.filter(q => q !== p && !q.dead && !q.offline);
@@ -245,19 +299,29 @@ function fireDoom(world, fx) {
   for (const bb of world.bosses) damageBoss(world, bb, 200, bb.x, bb.y, fx);
   world.safeZones = []; world.doom = null;
 }
+/** 小隊主題：這一波偏好的敵種（第 3 波起 50% 機率有主題） */
+const SQUADS = { kamikaze: ['自爆蟲潮', 3], sniper: ['狙擊陣地', 6], warden: ['盾牆推進', 4], mortar: ['砲擊陣列', 5], shooter: ['火力壓制', 2], dart: ['飛鏢風暴', 2], hexer: ['咒術集會', 7], lancer: ['雷射封鎖線', 5] };
 function pickType(world) {
-  const w = world.wave, roll = rnd();
+  const w = threat(world), roll = rnd(), A = arenaById(world.arena);
+  if (w >= 2 && rnd() < 0.12 + Math.min(0.13, w * 0.01)) return A.unique;
+  if (world.waveTheme && rnd() < 0.45) return world.waveTheme;
+  const lancerFrom = world.mods.lancers ? 2 : DIFFICULTY.lancerFromWave;
+  if (world.mods.lancers && roll < 0.2) return 'lancer';
   let type = 'drifter';
-  if (w >= 2 && roll < 0.25) type = 'dart';
-  if (w >= 2 && roll > 0.8) type = 'shooter';
-  if (w >= 4 && roll > 0.7 && roll <= 0.8) type = 'splitter';
-  const lancerFrom = world.mods.lancers ? 2 : DIFFICULTY.lancerFromWave, lancerLo = world.mods.lancers ? 0.82 : 0.88;
-  if (w >= lancerFrom && roll > lancerLo && roll <= 0.94) type = 'lancer';
-  if (w >= 5 && roll > 0.94) type = 'tank';
+  if (w >= 2 && roll < 0.20) type = 'dart';
+  else if (w >= 2 && roll < 0.38) type = 'shooter';
+  else if (w >= 3 && roll < 0.46) type = 'kamikaze';
+  else if (w >= 4 && roll < 0.54) type = 'splitter';
+  else if (w >= 4 && roll < 0.61) type = 'warden';
+  else if (w >= 5 && roll < 0.67) type = 'mortar';
+  else if (w >= lancerFrom && roll < 0.73) type = 'lancer';
+  else if (w >= 6 && roll < 0.79) type = 'sniper';
+  else if (w >= 7 && roll < 0.85) type = 'hexer';
+  else if (w >= 5 && roll < 0.90) type = 'tank';
   return type;
 }
 function spawnWithElite(world, type, x, y) {
-  const elite = world.wave >= DIFFICULTY.eliteFromWave && rnd() < DIFFICULTY.eliteChance(world.wave) * (world.mods.elite ? 3 : 1);
+  const elite = world.wave >= DIFFICULTY.eliteFromWave && rnd() < DIFFICULTY.eliteChance(threat(world)) * (world.mods.elite ? 3 : 1);
   return spawnEnemy(world, type, x, y, 1, { elite });
 }
 
@@ -273,6 +337,8 @@ function chooseMode(world) {
 
 function nextWave(world, fx) {
   if (world.wave > 0 && !world.waveDamaged && activePlayers(world).length) { const bonus = PERFECT_WAVE_BONUS * world.wave; world.score += bonus; fx.text(world.W / 2, world.H / 2 - 100, `無傷清波 +${bonus}`, '#90f1a8', 26, 2); fx.sfx('pickup'); }
+  if (world.stats.doomHit && activePlayers(world).length) world.stats.doomSurvived = true;
+  world.stats.doomHit = false;
   world.waveDamaged = false;
   world.wave++;
   world.upgradeOffered = false;
@@ -282,7 +348,10 @@ function nextWave(world, fx) {
   if (mode) { startMode(world, mode, fx); return; }
   fx.sfx('wave');
   fx.text(world.W / 2, world.H / 2 - 60, `第 ${world.wave} 波`, '#fff', 36, 1.6);
-  const n = Math.round((DIFFICULTY.baseCount + world.wave * DIFFICULTY.countPerWave) * (1 + (nPlayers(world) - 1) * 0.5) * (world.mods.swarm ? 1.5 : 1));
+  const n = Math.round((DIFFICULTY.baseCount + world.wave * DIFFICULTY.countPerWave) * (1 + (nPlayers(world) - 1) * DIFFICULTY.perPlayer.count) * (world.mods.swarm ? 1.5 : 1));
+  // 小隊主題
+  world.waveTheme = null;
+  if (world.wave >= 3 && rnd() < 0.5) { const th = threat(world), opts = Object.entries(SQUADS).filter(([, v]) => th >= v[1]); if (opts.length) { const [k, v] = opts[randInt(0, opts.length - 1)]; world.waveTheme = k; fx.text(world.W / 2, world.H / 2 + 10, `敵方小隊：${v[0]}`, '#ff8c9c', 18, 1.8); } }
   // 夾擊隊形：從兩個相對的邊同時進場，逼玩家兩面應戰
   const pincer = world.wave >= DIFFICULTY.pincerFromWave && rnd() < 0.5 ? randInt(0, 1) : -1;
   if (pincer >= 0) fx.text(world.W / 2, world.H / 2 - 20, '偵測到夾擊隊形', '#ff8c42', 18, 1.6);
@@ -414,8 +483,9 @@ function spawnBoss(world, fx) {
   const final = world.wave === WIN_WAVE && !world.endless;
   const double = !final && world.wave >= BOSS_DOUBLE_FROM_WAVE && rnd() < BOSS_DOUBLE_CHANCE;
   if (final) world.bosses.push(makeBoss(world, 'annihilator', tier, 0, 1));
-  else if (double) { world.bosses.push(makeBoss(world, kinds[randInt(0, kinds.length - 1)], tier, -1, 0.65)); world.bosses.push(makeBoss(world, kinds[randInt(0, kinds.length - 1)], tier, 1, 0.65)); fx.text(world.W / 2, world.H / 2 - 80, '偵測到兩艘巨型敵艦！', '#ff3860', 30, 2.2); }
+  else if (double) { world.bosses.push(makeBoss(world, kinds[randInt(0, kinds.length - 1)], tier, -1, 0.65)); world.bosses.push(makeBoss(world, kinds[randInt(0, kinds.length - 1)], tier, 1, 0.65)); fx.text(world.W / 2, world.H / 2 - 80, '偵測到兩艘巨型敵艦！', '#ff3860', 30, 2.2); world.stats.doublePending = true; }
   else world.bosses.push(makeBoss(world, world.wave === BOSS_EVERY ? 'annihilator' : kinds[randInt(0, kinds.length - 1)], tier, 0, 1));
+  for (const b of world.bosses) if (!world.stats.bossesSeen.includes(b.kind)) world.stats.bossesSeen.push(b.kind);
   fx.sfx('wave');
 }
 /** 建立一道雷射（先預警再發射）。owner: 敵人 id；bossId: Boss id */
@@ -679,7 +749,7 @@ function updateBoss(world, b, dt, fx) {
 
   for (const q of activePlayers(world)) {
     if (dist2(b.x, b.y, q.x, q.y) < (b.r + q.r) ** 2) {
-      hurtPlayer(world, q, 35, fx);
+      hurtPlayer(world, q, 35, fx, { x: b.x, y: b.y, by: b.name + ' 撞擊' });
       const a = Math.atan2(q.y - b.y, q.x - b.x);
       q.vx = Math.cos(a) * 550; q.vy = Math.sin(a) * 550;
     }
@@ -702,7 +772,9 @@ function killBoss(world, b, fx) {
   const kinds = ['heal', 'shield', 'spread', 'rapid'];
   for (let i = 0; i < 3; i++) world.pickups.push({ id: world.nextId++, x: b.x + rand(-80, 80), y: b.y + rand(-50, 50), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
   world.bosses.splice(world.bosses.indexOf(b), 1);
+  world.stats.bosses++;
   if (world.bosses.length) return;   // 還有另一隻：獎勵等全部擊破
+  if (world.stats.doublePending) { world.stats.doubleBoss = true; world.stats.doublePending = false; }
   const win = world.wave >= WIN_WAVE && !world.won;
   for (const p of world.players) {
     p.maxHp += 20; if (!p.dead) p.hp = Math.min(p.maxHp, p.hp + 40);
@@ -734,8 +806,9 @@ export function finishRun(world) {
 
 // ---------- 子彈 / 道具 ----------
 function spawnBullet(world, p, x, y, a, dmgMul = 1) {
+  const spd = PLAYER_BASE.bulletSpeed * (world.arena === 'abyss' ? 0.75 : 1);
   world.bullets.push({
-    id: world.nextId++, owner: p.id, x, y, vx: Math.cos(a) * PLAYER_BASE.bulletSpeed, vy: Math.sin(a) * PLAYER_BASE.bulletSpeed,
+    id: world.nextId++, owner: p.id, x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
     life: PLAYER_BASE.bulletLife, dmg: p.damage * dmgMul,
     pierce: p.pierce, bounce: p.bounce, homing: p.homing, size: p.bulletSize, hit: new Set(),
     burn: p.syn.ember && rnd() < 0.15,
@@ -755,6 +828,7 @@ function spawnPickup(world, x, y, force = false, luck = 0) {
 }
 function applyPickup(world, p, kind, fx) {
   fx.sfx('pickup');
+  world.stats.pickups++; world.stats.recentPickups.push(world.time); world.stats.recentPickups = world.stats.recentPickups.filter(t => world.time - t < 10); world.stats.hoard = Math.max(world.stats.hoard, world.stats.recentPickups.length);
   const labels = { heal: '+HP', spread: '散射', rapid: '連射', shield: '護盾', bomb: '炸彈', laser: '雷射' };
   const colors = { heal: '#3ddc84', spread: '#ffd166', rapid: '#ff8c42', shield: '#4cc9f0', bomb: '#ff3860', laser: '#b8ffff' };
   fx.text(p.x, p.y - 30, labels[kind], colors[kind], 18);
@@ -762,8 +836,9 @@ function applyPickup(world, p, kind, fx) {
     case 'heal': p.hp = Math.min(p.maxHp, p.hp + 30); break;
     case 'spread': p.spread = Math.min(5, p.spread + 1); break;
     case 'rapid': p.rapid = 8; break;
-    case 'shield': p.shield = Math.min(3, p.shield + 1); break;
+    case 'shield': if (p.flags.noShield) { p.hp = Math.min(p.maxHp, p.hp + 15); fx.text(p.x, p.y - 44, '這台機體用不了護盾 → +15 HP', '#4cc9f0', 12, 1); } else p.shield = Math.min(3, p.shield + 1); break;
     case 'laser': p.laser = PLAYER_BASE.laserTime; break;
+    case 'dust': world.dustBonus += 15; fx.text(p.x, p.y - 44, '星塵 +15', '#fff3c4', 13, 1); break;
     case 'bomb':
       fx.shake(14); fx.flash(0.6); fx.slowmo(0.6);   // 約 0.6 秒的震動與慢動作（以真實時間計）
       for (let i = world.enemies.length - 1; i >= 0; i--) { const o = world.enemies[i]; if (!o) continue; o.hp -= 60; if (o.hp <= 0) killEnemy(world, i, p, fx); }
@@ -782,10 +857,14 @@ function killEnemy(world, idx, killer, fx) {
   // 發射者被擊落：它射出的子彈一起消散（含地雷）
   let gone = 0;
   world.enemyBullets = world.enemyBullets.filter(b => { if (b.owner !== e.id) return true; if (gone++ < 12) fx.burst(b.x, b.y, '#fff', 2, 60, 0.25, 2); return false; });
-  world.combo++; world.comboTimer = 2.2;
+  world.combo++; world.comboTimer = 2.2; world.stats.maxCombo = Math.max(world.stats.maxCombo, world.combo);
   const mult = 1 + Math.floor(world.combo / 5) * 0.5;
-  const gain = Math.round(e.score * mult);
+  const gain = Math.round(e.score * mult) + (e.hunter ? 400 : 0);
   world.score += gain;
+  world.stats.kills[e.type] = (world.stats.kills[e.type] || 0) + 1; if (e.elite) world.stats.elites++;
+  if (killer) { const wk = e.lastWeapon || killer.weapon; world.stats.weaponKills[wk] = (world.stats.weaponKills[wk] || 0) + 1; if (killer.flags.killResetBlink) killer.blinkCd = 0; if (e.kind === 'sniper' && e.aimT > 0) world.stats.sniperKills++; }
+  if (e.hunter) { fx.text(e.x, e.y - 50, '追獵者殲滅 +400', '#ffd166', 26, 2); fx.shake(10); }
+  onEnemyDeath(world, e, killer, fx);
   if (killer) { killer.kills++; if (killer.syn.recharge && ++killer.killStreak >= 20) { killer.killStreak = 0; if (killer.shield < 3) { killer.shield++; fx.text(killer.x, killer.y - 50, '護盾回充', '#4cc9f0', 16, 1.2); } } }
   fx.text(e.x, e.y - 10, `+${gain}${mult > 1 ? ' ×' + mult : ''}`, e.color, 14 + Math.min(world.combo, 20) * 0.4);
   if (e.laserId) world.lasers = world.lasers.filter(L => !(L.id === e.laserId && L.phase === 'warn'));
@@ -825,9 +904,16 @@ function killEnemy(world, idx, killer, fx) {
   }
 }
 
-function hurtPlayer(world, p, dmg, fx) {
+function hurtPlayer(world, p, dmg, fx, src = null) {
   if (p.dead || p.downed || p.offline || p.inv > 0) return;
   const lfx = fx.local(p);
+  dmg = Math.round(dmg * dmgMul(world));
+  // 堡壘：正面 120° 能量盾擋住有來源方向的攻擊
+  if (p.flags.frontShield && src && src.x !== undefined && Math.abs(angleDiff(Math.atan2(src.y - p.y, src.x - p.x), p.angle)) < 1.05) {
+    p.inv = 0.08; fx.burst(p.x + Math.cos(p.angle) * 22, p.y + Math.sin(p.angle) * 22, '#4cc9f0', 8, 160, 0.3, 2); fx.beep(700, 0.06, 'triangle', 0.04, -300); world.stats.parries++;
+    return;
+  }
+  if (src && src.vamp) { src.vamp.hp = Math.min(src.vamp.maxHp, src.vamp.hp + dmg * 1.5); fx.text(src.vamp.x, src.vamp.y - src.vamp.r - 8, '吸血', '#ff3860', 11, 0.6); }
   if (p.shield > 0) {
     p.shield--; p.inv = 0.6;
     fx.burst(p.x, p.y, '#4cc9f0', 20, 200, 0.5, 3); fx.beep(600, 0.15, 'sine', 0.08, -300); fx.text(p.x, p.y - 30, '護盾抵擋', '#4cc9f0');
@@ -835,11 +921,12 @@ function hurtPlayer(world, p, dmg, fx) {
   }
   p.hp -= dmg; p.inv = 0.8; world.waveDamaged = true;
   lfx.flash(1); lfx.shake(14); lfx.aberrate(0.9);
-  world.combo = 0;
+  world.combo = 0; world.stats.dmgTaken += dmg; world.stats.noHitT = 0; world.stats.stillT = 0;
+  p.lastHitBy = src && src.by ? src.by : '不明攻擊';
   fx.burst(p.x, p.y, '#ff5f7a', 16, 200, 0.5, 3);
   fx.ring(p.x, p.y, '#ff5f7a', 10, 90, 0.35, 3);
   fx.sfx('hurt');
-  if (p.hp <= 0) { p.hp = 0; playerDown(world, p, fx); }
+  if (p.hp <= 0) { p.hp = 0; world.stats.killedBy = p.lastHitBy; playerDown(world, p, fx); }
 }
 function killPlayer(world, p, fx) {
   p.dead = true; p.downed = false; p.hp = 0;
@@ -866,6 +953,8 @@ function offerUpgrades(world, fx) {
     if (p.dead || p.offline) continue;
     const pool = UPGRADES.filter(u => (p.upgrades[u.id] || 0) < u.max);
     const picks = [];
+    const evo = !p.evolved ? evolutionFor(p.weapon, p.upgrades) : null;
+    if (evo) picks.push(evoCard(evo));
     while (picks.length < 3 && pool.length) picks.push(pool.splice(randInt(0, pool.length - 1), 1)[0]);
     world.pendingUpgrades.set(p.id, picks);
   }
@@ -873,13 +962,28 @@ function offerUpgrades(world, fx) {
   world.scene = 'upgrade';
   [523, 659, 784].forEach((f, i) => schedule(world, i * 0.1, () => fx.beep(f, 0.2, 'sine', 0.06)));
 }
+/** 武器進化卡（長得像升級卡，給 render / snapshot 用） */
+export function evoCard(evo) {
+  return { id: 'evo:' + evo.id, icon: evo.icon, name: '進化 · ' + evo.name, max: 1, evo, desc: () => evo.desc, apply: p => { p.evolved = evo.id; } };
+}
 export function chooseUpgrade(world, playerId, idx, fx = NULL_FX) {
   const choices = world.pendingUpgrades.get(playerId);
   const p = world.players.find(q => q.id === playerId);
   if (!choices || !p) return false;
+  if (idx === -1) {
+    // 放棄升級：回 20 生命（也是「裸裝」成就的路）
+    p.hp = Math.min(p.maxHp, p.hp + 20); fx.text(p.x, p.y - 40, '放棄升級 +20 HP', '#3ddc84', 18, 1.4);
+    world.pendingUpgrades.delete(playerId);
+    if (world.pendingUpgrades.size === 0) { world.scene = 'play'; world.waveTimer = 2.5; }
+    return true;
+  }
   const u = choices[idx];
   if (!u) return false;
   u.apply(p);
+  world.stats.upgrades++;
+  if (u.evo) { world.stats.evolved = u.evo.id; fx.text(p.x, p.y - 70, `武器進化 ${u.evo.icon} ${u.evo.name}！`, '#fff', 30, 2.5); fx.ring(p.x, p.y, '#fff', 10, 220, 0.8, 5); fx.flash(0.3); fx.sfx('wave'); world.pendingUpgrades.delete(playerId); if (world.pendingUpgrades.size === 0) { world.scene = 'play'; world.waveTimer = 2.5; } return true; }
+  if (p.flags.adapt) { p.damage *= 1.04; p.adaptMul *= 1.04; }
+  if (u.id === 'drone' && p.flags.droneBoost) p.drones.push({ a: rand(0, TAU), cd: rand(0, 0.5), x: p.x, y: p.y });
   p.upgrades[u.id] = (p.upgrades[u.id] || 0) + 1;
   // 組合技：新啟動的宣告出來
   for (const id of activeSynergies(p.upgrades)) if (!p.syn[id]) { p.syn[id] = true; const s = SYNERGIES.find(x => x.id === id); fx.text(p.x, p.y - 70, `組合技 ${s.icon} ${s.name}！`, '#ff8c42', 26, 2.2); fx.ring(p.x, p.y, '#ff8c42', 10, 160, 0.6, 4); fx.sfx('wave'); }
@@ -901,41 +1005,65 @@ export function stepPlayer(world, p, inp, dt, fx = NULL_FX) {
   let ix = inp.ix, iy = inp.iy;
   const len = Math.hypot(ix, iy) || 1; ix /= len; iy /= len;
 
+  const F = p.flags || {};
   p.dashCd = Math.max(0, p.dashCd - dt);
-  if (inp.dash && p.dashCd <= 0 && (ix || iy)) {
+  if (p.frozen > 0) { ix = 0; iy = 0; }
+  if (inp.dash && p.dashCd <= 0 && (ix || iy) && !(p.emp > 0) && !(p.frozen > 0)) {
     p.dashing = PLAYER_BASE.dashTime; p.dashCd = p.dashCdMax; p.inv = Math.max(p.inv, p.syn.ghost ? 0.5 : 0.25); p.dashHits.clear();
+    if (world.stats) world.stats.dashes++;
+    // 工程師：衝刺時在原地放下砲塔（最多 2 座）
+    if (F.turrets && p.turrets) { p.turrets.push({ x: p.x, y: p.y, life: 20, cd: 0.3, a: p.angle }); while (p.turrets.length > F.turrets) p.turrets.shift(); fx.ring(p.x, p.y, '#ffd166', 8, 60, 0.4, 3); fx.text(p.x, p.y - 30, '砲塔部署', '#ffd166', 12, 0.8); }
     p.vx = ix * PLAYER_BASE.dashSpeed; p.vy = iy * PLAYER_BASE.dashSpeed;
     fx.sfx('dash'); fx.burst(p.x, p.y, p.color, 10, 120, 0.4, 2);
   }
   if (p.dashing > 0) {
     p.dashing -= dt;
     fx.ghost(p.x, p.y, 8, p.color, 0.3);
-    if (p.syn.ghost) for (let j = world.enemies.length - 1; j >= 0; j--) { const e = world.enemies[j]; if (!e || p.dashHits.has(e.id) || dist2(e.x, e.y, p.x, p.y) > (e.r + p.r + 6) ** 2) continue; p.dashHits.add(e.id); e.hp -= 40; e.hitFlash = 0.1; fx.burst(e.x, e.y, p.color, 8, 160, 0.3, 2); if (e.hp <= 0) killEnemy(world, j, p, fx); }
+    const slash = F.dashSlash || p.evolved === 'dance';
+    if (p.syn.ghost || slash) for (let j = world.enemies.length - 1; j >= 0; j--) { const e = world.enemies[j]; if (!e || p.dashHits.has(e.id) || dist2(e.x, e.y, p.x, p.y) > (e.r + p.r + (slash ? 40 : 6)) ** 2) continue; p.dashHits.add(e.id); hitEnemy(world, e, slash ? (p.damage || 8) * WEAPON_STATS.bladeDmg * (F.bladeMaster ? 2 : 1) : 40, { by: p, x: p.x, y: p.y, element: slash ? 'kinetic' : null }, fx); fx.burst(e.x, e.y, p.color, 8, 160, 0.3, 2); if (slash) fx.bolt([{ x: p.x - Math.cos(p.angle) * 20, y: p.y - Math.sin(p.angle) * 20 }, { x: e.x, y: e.y }], '#fff'); if (e.hp <= 0) killEnemy(world, j, p, fx); }
   } else {
-    const accel = PLAYER_BASE.accel * p.speedMul, maxSpd = PLAYER_BASE.maxSpeed * p.speedMul;
+    const ice = world.arena === 'glacier';
+    const envMul = (world.drag || 1) * (world.blizzard > 0 ? 0.75 : 1) * (p.hexed > 0 ? 0.55 : 1);
+    const accel = PLAYER_BASE.accel * p.speedMul * (ice ? 0.55 : 1) * envMul, maxSpd = PLAYER_BASE.maxSpeed * p.speedMul * envMul;
     p.vx += ix * accel * dt; p.vy += iy * accel * dt;
     const sp = Math.hypot(p.vx, p.vy);
     if (sp > maxSpd) { p.vx = p.vx / sp * maxSpd; p.vy = p.vy / sp * maxSpd; }
-    if (!ix && !iy) { p.vx *= Math.pow(0.001, dt); p.vy *= Math.pow(0.001, dt); }
+    if (!ix && !iy) { const k = ice ? 0.3 : 0.001; p.vx *= Math.pow(k, dt); p.vy *= Math.pow(k, dt); }
+    if (world.wind) { p.vx += world.wind.x * dt; p.vy += world.wind.y * dt; }
+    if (world.stats) { if (!ix && !iy && !inp.fire) world.stats.stillT += dt; else world.stats.stillT = 0; world.stats.bestStill = Math.max(world.stats.bestStill, world.stats.stillT); }
   }
   p.x = clamp(p.x + p.vx * dt, p.r, W - p.r);
   p.y = clamp(p.y + p.vy * dt, p.r, H - p.r);
   // 閃現：朝移動方向（沒移動就朝瞄準方向）瞬移，過程無敵
   p.blinkCd = Math.max(0, (p.blinkCd || 0) - dt);
   if (p.blinkFlash > 0) p.blinkFlash -= dt;
-  if (inp.blink && p.blinkCd <= 0) {
+  if (inp.blink && p.blinkCd <= 0 && !(p.emp > 0) && !(p.frozen > 0)) {
     const a = (ix || iy) ? Math.atan2(iy, ix) : inp.angle;
     const ox = p.x, oy = p.y;
-    p.x = clamp(p.x + Math.cos(a) * PLAYER_BASE.blinkDist, p.r, W - p.r);
-    p.y = clamp(p.y + Math.sin(a) * PLAYER_BASE.blinkDist, p.r, H - p.r);
-    p.blinkCd = p.blinkCdMax || PLAYER_BASE.blinkCd; p.inv = Math.max(p.inv, PLAYER_BASE.blinkInv); p.blinkFlash = 0.3; p.dashing = 0;
-    fx.burst(ox, oy, p.color, 14, 220, 0.4, 3); fx.ring(ox, oy, p.color, 6, 60, 0.3, 3);
-    fx.burst(p.x, p.y, '#fff', 12, 200, 0.35, 2); fx.ghost(p.x, p.y, 16, p.color, 0.35);
-    fx.beep(1100, 0.12, 'sine', 0.06, 700); fx.sfx('dash');
+    if (world.stats) world.stats.blinks++;
+    if (F.shieldBash) {
+      // 堡壘：盾擊 — 短距衝撞，沿路擊退並傷害
+      p.blinkCd = p.blinkCdMax || PLAYER_BASE.blinkCd; p.inv = Math.max(p.inv, 0.35); p.blinkFlash = 0.3;
+      p.dashing = 0.16; p.vx = Math.cos(a) * 750; p.vy = Math.sin(a) * 750; p.dashHits.clear(); p.bash = true;
+      fx.ring(p.x, p.y, '#4cc9f0', 10, 70, 0.3, 4); fx.beep(300, 0.15, 'square', 0.08, -150); fx.sfx('dash');
+    } else {
+      p.x = clamp(p.x + Math.cos(a) * PLAYER_BASE.blinkDist, p.r, W - p.r);
+      p.y = clamp(p.y + Math.sin(a) * PLAYER_BASE.blinkDist, p.r, H - p.r);
+      p.blinkCd = p.blinkCdMax || PLAYER_BASE.blinkCd; p.inv = Math.max(p.inv, PLAYER_BASE.blinkInv); p.blinkFlash = 0.3; p.dashing = 0;
+      fx.burst(ox, oy, p.color, 14, 220, 0.4, 3); fx.ring(ox, oy, p.color, 6, 60, 0.3, 3);
+      fx.burst(p.x, p.y, '#fff', 12, 200, 0.35, 2); fx.ghost(p.x, p.y, 16, p.color, 0.35);
+      fx.beep(1100, 0.12, 'sine', 0.06, 700); fx.sfx('dash');
+      // 黃蜂：落點爆炸
+      if (F.blinkStrike) { fx.ring(p.x, p.y, '#ffd166', 10, 100, 0.35, 4); fx.burst(p.x, p.y, '#ffd166', 16, 220, 0.4, 3); fx.noise(0.1, 0.08); for (let j = world.enemies.length - 1; j >= 0; j--) { const e = world.enemies[j]; if (!e || dist2(e.x, e.y, p.x, p.y) > (90 + e.r) ** 2) continue; hitEnemy(world, e, 40, { by: p, x: p.x, y: p.y, element: 'kinetic' }, fx); const aa = Math.atan2(e.y - p.y, e.x - p.x); e.vx += Math.cos(aa) * 300; e.vy += Math.sin(aa) * 300; if (e.hp <= 0) killEnemy(world, j, p, fx); } for (const bb of world.bosses) if (dist2(bb.x, bb.y, p.x, p.y) < (90 + bb.r) ** 2) damageBoss(world, bb, 40, p.x, p.y, fx); }
+    }
   }
+  // 盾擊沿路撞擊
+  if (p.bash && p.dashing > 0) for (let j = world.enemies.length - 1; j >= 0; j--) { const e = world.enemies[j]; if (!e || p.dashHits.has(e.id) || dist2(e.x, e.y, p.x, p.y) > (e.r + p.r + 12) ** 2) continue; p.dashHits.add(e.id); hitEnemy(world, e, 30, { by: p, x: p.x, y: p.y, element: 'kinetic' }, fx); const aa = Math.atan2(e.y - p.y, e.x - p.x); e.vx += Math.cos(aa) * 520; e.vy += Math.sin(aa) * 520; e.stun = Math.max(e.stun || 0, 0.4); fx.burst(e.x, e.y, '#4cc9f0', 10, 200, 0.3, 3); if (e.hp <= 0) killEnemy(world, j, p, fx); }
+  if (p.dashing <= 0) p.bash = false;
   p.angle = inp.angle;
   p.inv = Math.max(0, p.inv - dt);
   p.rapid = Math.max(0, p.rapid - dt);
+  p.emp = Math.max(0, (p.emp || 0) - dt); p.frozen = Math.max(0, (p.frozen || 0) - dt); p.hexed = Math.max(0, (p.hexed || 0) - dt);
 }
 
 // ---------- 主更新 ----------
@@ -978,106 +1106,28 @@ export function update(world, dt, fx = NULL_FX) {
     }
     const inp = p.input;
 
-    // 雷射道具：按住射擊時射出貫穿光束，期間不發射一般子彈
+    // ---- 射擊：依主武器分派。每種武器對升級 / 道具的反應都不同（見 WEAPON_MODS），進化見 EVOLUTIONS ----
     p.laser = Math.max(0, p.laser - dt);
-    p.laserOn = (p.laser > 0 || p.weapon === 'laser') && !!inp.fire;
-    if (p.laserOn) {
-      const x1 = p.x + Math.cos(p.angle) * 18, y1 = p.y + Math.sin(p.angle) * 18, x2 = p.x + Math.cos(p.angle) * PLAYER_BASE.laserRange, y2 = p.y + Math.sin(p.angle) * PLAYER_BASE.laserRange;
-      const dps = p.damage * (p.laser > 0 ? PLAYER_BASE.laserDps : WEAPON_STATS.laserDps) * (p.rapid > 0 ? 1.5 : 1);
-      for (let j = world.enemies.length - 1; j >= 0; j--) {
-        const e = world.enemies[j];
-        if (!e || segDist2(e.x, e.y, x1, y1, x2, y2) > (e.r + 6) ** 2) continue;
-        e.hp -= dps * dt; e.hitFlash = 0.05;
-        if (rnd() < 0.25) fx.burstDir(e.x, e.y, '#b8ffff', 2, p.angle + Math.PI, 1.2, 160, 0.2, 2);
-        if (e.hp <= 0) killEnemy(world, j, p, fx);
-      }
-      for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && segDist2(bb.x, bb.y, x1, y1, x2, y2) < (bb.r + 6) ** 2) damageBoss(world, bb, dps * dt, bb.x, bb.y, fx);
-      if (rnd() < 0.3) fx.sfx('hit');
-      p.vx -= Math.cos(p.angle) * 40 * dt; p.vy -= Math.sin(p.angle) * 40 * dt;
-    }
-    // 射擊：依主武器分派
-    p.fireCd -= dt;
-    p.weaponOn = false;
-    if (!p.laserOn && p.weapon === 'flame') {
-      // 火焰槍：扇形持續噴射，點燃
-      if (inp.fire) {
-        p.weaponOn = true;
-        const dps = p.damage * WEAPON_STATS.flameDps * (p.rapid > 0 ? 1.5 : 1);
-        const R = WEAPON_STATS.flameRange, cone = WEAPON_STATS.flameCone + (p.spread - 1) * 0.08;
-        const inCone = (x, y, r) => { const d = Math.hypot(x - p.x, y - p.y); return d < R + r && Math.abs(angleDiff(Math.atan2(y - p.y, x - p.x), p.angle)) < cone + r / Math.max(60, d); };
-        for (let j = world.enemies.length - 1; j >= 0; j--) {
-          const e = world.enemies[j];
-          if (!e || !inCone(e.x, e.y, e.r)) continue;
-          e.hp -= dps * dt; e.hitFlash = 0.05; e.burn = Math.max(e.burn || 0, 1.5); e.burnDps = p.damage * 0.6;
-          if (e.hp <= 0) killEnemy(world, j, p, fx);
-        }
-        for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && inCone(bb.x, bb.y, bb.r)) damageBoss(world, bb, dps * dt, bb.x, bb.y, fx);
-        if (rnd() < 0.9) fx.burstDir(p.x + Math.cos(p.angle) * 20, p.y + Math.sin(p.angle) * 20, rnd() < 0.5 ? '#ff8c42' : '#ffd166', 3, p.angle, cone * 0.9, 520, 0.42, 5);
-        if (rnd() < 0.15) fx.noise(0.08, 0.03);
-        p.vx -= Math.cos(p.angle) * 60 * dt; p.vy -= Math.sin(p.angle) * 60 * dt;
-      }
-    } else if (!p.laserOn && p.weapon === 'frost') {
-      // 冰凍光線：窄光束，減速並累積凍結
-      if (inp.fire) {
-        p.weaponOn = true;
-        const dps = p.damage * WEAPON_STATS.frostDps * (p.rapid > 0 ? 1.5 : 1);
-        const x1 = p.x + Math.cos(p.angle) * 18, y1 = p.y + Math.sin(p.angle) * 18, x2 = p.x + Math.cos(p.angle) * WEAPON_STATS.frostRange, y2 = p.y + Math.sin(p.angle) * WEAPON_STATS.frostRange;
-        for (let j = world.enemies.length - 1; j >= 0; j--) {
-          const e = world.enemies[j];
-          if (!e || segDist2(e.x, e.y, x1, y1, x2, y2) > (e.r + 8) ** 2) continue;
-          e.hp -= dps * dt; e.hitFlash = 0.04; e.slow = 1.2;
-          if (!(e.stun > 0)) { e.freeze = (e.freeze || 0) + dt; if (e.freeze >= WEAPON_STATS.frostFreezeAfter) { e.freeze = 0; e.stun = 1.2; fx.text(e.x, e.y - e.r - 8, '凍結', '#b8ffff', 14, 0.8); fx.ring(e.x, e.y, '#b8ffff', e.r, e.r + 30, 0.4, 3); } }
-          if (rnd() < 0.2) fx.burst(e.x, e.y, '#b8ffff', 2, 60, 0.4, 2);
-          if (e.hp <= 0) killEnemy(world, j, p, fx);
-        }
-        for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && segDist2(bb.x, bb.y, x1, y1, x2, y2) < (bb.r + 8) ** 2) { damageBoss(world, bb, dps * dt, bb.x, bb.y, fx); bb.slow = 0.6; }
-      }
-    } else if (!p.laserOn && p.weapon === 'arc') {
-      // 閃電鏈：自動鎖定最近目標，連鎖跳躍；沒目標時按住會在機頭蓄電（最多 1.5 秒 → 傷害 ×2）
-      p.arcCharge = p.arcCharge || 0;
-      if (!inp.fire) p.arcCharge = Math.max(0, p.arcCharge - dt * 2);
-      if (inp.fire && p.fireCd <= 0) {
-        p.fireCd = (p.rapid > 0 ? p.fireRate * 0.45 : p.fireRate) * WEAPON_STATS.arcRate;
-        const first = nearestTarget(world, p.x, p.y, WEAPON_STATS.arcRange);
-        if (first) {
-          const pts = [{ x: p.x + Math.cos(p.angle) * 16, y: p.y + Math.sin(p.angle) * 16 }];
-          const hit = new Set(); let cur = first;
-          const dmg = p.damage * WEAPON_STATS.arcDmg * (1 + Math.min(1.5, p.arcCharge) / 1.5);
-          if (p.arcCharge > 0.5) fx.text(p.x, p.y - 34, `蓄電釋放 ×${(1 + Math.min(1.5, p.arcCharge) / 1.5).toFixed(1)}`, '#9ff', 14, 0.8);
-          p.arcCharge = 0;
-          for (let k = 0; k < WEAPON_STATS.arcTargets + Math.floor((p.spread - 1) / 2) && cur; k++) {
-            hit.add(cur); pts.push({ x: cur.x, y: cur.y });
-            if (cur.tier !== undefined && cur.r <= 200 && !cur.name) { const idx = world.enemies.indexOf(cur); if (idx >= 0) { cur.hp -= dmg * Math.pow(0.85, k); cur.hitFlash = 0.08; cur.squash = 1; cur.vx *= 0.5; cur.vy *= 0.5; if (cur.hp <= 0) killEnemy(world, idx, p, fx); } }
-            else damageBoss(world, cur, dmg * Math.pow(0.85, k), cur.x, cur.y, fx);
-            let next = null, bd = WEAPON_STATS.arcJump ** 2;
-            for (const e of world.enemies) { if (hit.has(e)) continue; const d = dist2(e.x, e.y, cur.x, cur.y); if (d < bd) { bd = d; next = e; } }
-            cur = next;
-          }
-          fx.bolt(pts, '#9ff');
-          fx.beep(1600, 0.06, 'square', 0.05, -900); fx.sfx('hit');
-          lfx.crossRecoil();
-        } else {
-          // 沒有目標：蓄電，機頭噼啪作響
-          p.fireCd = 0.1; p.weaponOn = true; p.arcCharge = Math.min(1.5, p.arcCharge + 0.1);
-          const nx = p.x + Math.cos(p.angle) * 18, ny = p.y + Math.sin(p.angle) * 18;
-          const k = 1 + Math.floor(p.arcCharge * 2);
-          for (let s = 0; s < k; s++) { const a = p.angle + rand(-1.2, 1.2), l = 14 + p.arcCharge * 22; fx.bolt([{ x: nx, y: ny }, { x: nx + Math.cos(a) * l * 0.5 + rand(-6, 6), y: ny + Math.sin(a) * l * 0.5 + rand(-6, 6) }, { x: nx + Math.cos(a) * l, y: ny + Math.sin(a) * l }], p.arcCharge >= 1.5 ? '#fff' : '#9ff'); }
-          if (rnd() < 0.5) fx.beep(900 + p.arcCharge * 600, 0.04, 'square', 0.02, 300);
-          if (p.arcCharge >= 1.5 && rnd() < 0.15) fx.text(nx, ny - 20, '蓄滿', '#fff', 11, 0.4);
-        }
-      }
-      if (inp.fire && p.fireCd > 0 && p.arcCharge > 0 && !nearestTarget(world, p.x, p.y, WEAPON_STATS.arcRange)) p.weaponOn = true;
-    } else if (inp.fire && p.fireCd <= 0 && !p.laserOn) {
-      p.fireCd = p.rapid > 0 ? p.fireRate * 0.45 : p.fireRate;
-      const n = p.spread;
-      for (let i = 0; i < n; i++) {
-        const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.16;
-        spawnBullet(world, p, p.x + Math.cos(p.angle) * 18, p.y + Math.sin(p.angle) * 18, p.angle + off + rand(-0.03, 0.03));
-      }
-      p.vx -= Math.cos(p.angle) * 30; p.vy -= Math.sin(p.angle) * 30;
-      fx.muzzle(p.x + Math.cos(p.angle) * 22, p.y + Math.sin(p.angle) * 22, p.angle);
-      lfx.crossRecoil();
-      fx.sfx('shoot');
+    p.fireCd -= dt; p.weaponOn = false; p.beam = null;
+    if (inp.fire) world.stats.noFireT = 0; else if (waveEnemies(world).length) world.stats.noFireT += dt;
+    world.stats.bestNoFire = Math.max(world.stats.bestNoFire, world.stats.noFireT);
+    const wpn = p.laser > 0 ? 'laser' : p.weapon;
+    p.laserOn = wpn === 'laser' && !!inp.fire && !(p.frozen > 0);
+    if (p.frozen > 0) { if (rnd() < 0.1) fx.local(p).text(p.x, p.y - 30, '凍住了！', '#b8ffff', 12, 0.4); }
+    else if (wpn === 'laser') fireLaser(world, p, inp, dt, fx, lfx);
+    else if (wpn === 'flame') fireFlame(world, p, inp, dt, fx, lfx);
+    else if (wpn === 'frost') fireFrost(world, p, inp, dt, fx, lfx);
+    else if (wpn === 'arc') fireArc(world, p, inp, dt, fx, lfx);
+    else if (wpn === 'blade') fireBlade(world, p, inp, dt, fx, lfx);
+    else fireBlaster(world, p, inp, dt, fx, lfx);
+    if (p.evolved === 'storm') { p.stormCd -= dt; if (p.stormCd <= 0) { p.stormCd = 1; const t = nearestTarget(world, p.x, p.y, 600); if (t) { fx.bolt([{ x: t.x + rand(-40, 40), y: t.y - 320 }, { x: t.x + rand(-15, 15), y: t.y - 120 }, { x: t.x, y: t.y }], '#fff'); fx.burst(t.x, t.y, '#9ff', 10, 200, 0.3, 3); fx.beep(1800, 0.08, 'square', 0.05, -1200); const d = p.damage * WEAPON_STATS.arcDmg * 1.5; if (t.name) damageBoss(world, t, d, t.x, t.y, fx); else { const j = world.enemies.indexOf(t); if (j >= 0) { hitEnemy(world, t, d, { by: p, element: 'plasma' }, fx); if (t.hp <= 0) killEnemy(world, j, p, fx); } } } } }
+
+    // 砲塔（工程師）：繼承主武器屬性
+    for (let i = p.turrets.length - 1; i >= 0; i--) {
+      const T = p.turrets[i]; T.life -= dt; T.cd -= dt;
+      if (T.life <= 0) { fx.burst(T.x, T.y, '#ffd166', 10, 150, 0.4, 3); p.turrets.splice(i, 1); continue; }
+      const t = nearestTarget(world, T.x, T.y, 520);
+      if (t) { T.a = Math.atan2(t.y - T.y, t.x - T.x); if (T.cd <= 0) { T.cd = 0.32; const b = spawnBullet(world, p, T.x + Math.cos(T.a) * 14, T.y + Math.sin(T.a) * 14, T.a, 0.7); b.element = WEAPON_ELEMENT[p.weapon]; fx.beep(1000, 0.04, 'square', 0.02, -300); } }
     }
 
     // 僚機
@@ -1090,7 +1140,7 @@ export function update(world, dt, fx = NULL_FX) {
       d.cd -= dt;
       if (d.cd <= 0) {
         const t = nearestTarget(world, d.x, d.y, 420);
-        if (t) { d.cd = p.syn.swarm ? 0.25 : 0.5; const db = spawnBullet(world, p, d.x, d.y, Math.atan2(t.y - d.y, t.x - d.x), 0.6); if (p.syn.swarm) db.homing = Math.max(db.homing, 3); fx.beep(1200, 0.04, 'square', 0.02, -400); }
+        if (t) { d.cd = p.syn.swarm ? 0.25 : 0.5; const db = spawnBullet(world, p, d.x, d.y, Math.atan2(t.y - d.y, t.x - d.x), p.flags.droneBoost ? 0.6 * 1.4 / 0.65 : 0.6); db.element = WEAPON_ELEMENT[p.weapon]; if (p.syn.swarm) db.homing = Math.max(db.homing, 3); fx.beep(1200, 0.04, 'square', 0.02, -400); }
         else d.cd = 0.15;
       }
     }
@@ -1136,14 +1186,18 @@ export function update(world, dt, fx = NULL_FX) {
       const e = world.enemies[j];
       if (!e || b.hit.has(e)) continue;
       if (dist2(b.x, b.y, e.x, e.y) < (e.r + hitR) ** 2) {
-        e.hp -= b.dmg; e.hitFlash = 0.08; e.squash = 1;
+        if (e.phaseT > 0) continue;   // 相位中：子彈穿過去
+        const real = hitEnemy(world, e, b.dmg * (b.rail ? 1 + 0.15 * b.hit.size : 1), { by: owner, x: b.x, y: b.y, element: b.element || (owner ? WEAPON_ELEMENT[owner.weapon] : null) }, fx);
+        if (real <= 0 && e.kind === 'warden') { dead = true; break; }   // 被正面盾擋下
+        e.squash = 1;
         e.vx += b.vx * 0.05; e.vy += b.vy * 0.05;
         if (owner && owner.syn.shock) { e.stun = 0.3; e.vx += b.vx * 0.3; e.vy += b.vy * 0.3; }
-        if (b.burn) { e.burn = 3; e.burnDps = (owner ? owner.damage : 8) * 0.6; }
+        if ((b.burn || b.element === 'fire') && e.element !== 'fire') { e.burn = 3; e.burnDps = (owner ? owner.damage : 8) * 0.6; }
+        if (b.element === 'ice' && e.element !== 'ice') e.slow = 1;
         const ba = Math.atan2(b.vy, b.vx);
         fx.burstDir(b.x, b.y, e.color, 4, ba + Math.PI, 1.0);
         fx.burstDir(b.x, b.y, '#fff', 2, ba, 0.4, 160, 0.2, 2);
-        if (e.maxHp >= 60) fx.text(e.x + rand(-10, 10), e.y - e.r - 6, String(Math.round(b.dmg)), '#fff', 12, 0.5);
+        if (e.maxHp >= 60 && real > 0) fx.text(e.x + rand(-10, 10), e.y - e.r - 6, String(Math.round(real)), '#fff', 12, 0.5);
         fx.local(owner).hitStop(0.015, true);
         fx.sfx('hit');
         if (e.hp <= 0) killEnemy(world, j, owner, fx);
@@ -1155,11 +1209,20 @@ export function update(world, dt, fx = NULL_FX) {
   }
 
   // 敵人
-  const beacon = world.beacon && world.beacon.alive ? world.beacon : null;
+  const beacon = world.beacon && world.beacon.alive ? world.beacon : world.crate && world.crate.alive ? world.crate : null;
   for (let i = world.enemies.length - 1; i >= 0; i--) {
     const e = world.enemies[i];
+    if (!e) continue;   // 同一輪裡其他敵人的爆炸可能已把陣列縮短
     e.hitFlash = Math.max(0, e.hitFlash - dt);
     e.squash = Math.max(0, e.squash - dt * 9);
+    if (e.affixes && e.affixes.length) {
+      if (e.affixes.includes('regen')) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.02 * dt);
+      if (e.affixes.includes('shielded') && e.shieldHp <= 0) { e.shieldCd -= dt; if (e.shieldCd <= 0) { e.shieldCd = 6; e.shieldHp = 40; fx.ring(e.x, e.y, '#4cc9f0', e.r, e.r + 24, 0.3, 3); } }
+      if (e.affixes.includes('phasing')) { e.phaseCd -= dt; if (e.phaseCd <= 0) { e.phaseCd = 3; e.phaseT = 1; fx.ghost(e.x, e.y, e.r, '#c77dff', 0.3); } }
+      if (e.affixes.includes('commander')) for (const o of world.enemies) if (o !== e && !o.ambient && dist2(o.x, o.y, e.x, e.y) < 220 * 220) o.cmdT = 0.3;
+    }
+    if (e.phaseT > 0) e.phaseT -= dt;
+    if (e.cmdT > 0) e.cmdT -= dt;
     if (e.burn > 0) {
       e.burn -= dt; e.hp -= e.burnDps * dt;
       if (rnd() < 0.3) fx.burstDir(e.x + rand(-e.r, e.r) * 0.6, e.y, '#ff8c42', 1, -Math.PI / 2, 0.6, 90, 0.35, 2.5);
@@ -1219,7 +1282,8 @@ export function update(world, dt, fx = NULL_FX) {
     } else {
       let tgt = beacon;
       if (!tgt) { tgt = nearestPlayer(world, e.x, e.y); if (!tgt) break; }
-      const wave = world.wave;
+      if (world.hole) { const hd = Math.hypot(world.hole.x - e.x, world.hole.y - e.y) || 1; if (hd < world.hole.r) { e.vx += (world.hole.x - e.x) / hd * 420 * dt; e.vy += (world.hole.y - e.y) / hd * 420 * dt; } }
+      const wave = threat(world);
       // 搶道具：附近有道具就改去吃，吃到有 Buff
       if (e.buffSpeed > 0) e.buffSpeed -= dt; if (e.buffRapid > 0) e.buffRapid -= dt; if (e.buffSpread > 0) e.buffSpread -= dt;
       if (wave >= DIFFICULTY.pickupHuntFromWave && (e.kind === 'chase' || e.kind === 'orbit') && !e.lunge) {
@@ -1285,6 +1349,20 @@ export function update(world, dt, fx = NULL_FX) {
             e.vx = Math.cos(a) * sp; e.vy = Math.sin(a) * sp; steer = false;
             fx.beep(900, 0.08, 'square', 0.03, -500);
           } else { tx += Math.cos(e.wobble) * 0.5; ty += Math.sin(e.wobble) * 0.5; }
+        } else if (e.type === 'drifter') {
+          // 蟲群：貼近後短距衝撞（撞到玩家就炸）
+          e.lungeCd -= dt;
+          if (e.lunge > 0) { e.lunge -= dt; steer = false; }
+          else if (e.lungeCd <= 0 && d < 200) { e.lunge = 0.35; e.lungeCd = rand(1.6, 2.6); const a = Math.atan2(dy, dx), sp = e.speed * 2.6; e.vx = Math.cos(a) * sp; e.vy = Math.sin(a) * sp; steer = false; fx.beep(700, 0.06, 'square', 0.03, -300); }
+        } else if (e.type === 'tank') {
+          e.atkCd -= dt;
+          if (e.atkCd <= 0 && d < 700) { e.atkCd = 3.5; const a = Math.atan2(dy, dx); world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x + Math.cos(a) * e.r, y: e.y + Math.sin(a) * e.r, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200, life: 5, r: 12, kind: 'shell', dmg: 25, by: '重裝' }); fx.beep(120, 0.3, 'square', 0.08, -60); fx.burstDir(e.x, e.y, '#9b5de5', 6, a, 0.4, 200, 0.3, 3); }
+        } else if (e.type === 'splitter' && e.split) {
+          e.atkCd -= dt;
+          if (e.atkCd <= 0 && d < 500) { e.atkCd = 3; const a = Math.atan2(dy, dx); world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, life: 2.2, r: 9, kind: 'acid', dmg: 12, by: '分裂體' }); fx.beep(240, 0.12, 'triangle', 0.05, -80); }
+        } else if (e.type === 'frostbite') {
+          e.atkCd -= dt;
+          if (e.atkCd <= 0 && d < 420) { e.atkCd = 2.4; const a = Math.atan2(dy, dx); for (let k = -1; k <= 1; k++) world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: Math.cos(a + k * 0.3) * 340, vy: Math.sin(a + k * 0.3) * 340, life: 2.5, r: 5, kind: 'ice', dmg: 8, by: '霜噬' }); fx.beep(1500, 0.08, 'sine', 0.04, -600); }
         }
       } else if (e.kind === 'orbit' || e.kind === 'lancer') {
         if (e.kind === 'orbit' && wave >= ENEMY_BLINK_FROM_WAVE) enemyBlink(world, e, fx);
@@ -1365,20 +1443,25 @@ export function update(world, dt, fx = NULL_FX) {
           for (let k = -1; k <= 1; k++) { const aa = a + k * 0.25; world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: e.x, y: e.y, vx: Math.cos(aa) * 300, vy: Math.sin(aa) * 300, life: 3, r: 5, kind: 'lead' }); }
           fx.beep(600, 0.1, 'square', 0.04, -300);
         }
+      } else if (BEHAVE[e.kind]) {
+        const r = BEHAVE[e.kind](world, e, tgt, dx, dy, d, dt, fx, wave);
+        if (r === 'dead') continue;
+        if (r) { if (r.tx !== undefined) { tx = r.tx; ty = r.ty; } if (r.steer === false) steer = false; }
       }
       if (steer) {
         const len = Math.hypot(tx, ty) || 1; tx /= len; ty /= len;
-        const spd = e.speed * (e.slow > 0 ? WEAPON_STATS.frostSlow : 1) * (e.buffSpeed > 0 ? 1.4 : 1) * (e.encT >= 2.0 ? 1.35 : 1);
+        const spd = e.speed * (e.slow > 0 ? WEAPON_STATS.frostSlow : 1) * (e.buffSpeed > 0 ? 1.4 : 1) * (e.encT >= 2.0 ? 1.35 : 1) * (e.cmdT > 0 ? 1.25 : 1) * (world.drag || 1);
         e.vx += (tx * spd - e.vx) * Math.min(1, dt * 3);
         e.vy += (ty * spd - e.vy) * Math.min(1, dt * 3);
       }
       e.x += e.vx * dt; e.y += e.vy * dt;
+      if (world.wind) { e.x += world.wind.x * dt * 0.6; e.y += world.wind.y * dt * 0.6; }
       if (e.kind !== 'chase') { e.x = clamp(e.x, e.r, W - e.r); e.y = clamp(e.y, e.r, H - e.r); }
       if (beacon && dist2(e.x, e.y, beacon.x, beacon.y) < (e.r + beacon.r) ** 2) {
         beacon.hp -= e.contact; beacon.hitFlash = 0.15;
         fx.burst(e.x, e.y, e.color, 14, 200, 0.5, 3); fx.shake(4); fx.sfx('hit');
         world.enemies.splice(i, 1);
-        if (beacon.hp <= 0) { beacon.hp = 0; beacon.alive = false; fx.burst(beacon.x, beacon.y, '#4cc9f0', 60, 400, 1, 5); fx.ring(beacon.x, beacon.y, '#4cc9f0', 40, 400, 0.6, 5); fx.shake(20); fx.text(beacon.x, beacon.y - 60, '信標被摧毀！', '#ff5f7a', 30, 2); fx.sfx('explode'); }
+        if (beacon.hp <= 0) { beacon.hp = 0; beacon.alive = false; fx.burst(beacon.x, beacon.y, '#4cc9f0', 60, 400, 1, 5); fx.ring(beacon.x, beacon.y, '#4cc9f0', 40, 400, 0.6, 5); fx.shake(20); fx.text(beacon.x, beacon.y - 60, beacon.kind === 'crate' ? '補給箱被搶走了！' : '信標被摧毀！', '#ff5f7a', 30, 2); fx.sfx('explode'); }
         continue;
       }
     }
@@ -1389,14 +1472,24 @@ export function update(world, dt, fx = NULL_FX) {
       const ddx = e.x - o.x, ddy = e.y - o.y, dd = Math.hypot(ddx, ddy), min = e.r + o.r;
       if (dd < min && dd > 0) { e.x += ddx / dd * (min - dd) * 4 * dt; e.y += ddy / dd * (min - dd) * 4 * dt; }
     }
+    let removed = false;
     for (const q of activePlayers(world)) {
       if (dist2(e.x, e.y, q.x, q.y) < (e.r + q.r) ** 2) {
-        hurtPlayer(world, q, e.contact, fx);
+        const wasInv = q.inv > 0;
+        hurtPlayer(world, q, e.contact * (e.cmdT > 0 ? 1.25 : 1), fx, { x: e.x, y: e.y, by: enemyLabel(e), vamp: e.affixes && e.affixes.includes('vampiric') ? e : null });
+        if (!wasInv && (ENEMY_TYPES[e.type] || {}).freezeTouch && !(q.frozen > 0)) { q.frozen = 0.8; fx.text(q.x, q.y - 34, '凍住了！', '#b8ffff', 14, 0.9); fx.ring(q.x, q.y, '#b8ffff', 6, 50, 0.4, 3); }
         const a = Math.atan2(e.y - q.y, e.x - q.x);
         if (e.kind !== 'drift') { e.vx = Math.cos(a) * 300; e.vy = Math.sin(a) * 300; }
         q.vx -= Math.cos(a) * 250; q.vy -= Math.sin(a) * 250;
+        if (e.type === 'drifter' && !wasInv) {
+          // 蟲群撞上就炸成碎片
+          for (let k = 0; k < 6; k++) { const aa = k * TAU / 6 + rand(-0.2, 0.2); world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: Math.cos(aa) * 240, vy: Math.sin(aa) * 240, life: 1.2, r: 4, kind: 'shard', by: '蟲群碎片' }); }
+          fx.burst(e.x, e.y, e.color, 16, 220, 0.5, 3); fx.ring(e.x, e.y, e.color, e.r, e.r + 50, 0.3, 3); fx.noise(0.08, 0.06);
+          world.enemies.splice(i, 1); removed = true; break;
+        }
       }
     }
+    if (removed) continue;
   }
 
   // 敵方子彈（含追蹤能量球）
@@ -1411,6 +1504,16 @@ export function update(world, dt, fx = NULL_FX) {
       }
     }
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (b.kind === 'mark') {
+      // 迫擊砲落點標記：時間到爆炸（範圍傷害 + 碎片）
+      if (b.life <= 0) {
+        world.enemyBullets.splice(i, 1);
+        fx.burst(b.x, b.y, '#ffb347', 22, 260, 0.5, 4); fx.ring(b.x, b.y, '#ffb347', 10, b.r + 20, 0.35, 4); fx.shake(6); fx.noise(0.15, 0.1);
+        for (const q of activePlayers(world)) if (dist2(b.x, b.y, q.x, q.y) < (b.r + q.r) ** 2) hurtPlayer(world, q, 22, fx, { x: b.x, y: b.y, by: '迫擊砲' });
+        for (let k = 0; k < 6; k++) { const a = k * TAU / 6; world.enemyBullets.push({ id: world.nextId++, x: b.x, y: b.y, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200, life: 1.2, r: 4, kind: 'shard', by: '迫擊砲碎片' }); }
+      }
+      continue;
+    }
     if (b.kind === 'mine') {
       // 感應地雷：玩家靠近或時間到就炸成一圈碎片
       const near = activePlayers(world).some(q => dist2(b.x, b.y, q.x, q.y) < (AI.mineTrigger + q.r) ** 2);
@@ -1421,7 +1524,9 @@ export function update(world, dt, fx = NULL_FX) {
         continue;
       }
     }
-    if (b.life <= 0 || b.y > H + 40 || b.y < -60 || b.x < -60 || b.x > W + 60) { world.enemyBullets.splice(i, 1); continue; }
+    if (b.life <= 0 || b.y > H + 40 || b.y < -60 || b.x < -60 || b.x > W + 60) { if (b.kind === 'acid' && b.life <= 0) { world.zones.push({ id: world.nextId++, x: b.x, y: b.y, r: 45, life: 1.8, kind: 'toxic' }); fx.burst(b.x, b.y, '#f15bb5', 6, 100, 0.3, 2); } world.enemyBullets.splice(i, 1); continue; }
+    if (world.hole) { const hd = Math.hypot(world.hole.x - b.x, world.hole.y - b.y) || 1; if (hd < world.hole.r) { b.vx += (world.hole.x - b.x) / hd * 500 * dt; b.vy += (world.hole.y - b.y) / hd * 500 * dt; } }
+    if (world.wind) { b.x += world.wind.x * dt * 0.5; b.y += world.wind.y * dt * 0.5; }
     if (beacon && b.kind !== 'mine' && dist2(b.x, b.y, beacon.x, beacon.y) < (b.r + beacon.r) ** 2) {
       beacon.hp -= 10; beacon.hitFlash = 0.15; fx.burst(b.x, b.y, '#4cc9f0', 4, 120, 0.3, 2);
       world.enemyBullets.splice(i, 1);
@@ -1437,9 +1542,16 @@ export function update(world, dt, fx = NULL_FX) {
     let hitP = false;
     for (const q of activePlayers(world)) {
       const dd = dist2(b.x, b.y, q.x, q.y);
-      if (dd < (b.r + q.r) ** 2) { hurtPlayer(world, q, b.boss ? 18 : b.kind === 'shard' || b.kind === 'ufo' ? 10 : 15, fx); world.enemyBullets.splice(i, 1); hitP = true; break; }
+      if (dd < (b.r + q.r) ** 2) {
+        const dmg = b.dmg ?? (b.boss ? 18 : b.kind === 'shard' || b.kind === 'ufo' ? 10 : b.kind === 'spore' ? 10 : b.kind === 'hex' ? 12 : b.kind === 'void' ? 14 : 15);
+        const wasInv = q.inv > 0;
+        hurtPlayer(world, q, dmg, fx, { x: b.x - b.vx * 0.1, y: b.y - b.vy * 0.1, by: b.by || (b.boss ? 'Boss 彈幕' : ENEMY_LABEL[b.kind] || '敵彈') });
+        if (!wasInv && b.kind === 'ice') q.hexed = Math.max(q.hexed || 0, 1.2);
+        if (!wasInv && b.kind === 'acid') world.zones.push({ id: world.nextId++, x: b.x, y: b.y, r: 45, life: 1.8, kind: 'toxic' });
+        world.enemyBullets.splice(i, 1); hitP = true; break;
+      }
       // 擦彈：子彈貼身飛過沒打中 → 加分
-      if (!b.grazed && b.kind !== 'mine' && dd < (b.r + q.r + 16) ** 2) { b.grazed = true; world.graze++; const gain = GRAZE_SCORE * (1 + Math.floor(world.combo / 10)); world.score += gain; fx.local(q).text(q.x, q.y + 24, `擦彈 +${gain}`, '#b8ffff', 11, 0.6); }
+      if (!b.grazed && b.kind !== 'mine' && dd < (b.r + q.r + 16) ** 2) { b.grazed = true; world.graze++; world.stats.grazes++; const gain = GRAZE_SCORE * (1 + Math.floor(world.combo / 10)); world.score += gain; fx.local(q).text(q.x, q.y + 24, `擦彈 +${gain}`, '#b8ffff', 11, 0.6); }
     }
     if (hitP) continue;
   }
@@ -1465,7 +1577,7 @@ export function update(world, dt, fx = NULL_FX) {
     L.angle += L.sweep * dt;
     const x2 = L.x + Math.cos(L.angle) * L.len, y2 = L.y + Math.sin(L.angle) * L.len;
     for (const q of activePlayers(world)) {
-      if (segDist2(q.x, q.y, L.x, L.y, x2, y2) < (q.r + L.w * 0.5) ** 2) { hurtPlayer(world, q, L.dmg, fx); q.vx += Math.cos(L.angle + Math.PI / 2) * 120 * (rnd() < 0.5 ? 1 : -1); }
+      if (segDist2(q.x, q.y, L.x, L.y, x2, y2) < (q.r + L.w * 0.5) ** 2) { hurtPlayer(world, q, L.dmg, fx, { x: L.x, y: L.y, by: L.boss ? 'Boss 雷射' : '雷射兵' }); q.vx += Math.cos(L.angle + Math.PI / 2) * 120 * (rnd() < 0.5 ? 1 : -1); }
     }
     if (beacon && segDist2(beacon.x, beacon.y, L.x, L.y, x2, y2) < (beacon.r + L.w * 0.5) ** 2) { beacon.hp -= 30 * dt; beacon.hitFlash = 0.1; }
     if (rnd() < 0.5) { const t = rand(0.1, 1); fx.burst(L.x + (x2 - L.x) * t, L.y + (y2 - L.y) * t, L.color, 1, 60, 0.25, 2); }
@@ -1491,12 +1603,13 @@ export function update(world, dt, fx = NULL_FX) {
   for (let i = world.bosses.length - 1; i >= 0; i--) if (world.bosses[i]) updateBoss(world, world.bosses[i], dt, fx);
   // 太空環境事件：流星 / 飛碟
   if (world.wave >= AMBIENT.fromWave && world.bossWarn <= 0 && !world.mods.daily) { world.ambientCd -= dt; if (world.ambientCd <= 0) { world.ambientCd = rand(AMBIENT.cd[0], AMBIENT.cd[1]); const fleetOk = world.wave >= AMBIENT.fleetFromWave && !world.enemies.some(e => e.kind === 'mothership') && world.bosses.length === 0 && rnd() < AMBIENT.fleetChance; if (fleetOk) { spawnFleet(world, fx); world.ambientCd += 30; } else spawnAmbient(world, rnd() < 0.7 ? 'meteor' : 'ufo', fx); } }
-  // 生化毒區：在裡面持續扣血；毀滅攻擊倒數
-  for (let i = world.zones.length - 1; i >= 0; i--) {
-    const z = world.zones[i]; z.life -= dt;
-    if (z.life <= 0) { world.zones.splice(i, 1); continue; }
-    for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < z.r * z.r) { drainPlayer(world, q, AMBIENT.toxicDps * dt, fx); q.toxicT = (q.toxicT || 0) + dt; if (q.toxicT > 0.5) { q.toxicT = 0; fx.local(q).text(q.x, q.y - 30, '中毒', '#3ddc84', 12, 0.5); fx.burst(q.x, q.y, '#3ddc84', 3, 60, 0.4, 2); } }
-  }
+  updateArena(world, dt, fx);
+  updateEvents(world, dt, fx);
+  updateZones(world, dt, fx);
+  world.stats.timeAlive = world.time;
+  for (const q of activePlayers(world)) { world.stats.noHitT += dt / Math.max(1, activePlayers(world).length); }
+  world.stats.bestNoHit = Math.max(world.stats.bestNoHit, world.stats.noHitT);
+  if (world.doom && world.doom.t <= dt && activePlayers(world).some(q => !world.safeZones.some(z => dist2(q.x, q.y, z.x, z.y) < (z.r - q.r * 0.5) ** 2))) world.stats.doomHit = true;
   if (world.doom) { world.doom.t -= dt; if (world.doom.t <= 0) fireDoom(world, fx); }
   updateMode(world, dt, fx);
 
@@ -1510,4 +1623,462 @@ export function update(world, dt, fx = NULL_FX) {
     world.waveTimer -= dt;
     if (world.waveTimer <= 0) { nextWave(world, fx); world.waveTimer = 2.5; }
   }
+}
+
+// ====================================================================
+// 武器實作（每種武器對升級 / 道具的反應都不同，見 constants.WEAPON_MODS；進化見 EVOLUTIONS）
+// ====================================================================
+/** 光束撞牆反射：回傳線段列表 */
+function beamSegments(world, x, y, angle, range, bounces) {
+  const segs = []; let rem = range, cx = x, cy = y, a = angle;
+  for (let k = 0; k <= bounces && rem > 1; k++) {
+    const dx = Math.cos(a), dy = Math.sin(a);
+    let t = rem;
+    if (dx > 1e-6) t = Math.min(t, (world.W - cx) / dx); else if (dx < -1e-6) t = Math.min(t, (0 - cx) / dx);
+    if (dy > 1e-6) t = Math.min(t, (world.H - cy) / dy); else if (dy < -1e-6) t = Math.min(t, (0 - cy) / dy);
+    t = Math.max(0, t);
+    const ex = cx + dx * t, ey = cy + dy * t;
+    segs.push({ x1: cx, y1: cy, x2: ex, y2: ey, a });
+    rem -= t; if (rem <= 1) break;
+    if (ex <= 0.5 || ex >= world.W - 0.5) a = Math.PI - a;
+    if (ey <= 0.5 || ey >= world.H - 0.5) a = -a;
+    cx = clamp(ex, 0.5, world.W - 0.5); cy = clamp(ey, 0.5, world.H - 0.5);
+  }
+  return segs;
+}
+/** 追蹤升級：把瞄準角往最近目標彎（最多 strength 弧度） */
+function bendAim(world, p, range, strength) {
+  const t = nearestTarget(world, p.x, p.y, range);
+  if (!t) return p.angle;
+  const want = Math.atan2(t.y - p.y, t.x - p.x);
+  return p.angle + clamp(angleDiff(want, p.angle), -strength, strength);
+}
+function fireBlaster(world, p, inp, dt, fx, lfx) {
+  if (!inp.fire || p.fireCd > 0) return;
+  p.fireCd = p.rapid > 0 ? p.fireRate * 0.45 : p.fireRate;
+  const rail = p.evolved === 'railgun';
+  const n = p.spread;
+  const shoot = () => {
+    if (p.dead || p.downed) return;
+    for (let i = 0; i < n; i++) {
+      const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.16;
+      const b = spawnBullet(world, p, p.x + Math.cos(p.angle) * 18, p.y + Math.sin(p.angle) * 18, p.angle + off + rand(-0.03, 0.03));
+      if (rail) { b.rail = true; b.pierce += 3; b.vx *= 1.45; b.vy *= 1.45; b.life = 0.9; b.size = Math.max(b.size, 1.3); }
+    }
+    fx.muzzle(p.x + Math.cos(p.angle) * 22, p.y + Math.sin(p.angle) * 22, p.angle);
+    fx.sfx('shoot');
+  };
+  shoot();
+  if (rail) { schedule(world, 0.05, shoot); schedule(world, 0.1, shoot); p.fireCd *= 1.6; }
+  p.vx -= Math.cos(p.angle) * 30; p.vy -= Math.sin(p.angle) * 30;
+  lfx.crossRecoil();
+}
+function fireFlame(world, p, inp, dt, fx, lfx) {
+  if (!inp.fire) return;
+  p.weaponOn = true;
+  const rapid = p.rapid > 0;
+  const dps = p.damage * WEAPON_STATS.flameDps * (rapid ? 1.5 : 1);
+  const R = WEAPON_STATS.flameRange * (rapid ? 1.4 : 1), cone = WEAPON_STATS.flameCone + (p.spread - 1) * 0.1;
+  const a = p.homing > 0 ? bendAim(world, p, R, 0.3 * p.homing) : p.angle;
+  p.fa = a; p.fr = R; p.fc = cone;
+  const inCone = (x, y, r) => { const d = Math.hypot(x - p.x, y - p.y); return d < R + r && Math.abs(angleDiff(Math.atan2(y - p.y, x - p.x), a)) < cone + r / Math.max(60, d); };
+  const inferno = p.evolved === 'inferno';
+  for (let j = world.enemies.length - 1; j >= 0; j--) {
+    const e = world.enemies[j];
+    if (!e || !inCone(e.x, e.y, e.r)) continue;
+    hitEnemy(world, e, dps * dt, { by: p, x: p.x, y: p.y, element: 'fire' }, fx);
+    if (e.element !== 'fire') { const stacks = inferno ? Math.min(3, (e.burnStack || 1) + dt * 1.5) : 1; e.burnStack = stacks; e.burn = Math.max(e.burn || 0, 1.5 + p.pierce * 0.8); e.burnDps = p.damage * 0.6 * stacks; }
+    if (p.bulletSize > 1) { const k = (p.bulletSize - 1) * 200 * dt; e.vx += Math.cos(a) * k; e.vy += Math.sin(a) * k; }
+    if (e.hp <= 0) killEnemy(world, j, p, fx);
+  }
+  for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && inCone(bb.x, bb.y, bb.r)) damageBoss(world, bb, dps * dt, bb.x, bb.y, fx);
+  if (p.bounce > 0 || inferno) {
+    p.fireZoneCd = (p.fireZoneCd ?? 0) - dt;
+    if (p.fireZoneCd <= 0) { p.fireZoneCd = 0.6; const d = R * 0.7; world.zones.push({ id: world.nextId++, x: clamp(p.x + Math.cos(a) * d, 30, world.W - 30), y: clamp(p.y + Math.sin(a) * d, 30, world.H - 30), r: 55, life: inferno ? 5 : 3, kind: 'fire', dps: p.damage * 0.9, owner: p.id }); }
+  }
+  if (rnd() < 0.9) fx.burstDir(p.x + Math.cos(a) * 20, p.y + Math.sin(a) * 20, rnd() < 0.5 ? '#ff8c42' : '#ffd166', 3, a, cone * 0.9, 520 * (rapid ? 1.3 : 1), 0.42, 5);
+  if (rnd() < 0.15) fx.noise(0.08, 0.03);
+  p.vx -= Math.cos(a) * 60 * dt; p.vy -= Math.sin(a) * 60 * dt;
+}
+function fireFrost(world, p, inp, dt, fx, lfx) {
+  if (!inp.fire) return;
+  p.weaponOn = true;
+  const dps = p.damage * WEAPON_STATS.frostDps * (p.rapid > 0 ? 1.5 : 1);
+  const width = 8 + (p.spread - 1) * 7;
+  const a = p.homing > 0 ? bendAim(world, p, WEAPON_STATS.frostRange, 0.35 * p.homing) : p.angle;
+  const segs = beamSegments(world, p.x + Math.cos(a) * 18, p.y + Math.sin(a) * 18, a, WEAPON_STATS.frostRange, p.bounce);
+  const zero = p.evolved === 'zero';
+  const freezeAfter = (zero ? 1 : WEAPON_STATS.frostFreezeAfter) / (p.rapid > 0 ? 2 : 1);
+  const stunDur = 1.2 + (p.bulletSize - 1) * 1.2;
+  for (const S of segs) {
+    for (let j = world.enemies.length - 1; j >= 0; j--) {
+      const e = world.enemies[j];
+      if (!e || segDist2(e.x, e.y, S.x1, S.y1, S.x2, S.y2) > (e.r + width) ** 2) continue;
+      hitEnemy(world, e, dps * dt, { by: p, x: S.x1, y: S.y1, element: 'ice' }, fx);
+      if (e.element !== 'ice') { e.slow = 1.2; if (!(e.stun > 0)) { e.freeze = (e.freeze || 0) + dt; if (e.freeze >= freezeAfter) { e.freeze = 0; e.stun = stunDur; e.frozenBy = p.id; fx.text(e.x, e.y - e.r - 8, '凍結', '#b8ffff', 14, 0.8); fx.ring(e.x, e.y, '#b8ffff', e.r, e.r + 30, 0.4, 3); } } }
+      if (rnd() < 0.2) fx.burst(e.x, e.y, '#b8ffff', 2, 60, 0.4, 2);
+      if (e.hp <= 0) killEnemy(world, j, p, fx);
+    }
+    for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && segDist2(bb.x, bb.y, S.x1, S.y1, S.x2, S.y2) < (bb.r + width) ** 2) { damageBoss(world, bb, dps * dt, bb.x, bb.y, fx); bb.slow = 0.6; }
+  }
+  p.beam = segs.map(S => [Math.round(S.x1), Math.round(S.y1), Math.round(S.x2), Math.round(S.y2)]); p.beamW = width;
+}
+function fireArc(world, p, inp, dt, fx, lfx) {
+  p.arcCharge = p.arcCharge || 0;
+  const storm = p.evolved === 'storm';
+  const range = WEAPON_STATS.arcRange * (1 + 0.5 * p.homing);
+  if (!inp.fire) { p.arcCharge = Math.max(0, p.arcCharge - dt * 2); return; }
+  if (p.fireCd > 0) { if (p.arcCharge > 0 && !nearestTarget(world, p.x, p.y, range)) p.weaponOn = true; return; }
+  p.fireCd = (p.rapid > 0 ? p.fireRate * 0.5 : p.fireRate) * WEAPON_STATS.arcRate;
+  const first = nearestTarget(world, p.x, p.y, range);
+  if (first) {
+    const pts = [{ x: p.x + Math.cos(p.angle) * 16, y: p.y + Math.sin(p.angle) * 16 }];
+    const hit = new Set(); let cur = first;
+    const dmg = p.damage * WEAPON_STATS.arcDmg * (1 + 0.4 * (p.bulletSize - 1) / 0.5) * (1 + Math.min(1.5, p.arcCharge) / 1.5);
+    if (p.arcCharge > 0.5) fx.text(p.x, p.y - 34, `蓄電釋放 ×${(1 + Math.min(1.5, p.arcCharge) / 1.5).toFixed(1)}`, '#9ff', 14, 0.8);
+    p.arcCharge = 0;
+    const targets = (WEAPON_STATS.arcTargets + (p.spread - 1)) * (storm ? 2 : 1);
+    const jump = WEAPON_STATS.arcJump * (1 + 0.6 * p.pierce);
+    let revisits = p.bounce;
+    for (let k = 0; k < targets && cur; k++) {
+      hit.add(cur); pts.push({ x: cur.x, y: cur.y });
+      const d = dmg * Math.pow(0.85, k);
+      if (cur.tier !== undefined && !cur.name) { const idx = world.enemies.indexOf(cur); if (idx >= 0) { hitEnemy(world, cur, d, { by: p, element: 'plasma' }, fx); cur.squash = 1; cur.vx *= 0.5; cur.vy *= 0.5; if (cur.hp <= 0) killEnemy(world, idx, p, fx); } }
+      else damageBoss(world, cur, d, cur.x, cur.y, fx);
+      let next = null, bd = jump ** 2;
+      for (const e of world.enemies) { if (hit.has(e)) continue; const dd = dist2(e.x, e.y, cur.x, cur.y); if (dd < bd) { bd = dd; next = e; } }
+      if (!next && revisits > 0) { revisits--; for (const e of world.enemies) { if (e === cur) continue; const dd = dist2(e.x, e.y, cur.x, cur.y); if (dd < bd) { bd = dd; next = e; } } }
+      cur = next;
+    }
+    fx.bolt(pts, storm ? '#fff' : '#9ff');
+    fx.beep(1600, 0.06, 'square', 0.05, -900); fx.sfx('hit');
+    lfx.crossRecoil();
+  } else {
+    // 沒有目標：蓄電，機頭噼啪作響
+    p.fireCd = 0.1; p.weaponOn = true; p.arcCharge = Math.min(1.5, p.arcCharge + 0.1);
+    const nx = p.x + Math.cos(p.angle) * 18, ny = p.y + Math.sin(p.angle) * 18;
+    const k = 1 + Math.floor(p.arcCharge * 2);
+    for (let q = 0; q < k; q++) { const a = p.angle + rand(-1.2, 1.2), l = 14 + p.arcCharge * 22; fx.bolt([{ x: nx, y: ny }, { x: nx + Math.cos(a) * l * 0.5 + rand(-6, 6), y: ny + Math.sin(a) * l * 0.5 + rand(-6, 6) }, { x: nx + Math.cos(a) * l, y: ny + Math.sin(a) * l }], p.arcCharge >= 1.5 ? '#fff' : '#9ff'); }
+    if (rnd() < 0.5) fx.beep(900 + p.arcCharge * 600, 0.04, 'square', 0.02, 300);
+    if (p.arcCharge >= 1.5 && rnd() < 0.15) fx.text(nx, ny - 20, '蓄滿', '#fff', 11, 0.4);
+  }
+}
+function fireLaser(world, p, inp, dt, fx, lfx) {
+  if (!inp.fire) { p.laserRamp = Math.max(0, (p.laserRamp || 0) - dt * 2); return; }
+  const weaponLaser = !(p.laser > 0);
+  const solar = p.evolved === 'solar' && weaponLaser;
+  const beams = weaponLaser ? p.spread : 1;
+  const width = (6 + (p.bulletSize - 1) * 8) * (solar ? 2 : 1);
+  const rampMax = solar ? 2.5 : 1 + 0.25 * p.pierce;
+  const ramp = weaponLaser ? Math.min(rampMax, 1 + (p.laserRamp || 0) * 0.5) : 1;
+  const dps = p.damage * (weaponLaser ? WEAPON_STATS.laserDps : PLAYER_BASE.laserDps) * (p.rapid > 0 ? 1.6 : 1) * ramp;
+  const base = weaponLaser && p.homing > 0 ? bendAim(world, p, PLAYER_BASE.laserRange, 0.35 * p.homing) : p.angle;
+  const all = []; let hitAny = false;
+  for (let i = 0; i < beams; i++) {
+    const a = base + (beams === 1 ? 0 : (i - (beams - 1) / 2) * 0.14);
+    const segs = beamSegments(world, p.x + Math.cos(a) * 18, p.y + Math.sin(a) * 18, a, PLAYER_BASE.laserRange, weaponLaser ? p.bounce : 0);
+    all.push(...segs);
+    for (const S of segs) {
+      for (let j = world.enemies.length - 1; j >= 0; j--) {
+        const e = world.enemies[j];
+        if (!e || segDist2(e.x, e.y, S.x1, S.y1, S.x2, S.y2) > (e.r + width) ** 2) continue;
+        if (hitEnemy(world, e, dps * dt, { by: p, x: S.x1, y: S.y1, element: 'light' }, fx) > 0) hitAny = true;
+        if (rnd() < 0.25) fx.burstDir(e.x, e.y, '#b8ffff', 2, S.a + Math.PI, 1.2, 160, 0.2, 2);
+        if (e.hp <= 0) killEnemy(world, j, p, fx);
+      }
+      for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && segDist2(bb.x, bb.y, S.x1, S.y1, S.x2, S.y2) < (bb.r + width) ** 2) { damageBoss(world, bb, dps * dt / (solar ? (bb.armor || 1) : 1), bb.x, bb.y, fx); hitAny = true; }
+    }
+  }
+  p.laserRamp = hitAny ? (p.laserRamp || 0) + dt : Math.max(0, (p.laserRamp || 0) - dt * 2);
+  p.beam = all.map(S => [Math.round(S.x1), Math.round(S.y1), Math.round(S.x2), Math.round(S.y2)]); p.beamW = width;
+  if (rnd() < 0.3) fx.sfx('hit');
+  p.vx -= Math.cos(p.angle) * 40 * dt; p.vy -= Math.sin(p.angle) * 40 * dt;
+}
+function fireBlade(world, p, inp, dt, fx, lfx) {
+  p.swingCd = Math.max(0, (p.swingCd || 0) - dt); p.swingT = Math.max(0, (p.swingT || 0) - dt);
+  if (!inp.fire || p.swingCd > 0) return;
+  const F = p.flags || {};
+  p.swingCd = p.fireRate * WEAPON_STATS.bladeRate / (p.rapid > 0 ? 2 : 1);
+  p.swingT = 0.18; p.swingDir = p.swingDir === 1 ? -1 : 1; p.weaponOn = true; world.stats.swings++;
+  const range = WEAPON_STATS.bladeRange * (1 + 0.4 * (p.bulletSize - 1) / 0.5) * (p.rapid > 0 ? 1.15 : 1);
+  const arc = WEAPON_STATS.bladeArc + (p.spread - 1) * 0.25;
+  // 追蹤升級：目標在 2.5 倍距離內就先短距衝過去
+  if (p.homing > 0) { const t = nearestTarget(world, p.x, p.y, range * 2.5); if (t) { const d = Math.hypot(t.x - p.x, t.y - p.y); if (d > range) { const k = Math.min(d - range * 0.7, 80 + 40 * p.homing); p.x = clamp(p.x + (t.x - p.x) / d * k, p.r, world.W - p.r); p.y = clamp(p.y + (t.y - p.y) / d * k, p.r, world.H - p.r); fx.ghost(p.x, p.y, 10, p.color, 0.25); } } }
+  const dmg = p.damage * WEAPON_STATS.bladeDmg * (F.bladeMaster ? 2 : 1);
+  const knock = WEAPON_STATS.bladeKnock * (1 + p.pierce);
+  const inArc = (x, y, r) => { const d = Math.hypot(x - p.x, y - p.y); return d < range + r && Math.abs(angleDiff(Math.atan2(y - p.y, x - p.x), p.angle)) < arc / 2 + r / Math.max(40, d); };
+  const doSwing = (ox, oy, mul, tag) => {
+    let hits = 0;
+    for (let j = world.enemies.length - 1; j >= 0; j--) {
+      const e = world.enemies[j];
+      if (!e || !inArc(e.x, e.y, e.r)) continue;
+      const real = hitEnemy(world, e, dmg * mul, { by: p, x: ox, y: oy, element: 'kinetic' }, fx);
+      if (real > 0) { hits++; const a = Math.atan2(e.y - oy, e.x - ox); e.vx += Math.cos(a) * knock; e.vy += Math.sin(a) * knock; e.squash = 1; fx.burstDir(e.x, e.y, '#fff', 5, a, 0.5, 200, 0.25, 2); if (e.affixes && e.affixes.includes('thorns')) hurtPlayer(world, p, 8, fx, { x: e.x, y: e.y, by: '荊棘反傷' }); if (F.bladeMaster && !p.dead) p.hp = Math.min(p.maxHp, p.hp + 2); }
+      if (e.hp <= 0) killEnemy(world, j, p, fx);
+    }
+    for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && inArc(bb.x, bb.y, bb.r)) { damageBoss(world, bb, dmg * mul, bb.x, bb.y, fx); hits++; }
+    // 格擋：扇形內的敵彈全部打掉
+    let parried = 0;
+    world.enemyBullets = world.enemyBullets.filter(b => { if (b.kind === 'mark' || !inArc(b.x, b.y, b.r)) return true; parried++; fx.burst(b.x, b.y, '#fff', 3, 120, 0.2, 2); return false; });
+    if (parried) { world.stats.parries += parried; if (F.bladeMaster && !p.dead) p.hp = Math.min(p.maxHp, p.hp + parried); fx.text(p.x, p.y - 34, `格擋 ×${parried}`, '#fff', 12, 0.6); fx.beep(1500, 0.05, 'triangle', 0.05, -500); }
+    if (tag && hits) fx.text(p.x, p.y - 46, tag, '#f8c', 12, 0.5);
+    return hits;
+  };
+  const hits = doSwing(p.x, p.y, 1, null);
+  if (hits) lfx.crossPunch();
+  fx.beep(hits ? 260 : 420, 0.08, 'sawtooth', 0.05, hits ? -120 : 300);
+  // 反彈升級：放出一道劍氣
+  if (p.bounce > 0) { const b = spawnBullet(world, p, p.x + Math.cos(p.angle) * 30, p.y + Math.sin(p.angle) * 30, p.angle, 0.6); b.pierce += 5; b.life = 0.5; b.size = 2.2; b.slash = true; }
+  // 幻影劍舞：0.25 秒後在原位再揮一次殘影
+  if (p.evolved === 'dance') { const ox = p.x, oy = p.y, oa = p.angle; schedule(world, 0.25, () => { if (p.dead) return; const sx = p.x, sy = p.y, sa = p.angle; p.x = ox; p.y = oy; p.angle = oa; fx.ghost(ox, oy, 14, '#f8c', 0.3); doSwing(ox, oy, 0.5, '殘影'); p.x = sx; p.y = sy; p.angle = sa; }); }
+}
+
+/** 敵人死亡時的種類 / 詞綴效果（killEnemy 內呼叫） */
+function onEnemyDeath(world, e, killer, fx) {
+  const shard = (n, spd, r = 4, life = 1.6) => { for (let k = 0; k < n; k++) { const a = k * TAU / n + rand(-0.1, 0.1); world.enemyBullets.push({ id: world.nextId++, x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life, r, kind: 'shard' }); } };
+  if (e.affixes) {
+    if (e.affixes.includes('volatile')) { shard(10, 260); fx.burst(e.x, e.y, '#ff3860', 20, 260, 0.5, 3); fx.text(e.x, e.y - 30, '易爆！', '#ff3860', 14, 0.8); }
+    if (e.affixes.includes('splitting')) for (let k = 0; k < 2; k++) spawnEnemy(world, 'kamikaze', e.x + rand(-20, 20), e.y + rand(-20, 20));
+  }
+  if (e.type === 'tank') { shard(16, 170, 7, 3); fx.ring(e.x, e.y, '#9b5de5', e.r, e.r + 120, 0.5, 5); }
+  if (e.type === 'spore') { world.zones.push({ id: world.nextId++, x: e.x, y: e.y, r: 90, life: 7, kind: 'toxic' }); fx.burst(e.x, e.y, '#3ddc84', 24, 200, 0.6, 4); }
+  if (e.type === 'sentinel') { world.zones.push({ id: world.nextId++, x: e.x, y: e.y, r: 110, life: 6, kind: 'rift' }); fx.text(e.x, e.y - 30, '虛空裂隙', '#c77dff', 14, 1); }
+  // 絕對零度 / 穿甲：凍結中被打碎 → 對周圍造成傷害
+  if (e.stun > 0 && e.frozenBy) {
+    const p = world.players.find(q => q.id === e.frozenBy);
+    if (p) { const d = p.pierce * 20 + (p.evolved === 'zero' ? 60 : 0); if (d > 0) { fx.ring(e.x, e.y, '#b8ffff', e.r, e.r + 110, 0.4, 4); fx.burst(e.x, e.y, '#fff', 18, 260, 0.4, 3); fx.text(e.x, e.y - 30, '碎裂', '#b8ffff', 14, 0.8); for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || o === e || dist2(o.x, o.y, e.x, e.y) > (110 + o.r) ** 2) continue; hitEnemy(world, o, d, { by: p, element: 'ice' }, fx); if (o.hp <= 0) { o.fromChain = true; killEnemy(world, j, p, fx); } } for (const bb of world.bosses) if (dist2(bb.x, bb.y, e.x, e.y) < (110 + bb.r) ** 2) damageBoss(world, bb, d, e.x, e.y, fx); } }
+  }
+}
+
+// ====================================================================
+// 新敵種 AI（每種都有自己的攻擊；回傳 {tx,ty,steer} 或 'dead'）
+// ====================================================================
+function dodgeBullets(world, e, fx, range = 150, push = 420) {
+  e.dodgeCd -= 1 / 60;
+  if (e.dodgeCd > 0) return;
+  for (const b of world.bullets) {
+    const rx = e.x - b.x, ry = e.y - b.y, rd = Math.hypot(rx, ry);
+    if (rd > range) continue;
+    const sp = Math.hypot(b.vx, b.vy) || 1, ux = b.vx / sp, uy = b.vy / sp;
+    if (rx * ux + ry * uy < 0) continue;
+    if (Math.abs(rx * uy - ry * ux) < e.r + 12) { const sgn = (rx * uy - ry * ux) >= 0 ? 1 : -1; e.vx += -uy * sgn * push; e.vy += ux * sgn * push; e.dodgeCd = 1.2; fx.ghost(e.x, e.y, e.r, e.color, 0.25); return; }
+  }
+}
+function keepRange(dx, dy, d, near, far, side) {
+  const radial = d > far ? 1 : d < near ? -1 : 0;
+  return { tx: (dx / d) * radial * 0.8 + (-dy / d) * side * 0.7, ty: (dy / d) * radial * 0.8 + (dx / d) * side * 0.7 };
+}
+function eb(world, e, x, y, a, spd, extra) { world.enemyBullets.push({ id: world.nextId++, owner: e.id, x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 3, r: 5, ...extra }); }
+const BEHAVE = {
+  warden(world, e, tgt, dx, dy, d, dt, fx) {
+    // 盾面慢慢轉向玩家（每秒 0.9 弧度）：繞到側面 / 背後才打得到
+    { const want = Math.atan2(dy, dx), cur = Math.atan2(e.fy ?? 0, e.fx ?? 1); const na = cur + clamp(angleDiff(want, cur), -1, 1) * 0.9 * dt; e.fx = Math.cos(na); e.fy = Math.sin(na); } e.shieldUp = true;
+    e.atkCd -= dt;
+    if (e.atkCd <= 0 && d < 560) { e.atkCd = 2.6; for (let k = 0; k < 3; k++) schedule(world, k * 0.12, () => { if (e.hp <= 0 || !world.enemies.includes(e)) return; const a = Math.atan2(tgt.y - e.y, tgt.x - e.x); eb(world, e, e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r, a, 330, { by: '護盾兵' }); }); fx.beep(380, 0.1, 'square', 0.04, -100); }
+    const k = d > 260 ? 1 : 0; return { tx: dx / d * k + (-dy / d) * 0.25 * (e.flank > 0 ? 1 : -1), ty: dy / d * k + (dx / d) * 0.25 * (e.flank > 0 ? 1 : -1) };
+  },
+  sniper(world, e, tgt, dx, dy, d, dt, fx, wave) {
+    e.blinkFlash = Math.max(0, e.blinkFlash - dt);
+    if (e.aimT > 0) {
+      e.aimT -= dt; e.vx *= Math.pow(0.02, dt); e.vy *= Math.pow(0.02, dt);
+      if (e.aimT > 0.45) { const tl = d / 760; e.aimA = Math.atan2(tgt.y + tgt.vy * tl - e.y, tgt.x + tgt.vx * tl - e.x); }
+      if (e.aimT <= 0) {
+        eb(world, e, e.x, e.y, e.aimA, 780, { r: 6, life: 2.5, kind: 'snipe', dmg: 28, by: '狙擊手' });
+        fx.beep(1900, 0.12, 'sawtooth', 0.07, -1400); fx.burstDir(e.x, e.y, '#ff8c9c', 8, e.aimA, 0.2, 300, 0.3, 3);
+        // 射完閃現換位
+        for (let k = 0; k < 10; k++) { const nx = rand(100, world.W - 100), ny = rand(100, world.H - 100); const dd = Math.hypot(nx - tgt.x, ny - tgt.y); if ((dd > 500 && dd < 760) || k === 9) { fx.burst(e.x, e.y, e.color, 10, 160, 0.3, 2); e.x = nx; e.y = ny; e.blinkFlash = 0.3; fx.burst(e.x, e.y, '#fff', 8, 140, 0.3, 2); break; } }
+        e.atkCd = rand(2.2, 3.2) * (e.buffRapid > 0 ? 0.5 : 1);
+      }
+      return { steer: false };
+    }
+    dodgeBullets(world, e, fx);
+    e.atkCd -= dt;
+    if (e.atkCd <= 0 && d < 900 && d > 250) { e.aimT = 1.4; e.aimA = Math.atan2(dy, dx); fx.beep(1200, 0.4, 'sine', 0.04, 500); }
+    return keepRange(dx, dy, d, 560, 760, e.flank > 0 ? 1 : -1);
+  },
+  mortar(world, e, tgt, dx, dy, d, dt, fx) {
+    dodgeBullets(world, e, fx, 120, 300);
+    e.atkCd -= dt;
+    if (e.atkCd <= 0 && d < 720) {
+      e.atkCd = 2.8 * (e.buffRapid > 0 ? 0.5 : 1);
+      const n = e.buffSpread > 0 || e.elite ? 2 : 1;
+      for (let k = 0; k < n; k++) { const mx = clamp(tgt.x + tgt.vx * 0.9 + rand(-40, 40) * k, 40, world.W - 40), my = clamp(tgt.y + tgt.vy * 0.9 + rand(-40, 40) * k, 40, world.H - 40); world.enemyBullets.push({ id: world.nextId++, owner: e.id, x: mx, y: my, vx: 0, vy: 0, life: 1.3, r: 70, kind: 'mark' }); }
+      fx.beep(160, 0.25, 'triangle', 0.07, 200); fx.burstDir(e.x, e.y, '#ffb347', 8, -Math.PI / 2, 0.5, 260, 0.4, 3);
+    }
+    return keepRange(dx, dy, d, 360, 560, e.flank > 0 ? 1 : -1);
+  },
+  kamikaze(world, e, tgt, dx, dy, d, dt, fx) {
+    if (d < 250 && rnd() < dt * 6) fx.beep(1400 - d * 2, 0.05, 'square', 0.03);
+    if (d < 60 + e.r + tgt.r) {
+      // 自爆：玩家與其他敵人都吃傷害
+      fx.burst(e.x, e.y, e.color, 26, 300, 0.5, 4); fx.ring(e.x, e.y, e.color, e.r, 110, 0.35, 4); fx.shake(6); fx.noise(0.12, 0.08);
+      for (const q of activePlayers(world)) if (dist2(q.x, q.y, e.x, e.y) < (95 + q.r) ** 2) hurtPlayer(world, q, 30, fx, { x: e.x, y: e.y, by: enemyLabel(e) + '自爆' });
+      for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || o === e || o.ambient || dist2(o.x, o.y, e.x, e.y) > (95 + o.r) ** 2) continue; o.hp -= 60; o.hitFlash = 0.1; if (o.hp <= 0) { world.stats.kamiKills++; killEnemy(world, j, null, fx); } }
+      if ((ENEMY_TYPES[e.type] || {}).lava) world.zones.push({ id: world.nextId++, x: e.x, y: e.y, r: 80, life: 6, kind: 'lava' });
+      const idx = world.enemies.indexOf(e); if (idx >= 0) world.enemies.splice(idx, 1);
+      return 'dead';
+    }
+    return { tx: dx / d + Math.cos(e.wobble * 2.5) * 0.6, ty: dy / d + Math.sin(e.wobble * 2.5) * 0.6 };
+  },
+  hexer(world, e, tgt, dx, dy, d, dt, fx) {
+    dodgeBullets(world, e, fx);
+    e.atkCd -= dt; e.hexCd = (e.hexCd ?? 2) - dt;
+    if (e.hexCd <= 0 && d < 600) { e.hexCd = 4.5; world.zones.push({ id: world.nextId++, x: tgt.x, y: tgt.y, r: 110, life: 6, kind: 'hex' }); fx.text(tgt.x, tgt.y - 40, '減速咒印', '#c77dff', 14, 1); fx.ring(tgt.x, tgt.y, '#c77dff', 10, 110, 0.5, 3); fx.beep(500, 0.3, 'sine', 0.05, -300); }
+    if (e.atkCd <= 0 && d < 600) { e.atkCd = 2.5; const a = Math.atan2(dy, dx); for (const off of [-0.5, 0.5]) eb(world, e, e.x, e.y, a + off, 200, { r: 7, life: 4, kind: 'hex', homing: 2.0, dmg: 12, by: '咒球' }); fx.beep(800, 0.15, 'triangle', 0.05, -400); }
+    return keepRange(dx, dy, d, 300, 420, e.flank > 0 ? 1 : -1);
+  },
+  sentinel(world, e, tgt, dx, dy, d, dt, fx) {
+    e.blinkFlash = Math.max(0, e.blinkFlash - dt);
+    e.atkCd -= dt; e.tpCd = (e.tpCd ?? 3.5) - dt;
+    if (e.tpCd <= 0) { e.tpCd = 3.5; fx.burst(e.x, e.y, e.color, 12, 160, 0.3, 2); e.x = rand(120, world.W - 120); e.y = rand(120, world.H - 120); e.blinkFlash = 0.3; fx.burst(e.x, e.y, '#fff', 10, 140, 0.3, 2); fx.beep(1000, 0.1, 'sine', 0.04, 500); }
+    if (e.atkCd <= 0 && d < 900) { e.atkCd = 2.2; const a = Math.atan2(dy, dx); for (const off of [-0.35, 0.35]) eb(world, e, e.x, e.y, a + off, 240, { r: 8, life: 4, kind: 'void', homing: 1.2, dmg: 14, by: '虛空哨兵' }); fx.beep(300, 0.2, 'sawtooth', 0.05, -100); }
+    return { tx: 0, ty: 0 };
+  },
+  pulsar(world, e, tgt, dx, dy, d, dt, fx) {
+    e.atkCd -= dt; e.empCd = (e.empCd ?? 3) - dt;
+    if (e.empCd <= 0) { e.empCd = 5; world.zones.push({ id: world.nextId++, x: e.x, y: e.y, r: 10, grow: 420, life: 1.1, kind: 'emp', hit: [] }); fx.text(e.x, e.y - e.r - 14, 'EMP', '#ffd166', 16, 0.8); fx.beep(90, 0.5, 'sawtooth', 0.08, 400); }
+    if (e.atkCd <= 0 && d < 560) { e.atkCd = 2.2; const a = Math.atan2(dy, dx); for (let k = -1; k <= 1; k++) eb(world, e, e.x, e.y, a + k * 0.22, 300, { r: 6, life: 3, kind: 'plasma', dmg: 12, by: '脈衝體' }); fx.beep(900, 0.08, 'square', 0.04, -300); }
+    return keepRange(dx, dy, d, 260, 380, e.flank > 0 ? 1 : -1);
+  },
+  spore(world, e, tgt, dx, dy, d, dt, fx) {
+    e.atkCd -= dt;
+    if (e.atkCd <= 0 && d < 700) { e.atkCd = 3; for (let k = 0; k < 3; k++) { const a = rand(0, TAU); eb(world, e, e.x, e.y, a, 140, { r: 6, life: 6, kind: 'spore', homing: 1.5, dmg: 10, by: '孢子' }); } fx.burst(e.x, e.y, '#3ddc84', 10, 120, 0.5, 3); fx.beep(200, 0.2, 'triangle', 0.05, 100); }
+    return { tx: dx / d, ty: dy / d };
+  },
+  angler(world, e, tgt, dx, dy, d, dt, fx) {
+    e.lure = true;
+    for (const q of activePlayers(world)) { const qd = Math.hypot(e.x - q.x, e.y - q.y) || 1; if (qd < 300 && qd > e.r) { q.vx += (e.x - q.x) / qd * 700 * dt; q.vy += (e.y - q.y) / qd * 700 * dt; if (rnd() < dt * 2) fx.local(q).text(q.x, q.y - 30, '被吸過去了', '#4cc9f0', 11, 0.5); } }
+    const k = d > 300 ? 1 : 0.15; return { tx: dx / d * k, ty: dy / d * k };
+  },
+};
+
+// ====================================================================
+// 場地危險（每個場地各有一套）與區域效果
+// ====================================================================
+function updateArena(world, dt, fx) {
+  const A = world.arena, W = world.W, H = world.H;
+  if (world.blizzard > 0) world.blizzard -= dt;
+  if (world.wind) { world.wind.life -= dt; if (world.wind.life <= 0) world.wind = null; }
+  if (world.eclipse > 0) world.eclipse -= dt;
+  // 重力井 / 黑洞：拉玩家與子彈
+  const pulls = world.wells.map(w => ({ ...w, k: 1 })); if (world.hole) pulls.push({ ...world.hole, k: 2.2 });
+  for (const w of pulls) {
+    for (const q of activePlayers(world)) { const qd = Math.hypot(w.x - q.x, w.y - q.y) || 1; if (qd < w.r) { q.vx += (w.x - q.x) / qd * 260 * w.k * dt; q.vy += (w.y - q.y) / qd * 260 * w.k * dt; if (w.k > 1 && qd < 50) drainPlayer(world, q, 25 * dt, fx, '黑洞'); } }
+    for (const b of world.bullets) { const bd = Math.hypot(w.x - b.x, w.y - b.y) || 1; if (bd < w.r) { b.vx += (w.x - b.x) / bd * 600 * w.k * dt; b.vy += (w.y - b.y) / bd * 600 * w.k * dt; } }
+  }
+  for (let i = world.wells.length - 1; i >= 0; i--) { world.wells[i].life -= dt; if (world.wells[i].life <= 0) world.wells.splice(i, 1); }
+  if (world.hole) { world.hole.life -= dt; for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (o && !o.ambient && dist2(o.x, o.y, world.hole.x, world.hole.y) < 60 * 60) { o.hp = 0; fx.burst(o.x, o.y, o.color, 12, 200, 0.4, 3); killEnemy(world, j, null, fx); } } if (world.hole.life <= 0) world.hole = null; }
+  // 太陽風暴帶
+  if (world.flare) {
+    const F = world.flare; F.t -= dt;
+    if (F.t <= 0) { F.x += F.dir * F.speed * dt; for (const q of activePlayers(world)) if (Math.abs(q.x - F.x) < F.w / 2 && !F.hit.includes(q.id)) { F.hit.push(q.id); hurtPlayer(world, q, 22, fx, { x: F.x, y: q.y - 200, by: '太陽風暴' }); } if (F.x < -120 || F.x > W + 120) world.flare = null; }
+  }
+  if (world.wave < 2 || world.scene !== 'play') return;
+  world.hazardCd -= dt;
+  if (world.hazardCd > 0) return;
+  const p = nearestPlayer(world, W / 2, H / 2);
+  if (A === 'space') { world.hazardCd = rand(18, 30); world.zones.push({ id: world.nextId++, x: rand(150, W - 150), y: rand(150, H - 150), r: 130, life: 7, kind: 'rift' }); fx.text(W / 2, 90, '虛空裂隙開啟', '#c77dff', 18, 1.5); fx.beep(80, 0.6, 'sine', 0.06, 200); }
+  else if (A === 'inferno') {
+    world.hazardCd = rand(9, 15);
+    if (rnd() < 0.6) { const x = rand(120, W - 120), y = rand(120, H - 120); world.zones.push({ id: world.nextId++, x, y, r: 95, life: 10, kind: 'lava' }); fx.text(x, y - 60, '熔岩浮出', '#ff8c42', 16, 1.2); fx.burst(x, y, '#ff8c42', 20, 200, 0.6, 4); }
+    else if (p) { const x = clamp(p.x + p.vx * 0.8, 60, W - 60), y = clamp(p.y + p.vy * 0.8, 60, H - 60); world.zones.push({ id: world.nextId++, x, y, r: 70, life: 1.6, kind: 'geyser', fired: false }); fx.beep(150, 0.5, 'sawtooth', 0.06, 300); }
+  }
+  else if (A === 'mercury') {
+    world.hazardCd = rand(14, 22);
+    if (rnd() < 0.5) { world.wells.push({ id: world.nextId++, x: rand(200, W - 200), y: rand(200, H - 200), r: 260, life: 8 }); fx.text(W / 2, 90, '重力井', '#ffd166', 18, 1.5); }
+    else { const fromLeft = rnd() < 0.5; world.flare = { x: fromLeft ? -60 : W + 60, dir: fromLeft ? 1 : -1, w: 90, t: 2.2, speed: 280, hit: [] }; fx.text(W / 2, 90, '太陽風暴接近', '#ffd166', 22, 2); fx.beep(60, 1.2, 'sawtooth', 0.08, 120); }
+  }
+  else if (A === 'venom') {
+    world.hazardCd = rand(10, 16);
+    world.zones.push({ id: world.nextId++, x: rand(100, W - 100), y: rand(100, H - 100), r: 100, life: 12, kind: 'toxic', vx: rand(-25, 25), vy: rand(-25, 25) });
+    if (rnd() < 0.4) world.zones.push({ id: world.nextId++, x: rand(100, W - 100), y: rand(100, H - 100), r: 170, life: 9, kind: 'fog', vx: rand(-20, 20), vy: rand(-20, 20) });
+    fx.text(W / 2, 90, '毒霧潮', '#3ddc84', 16, 1.2);
+  }
+  else if (A === 'abyss') {
+    world.hazardCd = rand(12, 20);
+    if (rnd() < 0.65) { const a = rand(0, TAU); world.wind = { x: Math.cos(a) * 150, y: Math.sin(a) * 150, life: 6 }; fx.text(W / 2, 90, '洋流', '#4cc9f0', 18, 1.5); }
+    else { world.zones.push({ id: world.nextId++, x: rand(200, W - 200), y: rand(200, H - 200), r: 200, life: 7, kind: 'pressure' }); fx.text(W / 2, 90, '深海壓力區', '#4cc9f0', 18, 1.5); }
+  }
+  else if (A === 'glacier') {
+    world.hazardCd = rand(10, 16);
+    if (rnd() < 0.45) { world.blizzard = 6; fx.text(W / 2, 90, '暴風雪', '#b8ffff', 20, 1.8); fx.noise(0.6, 0.08); }
+    else for (const q of activePlayers(world)) for (let k = 0; k < 3; k++) { const a = rand(0, TAU), dd = rand(40, 160); world.zones.push({ id: world.nextId++, x: clamp(q.x + Math.cos(a) * dd, 40, W - 40), y: clamp(q.y + Math.sin(a) * dd, 40, H - 40), r: 55, life: 1.4, kind: 'spike', fired: false }); }
+  }
+}
+function updateZones(world, dt, fx) {
+  for (let i = world.zones.length - 1; i >= 0; i--) {
+    const z = world.zones[i]; z.life -= dt;
+    if (z.life <= 0) { world.zones.splice(i, 1); continue; }
+    if (z.vx) { z.x = clamp(z.x + z.vx * dt, 40, world.W - 40); z.y = clamp(z.y + z.vy * dt, 40, world.H - 40); }
+    if (z.kind === 'toxic') {
+      for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < z.r * z.r) { drainPlayer(world, q, AMBIENT.toxicDps * dt, fx, '生化毒物'); q.toxicT = (q.toxicT || 0) + dt; if (q.toxicT > 0.5) { q.toxicT = 0; fx.local(q).text(q.x, q.y - 30, '中毒', '#3ddc84', 12, 0.5); fx.burst(q.x, q.y, '#3ddc84', 3, 60, 0.4, 2); } }
+    } else if (z.kind === 'lava') {
+      for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < z.r * z.r) { drainPlayer(world, q, 10 * dt, fx, '熔岩'); if (rnd() < dt * 2) { fx.local(q).text(q.x, q.y - 30, '燒傷', '#ff8c42', 12, 0.5); fx.burst(q.x, q.y, '#ff8c42', 3, 80, 0.4, 2); } }
+      for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || o.ambient || o.element === 'fire' || dist2(o.x, o.y, z.x, z.y) > z.r * z.r) continue; o.hp -= 8 * dt; if (o.hp <= 0) killEnemy(world, j, null, fx); }
+    } else if (z.kind === 'fire') {
+      const owner = world.players.find(q => q.id === z.owner);
+      for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || dist2(o.x, o.y, z.x, z.y) > (z.r + o.r * 0.5) ** 2) continue; hitEnemy(world, o, z.dps * dt, { by: owner, element: 'fire' }, fx); if (o.element !== 'fire') { o.burn = Math.max(o.burn || 0, 1); o.burnDps = z.dps * 0.5; } if (o.hp <= 0) killEnemy(world, j, owner, fx); }
+      for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && dist2(bb.x, bb.y, z.x, z.y) < (z.r + bb.r) ** 2) damageBoss(world, bb, z.dps * dt, bb.x, bb.y, fx);
+    } else if (z.kind === 'hex') {
+      for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < z.r * z.r) q.hexed = Math.max(q.hexed || 0, 0.15);
+    } else if (z.kind === 'rift') {
+      for (const b of world.bullets) { const bd = Math.hypot(z.x - b.x, z.y - b.y) || 1; if (bd < z.r) { b.vx += (z.x - b.x) / bd * 900 * dt; b.vy += (z.y - b.y) / bd * 900 * dt; if (bd < 16) b.life = 0; } }
+      for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || o.ambient) continue; const od = Math.hypot(z.x - o.x, z.y - o.y) || 1; if (od < z.r) { o.vx += (z.x - o.x) / od * 300 * dt; o.vy += (z.y - o.y) / od * 300 * dt; if (od < z.r * 0.3) { o.hp -= 40 * dt; if (o.hp <= 0) killEnemy(world, j, null, fx); } } }
+      for (const q of activePlayers(world)) { const qd = Math.hypot(z.x - q.x, z.y - q.y) || 1; if (qd < z.r) { q.vx += (z.x - q.x) / qd * 140 * dt; q.vy += (z.y - q.y) / qd * 140 * dt; } }
+    } else if (z.kind === 'emp') {
+      z.r += z.grow * dt;
+      for (const q of activePlayers(world)) if (!z.hit.includes(q.id) && Math.abs(Math.hypot(q.x - z.x, q.y - z.y) - z.r) < 24) { z.hit.push(q.id); q.emp = 2; hurtPlayer(world, q, 8, fx, { x: z.x, y: z.y, by: 'EMP' }); fx.local(q).text(q.x, q.y - 34, 'EMP：2 秒不能衝刺 / 閃現', '#ffd166', 12, 1.2); }
+    } else if (z.kind === 'geyser' || z.kind === 'spike') {
+      if (z.life < 0.45 && !z.fired) { z.fired = true; const dmg = z.kind === 'geyser' ? 25 : 18; fx.burst(z.x, z.y, z.kind === 'geyser' ? '#ff8c42' : '#b8ffff', 22, 300, 0.5, 4); fx.ring(z.x, z.y, z.kind === 'geyser' ? '#ff8c42' : '#b8ffff', 10, z.r + 10, 0.3, 4); fx.noise(0.1, 0.08); for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < (z.r + q.r * 0.5) ** 2) hurtPlayer(world, q, dmg, fx, { x: z.x, y: z.y + 1, by: z.kind === 'geyser' ? '火柱' : '冰刺' }); }
+    } else if (z.kind === 'pressure') {
+      for (const q of activePlayers(world)) { const qd = Math.hypot(z.x - q.x, z.y - q.y) || 1; if (qd < z.r) { q.vx += (z.x - q.x) / qd * 220 * dt; q.vy += (z.y - q.y) / qd * 220 * dt; if (qd < 40) drainPlayer(world, q, 12 * dt, fx, '深海壓力'); } }
+    }
+  }
+}
+
+// ====================================================================
+// 隨機事件
+// ====================================================================
+function pickEvent(world) {
+  const keys = Object.keys(EVENTS).filter(k => k !== world.lastEvent);
+  return keys[randInt(0, keys.length - 1)];
+}
+export function startEvent(world, id, fx) {
+  const E = EVENTS[id]; if (!E) return;
+  const W = world.W, H = world.H, n = nPlayers(world);
+  world.event = { id, t: E.dur || 0.01 }; world.lastEvent = id; world.stats.events.push(id);
+  fx.text(W / 2, H / 2 - 150, `${E.icon} ${E.name}`, '#ffd166', 32, 2.4); fx.text(W / 2, H / 2 - 112, E.desc, '#fff', 15, 2.6); fx.beep(660, 0.3, 'triangle', 0.08, 200);
+  const p = nearestPlayer(world, W / 2, H / 2) || { x: W / 2, y: H / 2 };
+  switch (id) {
+    case 'supply': { const hp = 200 * n; world.crate = { kind: 'crate', x: clamp(p.x + rand(-300, 300), 120, W - 120), y: clamp(p.y + rand(-200, 200), 120, H - 120), r: 34, hp, maxHp: hp, hitFlash: 0, alive: true }; fx.ring(world.crate.x, world.crate.y, '#ffd166', 10, 120, 0.6, 4); for (let i = 0; i < 4 + n; i++) schedule(world, 1 + i * 0.6, () => spawnWithElite(world, rnd() < 0.5 ? 'drifter' : 'dart')); break; }
+    case 'wormhole': for (let k = 0; k < 6; k++) { const a = k * TAU / 6, x = clamp(p.x + Math.cos(a) * 220, 40, W - 40), y = clamp(p.y + Math.sin(a) * 220, 40, H - 40); fx.ring(x, y, '#c77dff', 6, 50, 1, 3); schedule(world, 1, () => { fx.burst(x, y, '#c77dff', 12, 180, 0.4, 3); spawnWithElite(world, pickType(world), x, y); }); } break;
+    case 'solarwind': { const a = rand(0, TAU); world.wind = { x: Math.cos(a) * 190, y: Math.sin(a) * 190, life: 10 }; break; }
+    case 'blackhole': world.hole = { x: rand(300, W - 300), y: rand(220, H - 220), r: 300, life: 8 }; fx.shake(6); break;
+    case 'rift': { const others = ARENAS.filter(a => a.id !== world.arena); const A = others[randInt(0, others.length - 1)]; fx.text(W / 2, H / 2 - 80, `來自${A.name}的生物`, ELEMENTS[A.element].color, 18, 2); for (let k = 0; k < 5; k++) schedule(world, 0.5 + k * 0.4, () => spawnEnemy(world, k === 0 ? A.unique : pickType(world), undefined, undefined, 1, { element: A.element })); break; }
+    case 'duststorm': for (let k = 0; k < 8; k++) world.pickups.push({ id: world.nextId++, x: rand(80, W - 80), y: rand(80, H - 80), kind: 'dust', life: 15, t: 0 }); break;
+    case 'hunter': { const types = ['sniper', 'warden', 'hexer', 'mortar']; const e = spawnEnemy(world, types[randInt(0, types.length - 1)], undefined, undefined, 1, { elite: true, affixes: 2, hunter: true }); e.speed *= 1.2; fx.text(W / 2, H / 2 - 80, `${enemyLabel(e)}獵人 · ${e.affixes.map(a => AFFIXES[a].name).join(' + ')}`, '#ff8c9c', 18, 2.4); break; }
+    case 'eclipse': world.eclipse = 8; break;
+    case 'shower': for (let k = 0; k < 8; k++) schedule(world, k * 0.5, () => spawnAmbient(world, 'meteor', fx, { silent: k > 0 })); break;
+  }
+}
+function updateEvents(world, dt, fx) {
+  if (world.wave >= EVENT_FROM_WAVE && world.scene === 'play' && world.bossWarn <= 0 && world.bosses.length === 0 && !world.mods.daily && !world.event && !world.waveMode) {
+    world.eventCd -= dt;
+    if (world.eventCd <= 0) { world.eventCd = rand(EVENT_CD[0], EVENT_CD[1]); startEvent(world, pickEvent(world), fx); }
+  }
+  const ev = world.event; if (!ev) return;
+  ev.t -= dt;
+  if (ev.id === 'supply' && world.crate) {
+    const c = world.crate; c.hitFlash = Math.max(0, c.hitFlash - dt);
+    if (!c.alive) { world.crate = null; world.event = null; fx.text(c.x, c.y - 40, '補給被搶走', '#ff5f7a', 20, 1.5); return; }
+    if (ev.t <= 0) {
+      world.stats.crateHp = c.hp / c.maxHp;
+      fx.text(c.x, c.y - 50, `補給箱守住了！${c.hp === c.maxHp ? '（完好無缺）' : ''}`, '#ffd166', 24, 2); fx.burst(c.x, c.y, '#ffd166', 40, 300, 0.7, 4); fx.sfx('wave');
+      const kinds = ['heal', 'shield', 'spread', 'rapid'];
+      for (let k = 0; k < 3; k++) world.pickups.push({ id: world.nextId++, x: c.x + rand(-60, 60), y: c.y + rand(-40, 40), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
+      for (let k = 0; k < 3; k++) world.pickups.push({ id: world.nextId++, x: c.x + rand(-80, 80), y: c.y + rand(-60, 60), kind: 'dust', life: 15, t: 0 });
+      world.crate = null;
+    }
+  }
+  if (ev.t <= 0) world.event = null;
 }

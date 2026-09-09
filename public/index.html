@@ -2,8 +2,16 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#03040a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="星塵突圍 Stardust Breakout — 霓虹風 2D 合作太空射擊。六個場地、七種機體、武器進化、每日挑戰、全球排行榜。">
 <title>星塵突圍 Stardust Breakout</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -12,39 +20,54 @@
 <div id="menu" class="overlay" hidden>
   <div class="panel fit">
     <button id="fs-toggle" class="x fs" title="全螢幕" aria-label="全螢幕">⛶</button>
-    <h1>星塵突圍</h1>
+    <button id="lang-toggle" class="x lang" title="Language / 語言" aria-label="Language">EN</button>
+    <h1 data-i18n>星塵突圍</h1>
     <div class="sub">STARDUST BREAKOUT</div>
-    <label for="name">飛行員代號</label>
-    <input id="name" type="text" placeholder="輸入你的名字" autocomplete="off" spellcheck="false">
+    <label for="name" data-i18n>飛行員代號</label>
+    <input id="name" type="text" data-i18n-ph="輸入你的名字" placeholder="輸入你的名字" autocomplete="off" spellcheck="false">
+    <div class="divider tight"><span data-i18n>選擇場地</span></div>
+    <div id="arena-cards" class="arenas"></div>
     <div class="row">
-      <button id="solo" class="primary">單人出擊</button>
-      <button id="solo-boss" class="boss">Boss 挑戰</button>
+      <button id="solo" class="primary" data-i18n>單人出擊</button>
+      <button id="solo-boss" class="boss" data-i18n>Boss 挑戰</button>
     </div>
     <div class="row meta">
-      <button id="open-daily">📅 每日挑戰</button>
-      <button id="open-hangar"><span id="ship-name">🚀 獵鷹</span> · 機庫 <span id="dust" class="dust">✨ 0</span></button>
+      <button id="open-daily" data-i18n>📅 每日挑戰</button>
+      <button id="open-hangar"><span id="ship-name">🚀 獵鷹</span> · <span data-i18n>機庫</span> <span id="dust" class="dust">✨ 0</span></button>
     </div>
-    <div class="divider"><span>與朋友連線（最多 4 人）</span></div>
+    <div class="row meta three">
+      <button id="open-quests" data-i18n>🎯 任務</button>
+      <button id="open-ach" data-i18n>🏅 成就</button>
+      <button id="open-codex" data-i18n>📚 圖鑑</button>
+    </div>
+    <div class="divider"><span data-i18n>與朋友連線（最多 4 人）</span></div>
     <div class="row">
-      <button id="create">建立房間</button>
-      <input id="code" type="text" placeholder="房號" maxlength="4" autocomplete="off" spellcheck="false">
-      <button id="join">加入</button>
+      <button id="create" data-i18n>建立房間</button>
+      <input id="code" type="text" data-i18n-ph="房號" placeholder="房號" maxlength="4" autocomplete="off" spellcheck="false">
+      <button id="join" data-i18n>加入</button>
+    </div>
+    <div class="row meta">
+      <button id="quick" data-i18n>⚡ 快速配對</button>
+      <button id="open-rooms" data-i18n>🌐 公開房間</button>
     </div>
     <div id="err" class="err"></div>
     <div id="best" class="best"></div>
-    <button id="open-lb" class="small">🏆 全球排行榜</button>
-    <div class="links"><button id="open-help" class="small">📖 遊玩說明</button><button id="open-privacy" class="small">🔒 隱私說明</button></div>
+    <button id="open-lb" class="small" data-i18n>🏆 全球排行榜</button>
+    <div class="links"><button id="open-help" class="small" data-i18n>📖 遊玩說明</button><button id="open-settings" class="small" data-i18n>⚙️ 設定</button><button id="open-privacy" class="small" data-i18n>🔒 隱私說明</button></div>
+    <div class="copy">© 2026 凡圖有限公司 Vanture Co., Ltd. 版權所有 · <a href="https://getvanture.com" target="_blank" rel="noopener">getvanture.com</a></div>
   </div>
 </div>
 
 <div id="lobby" class="overlay" hidden>
   <div class="panel">
-    <div class="sub">房號</div>
+    <div class="sub" data-i18n>房號</div>
     <div id="room-code" class="code">----</div>
     <a id="room-link" class="link" href="#" target="_blank" rel="noopener"></a>
     <button id="copy-link" class="small">複製邀請連結</button>
     <ul id="lobby-players" class="players"></ul>
+    <div id="lobby-arena-wrap"><div class="divider tight"><span data-i18n>選擇場地</span></div><div id="lobby-arena" class="arenas"></div></div>
     <label id="lobby-boss-row" class="check" hidden><input id="lobby-boss" type="checkbox"> 從 Boss 戰開始（Boss 挑戰）</label>
+    <label id="lobby-public-row" class="check" hidden><input id="lobby-public" type="checkbox"> 公開房間（會出現在公開房間列表，讓其他玩家加入）</label>
     <button id="lobby-start" class="primary" hidden>出擊</button>
     <div id="lobby-wait" class="wait" hidden>等待房主開始…</div>
     <button id="lobby-leave" class="small">離開房間</button>
@@ -53,63 +76,126 @@
 
 <div id="pause" class="overlay" hidden>
   <div class="panel narrow">
-    <h2 id="pause-title">暫停</h2>
+    <h2 id="pause-title" data-i18n>暫停</h2>
     <div id="pause-sub" class="sub2"></div>
-    <button id="pause-resume" class="primary">繼續</button>
-    <button id="pause-leave" class="small danger">離開遊戲回到首頁</button>
+    <button id="pause-resume" class="primary" data-i18n>繼續</button>
+    <button id="pause-settings" class="small" data-i18n>⚙️ 設定</button>
+    <button id="pause-leave" class="small danger" data-i18n>離開遊戲回到首頁</button>
   </div>
 </div>
 
 <div id="leaderboard" class="overlay" hidden>
   <div class="panel wide">
-    <h2>全球排行榜</h2>
+    <h2 data-i18n>全球排行榜</h2>
     <div class="tabs">
-      <button class="tab on" data-mode="solo">單人</button><button class="tab" data-mode="coop">合作</button><button class="tab" data-mode="daily">每日</button>
+      <button class="tab on" data-mode="solo" data-i18n>單人</button><button class="tab" data-mode="coop" data-i18n>合作</button><button class="tab" data-mode="daily" data-i18n>每日</button>
       <span class="gap"></span>
-      <button class="tab on" data-period="all">全部</button><button class="tab" data-period="week">本週</button>
+      <button class="tab on" data-period="all" data-i18n>全部</button><button class="tab" data-period="week" data-i18n>本週</button>
     </div>
     <div id="lb-me" class="lb-me"></div>
-    <ol id="lb-rows" class="lb-rows"><li class="muted">載入中…</li></ol>
-    <button id="lb-close" class="small">關閉</button>
+    <ol id="lb-rows" class="lb-rows"><li class="muted" data-i18n>載入中…</li></ol>
+    <button id="lb-close" class="small" data-i18n>關閉</button>
   </div>
 </div>
+
+<div id="settings" class="overlay" hidden>
+  <div class="panel doc">
+    <button id="settings-close" class="x" aria-label="關閉">✕</button>
+    <h2 data-i18n>設定</h2>
+    <label class="opt"><span data-i18n>自動瞄準</span><input type="checkbox" id="opt-autoaim"></label>
+    <div class="ds" data-i18n>手機預設開啟；電腦開了之後不按滑鼠也會自動瞄準最近的敵人</div>
+    <label class="opt"><span data-i18n>自動射擊</span><input type="checkbox" id="opt-autofire"></label>
+    <div class="ds" data-i18n>開啟後不用按住射擊鍵</div>
+    <label class="opt"><span data-i18n>音樂音量</span><input type="range" id="opt-music" min="0" max="100"></label>
+    <div class="ds" data-i18n>背景音樂用程式即時合成，不需要下載</div>
+    <label class="opt"><span data-i18n>音效</span><input type="checkbox" id="opt-sfx"></label>
+    <label class="opt"><span data-i18n>語言</span><select id="opt-lang"><option value="zh">中文</option><option value="en">English</option></select></label>
+  </div>
+</div>
+
+<div id="rooms" class="overlay" hidden>
+  <div class="panel wide">
+    <h2 data-i18n>🌐 公開房間</h2>
+    <div id="rooms-status" class="lb-me"></div>
+    <ol id="rooms-rows" class="lb-rows"></ol>
+    <div class="row"><button id="rooms-refresh" class="small">重新整理</button><button id="rooms-quick" class="small" data-i18n>⚡ 快速配對</button><button id="rooms-close" class="small" data-i18n>關閉</button></div>
+  </div>
+</div>
+
+<div id="quests" class="overlay" hidden>
+  <div class="panel wide">
+    <h2 data-i18n>🎯 任務</h2>
+    <div id="quests-sub" class="lb-me"></div>
+    <div class="divider tight"><span id="quests-daily-title">每日任務</span></div>
+    <ul id="quests-daily" class="perk-rows quests"></ul>
+    <div class="divider tight"><span id="quests-weekly-title">每週任務</span></div>
+    <ul id="quests-weekly" class="perk-rows quests"></ul>
+    <button id="quests-close" class="small" data-i18n>關閉</button>
+  </div>
+</div>
+
+<div id="ach" class="overlay" hidden>
+  <div class="panel wide">
+    <h2 data-i18n>🏅 成就</h2>
+    <div id="ach-sub" class="lb-me"></div>
+    <ul id="ach-rows" class="perk-rows quests"></ul>
+    <button id="ach-close" class="small" data-i18n>關閉</button>
+  </div>
+</div>
+
+<div id="codex" class="overlay" hidden>
+  <div class="panel wide">
+    <h2 data-i18n>📚 圖鑑</h2>
+    <div id="codex-sub" class="lb-me"></div>
+    <div class="tabs"><button class="tab on" data-codex="enemies">敵人</button><button class="tab" data-codex="bosses">Boss</button><button class="tab" data-codex="arenas">場地</button><button class="tab" data-codex="events">事件</button><button class="tab" data-codex="affinity">屬性相剋</button></div>
+    <div id="codex-body" class="codex"></div>
+    <button id="codex-close" class="small" data-i18n>關閉</button>
+  </div>
+</div>
+
 <div id="help" class="overlay" hidden>
   <div class="panel wide doc">
     <button id="help-close" class="x" aria-label="關閉">✕</button>
-    <h2>遊玩說明</h2>
+    <h2 data-i18n>遊玩說明</h2>
+    <div id="help-body" data-i18n-html="help">
     <h3>操作</h3>
     <ul>
-      <li><b>電腦</b>：WASD / 方向鍵 移動 · 滑鼠 瞄準 · 左鍵 射擊 · Shift 衝刺 · <b>空白鍵 閃現</b>（瞬移一段距離，過程無敵，冷卻 3 秒） · Esc 選單 · M 靜音 · 升級用 1 / 2 / 3 或點卡片</li>
-      <li><b>手機</b>：橫向遊玩。左半螢幕拖曳 = 移動；右半螢幕拖曳 = 瞄準開火，不按時自動瞄準最近的敵人；右下圓鈕 衝刺、旁邊小鈕 閃現；右上 ☰ 選單</li>
+      <li><b>電腦</b>：WASD / 方向鍵 移動 · 滑鼠 瞄準 · 左鍵 射擊 · Shift 衝刺 · <b>空白鍵 閃現</b>（瞬移一段距離，過程無敵，冷卻 3 秒） · Esc 選單 · M 靜音 · 升級用 1 / 2 / 3 或點卡片，0 放棄升級（+20 HP）</li>
+      <li><b>手機</b>：橫向遊玩。左半螢幕拖曳 = 移動；右半螢幕拖曳 = 瞄準開火，不按時自動瞄準最近的敵人；右下圓鈕 衝刺、旁邊小鈕 閃現；右上 ☰ 選單。自動瞄準 / 自動射擊可在「設定」開關。</li>
+    </ul>
+    <h3>場地與屬性</h3>
+    <ul>
+      <li>六個場地各有自己的危險與原生生物：深空（虛空裂隙）、火焰星球（熔岩池、火柱）、水星（重力井、太陽風暴）、毒物星（漂移的毒霧潮）、深海（阻力、洋流、壓力區）、冰封星（冰面打滑、暴風雪、冰刺）。</li>
+      <li>每種武器有屬性、每種生物有相性：冰霜克火焰生物、火焰克冰霜與毒物、閃電重創深水生物、動能（脈衝砲 / 光刃）打穿電漿、雷射切開虛空。打中會顯示「效果拔群」。</li>
     </ul>
     <h3>節奏</h3>
     <ul>
-      <li>每 2 波三選一強化，Boss 擊破後必給。兩個特定升級各 1 級會啟動<b>組合技</b>，卡片上會用橘字提示</li>
-      <li>每 5 波一隻 Boss；擊破第 20 波的殲滅者 Ω 即<b>突圍成功</b>，可繼續無盡模式或結算</li>
-      <li>特殊波次：小行星帶、彈幕求生、懸賞獵殺、防衛信標、護送運輸艦</li>
-      <li>看到紫色虛線就離開那條線（雷射兵）；橘色地雷靠近會炸；懸賞目標要在 25 秒內追殺</li>
+      <li>每 2 波三選一強化，Boss 擊破後必給。兩個特定升級各 1 級會啟動<b>組合技</b>；湊齊武器對應的升級會出現<b>武器進化</b>卡（一局一次）。</li>
+      <li>每 5 波一隻 Boss，第 10 波起可能同時兩隻；擊破第 20 波的殲滅者 Ω 即<b>突圍成功</b>，可繼續無盡模式。</li>
+      <li>特殊波次（小行星帶、彈幕求生、懸賞獵殺、防衛信標、護送運輸艦）、敵方小隊（狙擊陣地、自爆蟲潮、盾牆推進…）、帶詞綴的精英，以及第 4 波起的隨機事件：補給空投、蟲洞、太陽風、黑洞、時空裂縫、星塵風暴、追獵者、日蝕、流星雨。</li>
+      <li>每個敵人都會攻擊：蟲群撞上就炸、重裝射重砲、護盾兵正面免疫、狙擊手瞄準 1.4 秒、迫擊砲先標記落點、自爆蟲貼身爆炸、咒術師放減速咒印……紫色虛線是雷射、橘色圓環是地雷。</li>
     </ul>
-    <h3>道具</h3>
-    <ul><li>+HP、散射、連射、護盾、炸彈（清場）。敵人也會搶道具吃，別讓它們先拿到</li></ul>
-    <h3>太空環境</h3>
-    <ul><li>流星可打爆；外星飛碟會投放<b>生化毒物</b>，站在綠色毒區會持續扣血；第 8 波起可能出現<b>飛碟軍團</b>：母艦會發動毀滅攻擊，倒數結束前要站進白色<b>安全區</b>，否則血量只剩 1</li></ul>
+    <h3>武器、機體、升級</h3>
+    <ul>
+      <li>六種武器（脈衝砲、火焰槍、冰凍光線、閃電鏈、雷射砲、光刃）。同一個升級在不同武器上效果不同：「反彈」讓子彈彈牆，卻讓火焰留下火池、讓光刃放出劍氣。機庫會列出每把武器的對照。</li>
+      <li>七台機體各有玩法：黃蜂 1.2 秒一次閃現並在落點爆炸、堡壘正面能量盾與盾擊、母艦靠僚機輸出、劍聖只能近戰、幽靈幾乎無限閃現但沒有護盾、工程師衝刺時放砲塔。</li>
+    </ul>
     <h3>多人（最多 4 人）</h3>
     <ul>
-      <li>建立房間 → 分享 4 碼房號或邀請連結 → 房主全員出擊。遊戲中也能用房號加入</li>
-      <li>隊友倒地時靠近 3 秒救援；斷線 15 秒內自動重連；Esc 離開隊伍後擊殺數仍計入隊伍成績</li>
+      <li>建立房間 → 分享 4 碼房號或邀請連結 → 房主全員出擊；也可以用「公開房間」列表或「快速配對」找人一起玩。隊友倒地時靠近 3 秒救援；斷線 15 秒內自動重連。</li>
     </ul>
     <h3>局外成長</h3>
     <ul>
-      <li>每局依分數與波次獲得<b>星塵</b>，到機庫解鎖機體與永久強化，每局開局自動套用</li>
-      <li><b>每日挑戰</b>：全球同一組敵人與規則，一個帳號一天一次，獨立榜單</li>
-      <li>Esc 離開即結算；結算畫面按 L 看排行榜</li>
+      <li>每局依分數與波次獲得<b>星塵</b>，到機庫解鎖機體、武器、塗裝與永久強化。每日任務、每週任務與成就另外給星塵。<b>每日挑戰</b>：全球同一組敵人與規則，一天一次。</li>
     </ul>
+    </div>
   </div>
 </div>
 <div id="privacy" class="overlay" hidden>
   <div class="panel doc">
     <button id="privacy-close" class="x" aria-label="關閉">✕</button>
-    <h2>隱私說明</h2>
+    <h2 data-i18n>隱私說明</h2>
+    <div id="privacy-body" data-i18n-html="privacy">
     <ul>
       <li>這是純娛樂用的小遊戲，<b>不需要註冊、不收集姓名、Email、電話或任何個人資料</b>。</li>
       <li>首次進站會在你的瀏覽器產生一組隨機的匿名編號，用來記錄成績、星塵與解鎖；清除瀏覽器資料就等於換一個新身分，我們無法把它對應到任何人。</li>
@@ -117,16 +203,19 @@
       <li>為了調整難度與平衡，會記錄<b>匿名的遊玩事件</b>（例如撐到第幾波、選了哪些升級、用哪台機體、手機或電腦）。這些資料只和上述匿名編號綁定，不含任何可識別個人的資訊，也不會提供給第三方。</li>
       <li>沒有廣告、沒有追蹤 Cookie、不使用第三方分析服務。</li>
     </ul>
+    </div>
+    <div class="copy">© 2026 凡圖有限公司 Vanture Co., Ltd. · <a href="https://getvanture.com" target="_blank" rel="noopener">getvanture.com</a></div>
   </div>
 </div>
 <div id="hangar" class="overlay" hidden>
   <div class="panel wide">
-    <h2>機庫</h2>
+    <h2 data-i18n>機庫</h2>
     <div id="hangar-dust" class="lb-me">✨ 星塵 0</div>
-    <div class="divider"><span>機體（點選出擊用的機體）</span></div>
+    <div class="divider"><span>機體（點選出擊用的機體，每台玩法不同）</span></div>
     <div id="ship-cards" class="ships"></div>
-    <div class="divider"><span>改裝：主武器（點選出擊用的武器）</span></div>
+    <div class="divider"><span>主武器（每把武器對升級的反應都不同）</span></div>
     <div id="weapon-cards" class="ships"></div>
+    <div id="weapon-mods" class="wmods"></div>
     <div class="divider"><span>塗裝（純外觀）</span></div>
     <div id="skin-cards" class="ships skins"></div>
     <div class="divider"><span>永久強化（每局開局自動套用）</span></div>
@@ -138,18 +227,18 @@
       <div class="row"><input id="xfer-code" type="text" readonly><button id="xfer-copy">複製</button></div>
       <div class="row"><input id="xfer-in" type="text" placeholder="貼上另一台裝置的轉移碼"><button id="xfer-import">匯入</button></div>
     </div>
-    <button id="hangar-close" class="small">關閉</button>
+    <button id="hangar-close" class="small" data-i18n>關閉</button>
   </div>
 </div>
 <div id="daily" class="overlay" hidden>
   <div class="panel">
-    <h2>每日挑戰</h2>
+    <h2 data-i18n>每日挑戰</h2>
     <div id="daily-date" class="sub2"></div>
     <ul id="daily-mods" class="mods"></ul>
     <div id="daily-status" class="lb-me"></div>
     <button id="daily-start" class="primary">出擊</button>
     <button id="daily-lb" class="small">今日排行榜</button>
-    <button id="daily-close" class="small">關閉</button>
+    <button id="daily-close" class="small" data-i18n>關閉</button>
   </div>
 </div>
 <div id="rotate" class="rotate"><div>📱↻<br>請將手機轉成橫向遊玩</div></div>

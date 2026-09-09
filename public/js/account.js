@@ -95,6 +95,19 @@ export async function buyPerk(perkId) {
   Object.assign(profile, { dust: r.dust, unlocks: r.unlocks }); cacheProfile();
   return r;
 }
+/** 成就 / 任務 / 圖鑑進度（伺服器 meta） */
+export async function fetchMeta() {
+  if (pending) await pending;
+  if (!acct) return null;
+  try { const m = await api(`/api/meta?id=${encodeURIComponent(acct.id)}&secret=${encodeURIComponent(acct.secret)}`); profile.meta = m.meta; cacheProfile(); return m; } catch { return null; }
+}
+/** 一局結束：送統計摘要給伺服器算任務與成就；回傳 {ach, quests, dust, meta} 或 null */
+export async function reportRun(summary) {
+  if (!(await ready())) return null;
+  try { const r = await api('/api/meta/run', { method: 'POST', body: JSON.stringify({ ...creds(), run: summary }) }); if (r.meta) profile.meta = r.meta; if (typeof r.total === 'number') profile.dust = r.total; if (r.dust) profile.dustTotal += r.dust; cacheProfile(); return r; } catch (e) { console.warn('report failed:', e.message); return null; }
+}
+export async function fetchRooms() { return api('/api/rooms'); }
+export async function quickMatch() { return api('/api/quickmatch', { method: 'POST', body: '{}' }); }
 /** 今天的每日挑戰狀態：{key, seed, mods[], started, run} */
 export async function fetchDaily() {
   if (pending) await pending;
