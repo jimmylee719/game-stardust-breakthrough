@@ -142,24 +142,9 @@ canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh;
 .fitbox { flex: 0 0 auto; margin: auto; }
 /* 機庫：電腦上三欄全展開、整塊縮放不捲動；窄螢幕退回單欄捲動 */
 .panel.hangar .hcols { display: block; }
-@media (min-width: 900px) {
-  .panel.hangar { width: min(97vw, 1720px); max-height: none; overflow: visible; padding: 22px 30px 18px; }
-  .panel.hangar .hcols { display: grid; grid-template-columns: 1.35fr 1fr 1.05fr 1.2fr; gap: 0 20px; align-items: start; }
-  .panel.hangar .hcols .divider:first-child { margin-top: 6px; }
-  .panel.hangar .hcols .ships { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .panel.hangar .hcols #ship-cards { grid-template-columns: repeat(4, 1fr); }
-  .panel.hangar .hcols .ships.skins { grid-template-columns: repeat(3, 1fr); }
-  .panel.hangar .hcols .ships.skills { grid-template-columns: repeat(3, 1fr); }
-  .panel.hangar .hcols .ship { padding: 8px 4px 8px; }
-  .panel.hangar .hcols .ship .ic { font-size: 24px; }
-  .panel.hangar .hcols .ship .nm { font-size: 13px; }
-  .panel.hangar .hcols .ship .ds { font-size: 10px; min-height: 0; }
-  .panel.hangar .hcols .perk-rows { max-height: none; overflow: visible; }
-  .panel.hangar .hcols .wmods { font-size: 10px; }
-  .panel.hangar .hcols .perk-rows li { padding: 6px 8px; }
-  .panel.hangar .hcols .perk-rows .ds { font-size: 10px; }
-  .panel.hangar .hcols .transfer .ds { font-size: 10px; }
-}
+.panel.hangar { width: min(94vw, 760px); max-height: 94vh; overflow-y: auto; scrollbar-gutter: stable; padding-right: 26px; }
+.panel.hangar .perk-rows { max-height: none; overflow: visible; }
+@media (min-width: 900px) { .panel.hangar .ships.skills { grid-template-columns: repeat(3, 1fr); } }
 .panel.fit { position: relative; max-height: none; overflow: visible; padding: 22px 30px 18px; width: min(96vw, 460px); }
 .panel.fit .cols { display: grid; grid-template-columns: 1fr; gap: 0 36px; align-items: start; }
 .panel.fit .col { min-width: 0; }
@@ -183,6 +168,18 @@ canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh;
   .panel.fit h1 { font-size: 60px; }
 }
 .panel.fit h1 { font-size: 52px; }
+.panel.fit .logo { display: block; width: 176px; height: 176px; margin: -26px auto -34px; mix-blend-mode: screen; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 45%, transparent)); animation: riseIn .5s ease both, logoFloat 4s ease-in-out 1s infinite; }
+@keyframes logoFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@media (max-height: 640px) { .panel.fit .logo { width: 110px; height: 110px; margin: -14px auto -20px; } }
+/* 捲軸：細、半透明霓虹，融入面板背景（Firefox 用 scrollbar-*，WebKit 用偽元素） */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 3px; box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 70%, transparent); }
+/* 卡圖（有圖的機體 / 武器 / 技能才顯示；圖放 public/img/<kind>-<id>.webp） */
+.ship .art { width: 100%; aspect-ratio: 1; border-radius: 10px; margin-bottom: 6px; background-size: 140%; background-color: #070a1c; background-position: center; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); box-shadow: inset 0 0 24px rgba(0,0,0,.5); }
+.ship .art + .ic { font-size: 18px; margin-top: -2px; }
 .panel.fit .sub { margin-bottom: 18px; }
 .panel.fit .divider { margin: 20px 0 12px; }
 .panel.fit .best { margin-top: 10px; }

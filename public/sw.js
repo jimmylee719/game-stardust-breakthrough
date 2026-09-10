@@ -5,7 +5,7 @@ const CACHE = 'stardust-' + VERSION;
 const SHELL = ['./', 'index.html', 'css/style.css', 'manifest.json', 'icon-192.png', 'icon-512.png',
   'js/main.js', 'js/game.js', 'js/render.js', 'js/effects.js', 'js/audio.js', 'js/input.js', 'js/net.js', 'js/predict.js', 'js/account.js', 'js/analytics.js', 'js/themes.js', 'js/i18n.js', 'js/i18n-extra.js',
   'shared/constants.js', 'shared/math.js', 'shared/snapshot.js', 'shared/daily.js', 'shared/meta.js',
-  'img/bg-space.webp', 'img/bg-inferno.webp', 'img/bg-mercury.webp', 'img/bg-venom.webp', 'img/bg-abyss.webp', 'img/bg-glacier.webp'];
+  'img/bg-space.webp', 'img/bg-inferno.webp', 'img/bg-mercury.webp', 'img/bg-venom.webp', 'img/bg-abyss.webp', 'img/bg-glacier.webp', 'img/logo.webp', 'img/ship-falcon.webp'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {

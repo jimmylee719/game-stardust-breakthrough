@@ -52,6 +52,9 @@ let weapon = lsGet('stardust_weapon') || 'blaster';   // 出擊用的主武器
 let skin = lsGet('stardust_skin') || 'classic';       // 塗裝
 let arena = lsGet('stardust_arena') || 'space';       // 場地
 let skillSel = lsGet('stardust_skill') || 'swarm';    // 主動技能
+/** 卡圖：有做好的才列進來（public/img/<kind>-<id>.webp，1024×1024 webp） */
+const ART = { ship: new Set(['falcon']), weapon: new Set([]), skill: new Set([]) };
+const artOf = (kind, id) => ART[kind].has(id) ? `<div class="art" style="background-image:url(img/${kind}-${id}.webp)"></div>` : '';
 let runKind = 'solo';
 let runStartedAt = 0;   // 事件記錄用    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
@@ -120,12 +123,12 @@ function toggleFullscreen() {
   else goFullscreen();
 }
 /** 首頁面板：依視窗大小整塊縮放，保證所有資訊同時看得到、不出現捲軸 */
-function fitMenu() { fitPanel(menuEl); fitPanel(hangarEl); }
+function fitMenu() { fitPanel(menuEl); }
 /** 面板整塊縮放：首頁一律；機庫只在寬螢幕（窄螢幕退回捲動） */
 function fitPanel(overlay) {
   const box = overlay.querySelector('.fitbox'), panel = box && box.querySelector('.panel');
   if (!panel || overlay.hidden) return;
-  if (overlay !== menuEl && innerWidth < 900) { box.style.zoom = '1'; return; }
+
   // 用 zoom（會跟著改版面尺寸，置中正確、放得下就不會出現捲軸）；入場動畫的 transform 在 .panel 上，不會互相覆蓋
   box.style.zoom = '1';
   const s = Math.min(1, (innerHeight - 16) / panel.offsetHeight, (innerWidth - 12) / panel.offsetWidth);
@@ -165,7 +168,7 @@ function renderSkillCards() {
   const cur = currentSkill();
   $('skill-cards').innerHTML = SKILLS.map(s => {
     const un = skillUnlocked(s.id, profile.unlocks);
-    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-skill="${s.id}"><div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="ds">${escapeHtml(tr(s.desc))}<br><span style="color:#b8ffff">⚡ ${s.energy}</span></div>${un ? `<div class="cost ok">${s.id === cur ? tr('使用中') : tr('已解鎖')}</div>` : `<div class="cost">✨ ${s.cost}</div>`}</div>`;
+    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-skill="${s.id}">${artOf('skill', s.id)}<div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="ds">${escapeHtml(tr(s.desc))}<br><span style="color:#b8ffff">⚡ ${s.energy}</span></div>${un ? `<div class="cost ok">${s.id === cur ? tr('使用中') : tr('已解鎖')}</div>` : `<div class="cost">✨ ${s.cost}</div>`}</div>`;
   }).join('');
   for (const el of $('skill-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.skill;
@@ -199,7 +202,7 @@ function renderWeapons() {
     const un = weaponUnlocked(w.id, profile.unlocks);
     const el = ELEMENTS[WEAPON_ELEMENT[w.id] === 'kinetic' || WEAPON_ELEMENT[w.id] === 'light' ? 'neutral' : WEAPON_ELEMENT[w.id]];
     const evo = EVOLUTIONS.find(e => e.weapon === w.id);
-    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-weapon="${w.id}"><div class="ic">${w.icon}</div><div class="nm">${T(w.name)}</div><div class="ds">${escapeHtml(tr(w.desc))}<br><span style="color:#ffd166">${evo ? `${evo.icon} ${tr("進化")}：${tr(evo.name)}` : ''}</span></div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? tr('✔ 裝備中') : tr('已解鎖')) : '✨ ' + w.cost}</div></div>`;
+    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-weapon="${w.id}">${artOf('weapon', w.id)}<div class="ic">${w.icon}</div><div class="nm">${T(w.name)}</div><div class="ds">${escapeHtml(tr(w.desc))}<br><span style="color:#ffd166">${evo ? `${evo.icon} ${tr("進化")}：${tr(evo.name)}` : ''}</span></div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? tr('✔ 裝備中') : tr('已解鎖')) : '✨ ' + w.cost}</div></div>`;
   }).join('');
   const M = WEAPON_MODS[cur] || {}, names = { spread: '散射道具', rapid: '連射道具', pierce: '穿甲彈', bounce: '反彈彈', homing: '追蹤導引', bigshot: '巨型彈體' };
   $('weapon-mods').innerHTML = `${meleeOnly ? `<div style="color:#ff8c9c">${tr('劍聖只能使用光刃。')}</div>` : ''}<div><b>${T(weaponById(cur).name)}</b> ${tr('對升級 / 道具的反應：')}</div>` + Object.entries(M).map(([k, v]) => `<div><b>${tr(names[k])}</b> → ${escapeHtml(tr(v))}</div>`).join('');
@@ -220,7 +223,7 @@ function renderShips() {
   const bar = (v) => { const w = Math.min(100, v * 62); return `<b><i class="${v > 1.02 ? 'hi' : v < 0.98 ? 'lo' : ''}" style="width:${w}%"></i></b>`; };
   $('ship-cards').innerHTML = SHIPS.map(s => {
     const un = shipUnlocked(s.id, profile.unlocks);
-    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-ship="${s.id}"><div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="st"><span>${tr('生命')}</span>${bar(s.stats.hp)}<span>${tr('速度')}</span>${bar(s.stats.speed)}<span>${tr('射速')}</span>${bar(s.stats.fire)}<span>${tr('傷害')}</span>${bar(s.stats.dmg)}</div><div class="ds"><span style="color:#ffd166">${escapeHtml(tr(s.trait || ''))}</span> · ${escapeHtml(tr(s.desc))}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? tr('✔ 出擊中') : tr('已解鎖')) : '✨ ' + s.cost}</div></div>`;
+    return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-ship="${s.id}">${artOf('ship', s.id)}<div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="st"><span>${tr('生命')}</span>${bar(s.stats.hp)}<span>${tr('速度')}</span>${bar(s.stats.speed)}<span>${tr('射速')}</span>${bar(s.stats.fire)}<span>${tr('傷害')}</span>${bar(s.stats.dmg)}</div><div class="ds"><span style="color:#ffd166">${escapeHtml(tr(s.trait || ''))}</span> · ${escapeHtml(tr(s.desc))}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? tr('✔ 出擊中') : tr('已解鎖')) : '✨ ' + s.cost}</div></div>`;
   }).join('');
   for (const el of $('ship-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.ship;
