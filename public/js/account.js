@@ -60,9 +60,9 @@ async function ready(name) {
 }
 
 /** 上傳單人 / 每日成績。回傳 {rank, dust, total} 或 null。任何分數都會拿到星塵。 */
-export async function submitRun(score, wave, { mode = 'solo', day = null, name, dustBonus = 0 } = {}) {
+export async function submitRun(score, wave, { mode = 'solo', day = null, name, dustBonus = 0, boss = false } = {}) {
   if (!(await ready(name))) return null;
-  const post = () => api('/api/runs', { method: 'POST', body: JSON.stringify({ ...creds(), score, wave, mode, day, dustBonus }) });
+  const post = () => api('/api/runs', { method: 'POST', body: JSON.stringify({ ...creds(), score, wave, mode, day, dustBonus, boss }) });
   try {
     const r = await post();
     if (typeof r.total === 'number') { profile.dust = r.total; profile.dustTotal += r.dust || 0; cacheProfile(); }

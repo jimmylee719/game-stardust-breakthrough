@@ -9,7 +9,7 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects, trackFrame } 
 import { ensureAudio, toggleMute, isMuted, setMood, getMusicVolume, setMusicVolume, getSfxEnabled, setSfxEnabled } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { SKILLS, skillById, skillUnlocked, sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
+import { weaponAllowed, defaultWeaponFor, SKILLS, skillById, skillUnlocked, sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS, dayKey } from '../../shared/daily.js';
 import { ACHIEVEMENTS, QUESTS, dailyQuests, weeklyQuests, questText, runSummary, weekKey } from '../../shared/meta.js';
@@ -148,7 +148,7 @@ $('lang-toggle').addEventListener('click', () => { setLang(getLang() === 'zh' ? 
 function refreshLangUi() { $('lang-toggle').textContent = getLang() === 'zh' ? 'EN' : '中'; $('opt-lang').value = getLang(); renderMenuArenas(); renderDust(); bestEl.textContent = best > 0 ? tr(`最高 ${best}`) : ''; requestAnimationFrame(fitMenu); }
 onLangChange(refreshLangUi); refreshLangUi();
 
-function beginSolo(startWave = 0, daily = null) {
+function beginSolo(startWave = 0, daily = null, bossRush = false) {
   ensureAudio(); goFullscreen();
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
@@ -156,14 +156,15 @@ function beginSolo(startWave = 0, daily = null) {
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
   addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(), skill: currentSkill() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false; metaReported = false;
-  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena });
+  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush });
   runStartedAt = performance.now();
-  track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: startWave > 0 });
+  track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: bossRush });
+  if (bossRush) toast(tr('Boss 挑戰：每一波都只有 Boss（1–6 隻隨機），連續 8 波通關，分數與星塵 ×1.5'), 4500);
   for (const el of OVERLAYS) el.hidden = true;
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
 }
 function currentShip() { if (!shipUnlocked(ship, profile.unlocks)) ship = 'falcon'; return ship; }
-function currentWeapon() { if (!weaponUnlocked(weapon, profile.unlocks)) weapon = 'blaster'; return weapon; }
+function currentWeapon() { if (!weaponUnlocked(weapon, profile.unlocks)) weapon = 'blaster'; if (!weaponAllowed(currentShip(), weapon)) weapon = defaultWeaponFor(currentShip()); return weapon; }
 function currentSkin() { if (!skinUnlocked(skin, profile.unlocks)) skin = 'classic'; return skin; }
 function currentSkill() { if (!skillUnlocked(skillSel, profile.unlocks)) skillSel = 'swarm'; return skillSel; }
 function renderSkillCards() {
@@ -200,19 +201,20 @@ function renderSkins() {
   });
 }
 function renderWeapons() {
-  const cur = currentWeapon(), meleeOnly = shipById(currentShip()).id === 'ronin';
+  const cur = currentWeapon(), shipNow = currentShip(), meleeOnly = shipNow === 'ronin';
   $('weapon-cards').innerHTML = WEAPONS.map(w => {
-    const un = weaponUnlocked(w.id, profile.unlocks);
+    const un = weaponUnlocked(w.id, profile.unlocks), ok = weaponAllowed(shipNow, w.id);
     const el = ELEMENTS[WEAPON_ELEMENT[w.id] === 'kinetic' || WEAPON_ELEMENT[w.id] === 'light' ? 'neutral' : WEAPON_ELEMENT[w.id]];
     const evo = EVOLUTIONS.find(e => e.weapon === w.id);
-    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-weapon="${w.id}">${artOf('weapon', w.id)}<div class="ic">${w.icon}</div><div class="nm">${T(w.name)}</div><div class="ds">${escapeHtml(tr(w.desc))}<br><span style="color:#ffd166">${evo ? `${evo.icon} ${tr("進化")}：${tr(evo.name)}` : ''}</span></div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? tr('✔ 裝備中') : tr('已解鎖')) : '✨ ' + w.cost}</div></div>`;
+    return `<div class="ship ${w.id === cur ? 'on' : ''} ${un ? '' : 'locked'} ${ok ? '' : 'incompatible'}" data-weapon="${w.id}" title="${ok ? '' : escapeHtml(tr('這台機體不能用這把武器'))}">${artOf('weapon', w.id)}<div class="ic">${w.icon}</div><div class="nm">${T(w.name)}</div><div class="ds">${escapeHtml(tr(w.desc))}<br><span style="color:#ffd166">${evo ? `${evo.icon} ${tr("進化")}：${tr(evo.name)}` : ''}</span></div><div class="cost ${un ? 'ok' : ''}">${un ? (w.id === cur ? tr('✔ 裝備中') : tr('已解鎖')) : '✨ ' + w.cost}</div></div>`;
   }).join('');
   const M = WEAPON_MODS[cur] || {}, names = { spread: '散射道具', rapid: '連射道具', pierce: '穿甲彈', bounce: '反彈彈', homing: '追蹤導引', bigshot: '巨型彈體' };
-  $('weapon-mods').innerHTML = `${meleeOnly ? `<div style="color:#ff8c9c">${tr('劍聖只能使用光刃。')}</div>` : ''}<div><b>${T(weaponById(cur).name)}</b> ${tr('對升級 / 道具的反應：')}</div>` + Object.entries(M).map(([k, v]) => `<div><b>${tr(names[k])}</b> → ${escapeHtml(tr(v))}</div>`).join('');
+  $('weapon-mods').innerHTML = `${meleeOnly ? `<div style="color:#ff8c9c">${tr('劍聖只能使用光刃。')}</div>` : shipNow === 'carrier' ? `<div style="color:#ff8c9c">${tr('母艦靠僚機作戰，不能裝光刃。')}</div>` : ''}<div><b>${T(weaponById(cur).name)}</b> ${tr('對升級 / 道具的反應：')}</div>` + Object.entries(M).map(([k, v]) => `<div><b>${tr(names[k])}</b> → ${escapeHtml(tr(v))}</div>`).join('');
   paintArt($('weapon-cards'));
   for (const el of $('weapon-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.weapon;
     $('hangar-err').textContent = '';
+    if (!weaponAllowed(currentShip(), id)) { $('hangar-err').textContent = tr('這台機體不能用這把武器'); return; }
     if (weaponUnlocked(id, profile.unlocks)) { weapon = id; lsSet('stardust_weapon', id); ensureAudio(); renderWeapons(); return; }
     const w = weaponById(id);
     if (profile.dust < w.cost) { $('hangar-err').textContent = `星塵不足，解鎖 ${w.name} 需要 ${w.cost}`; return; }
@@ -426,7 +428,7 @@ function beginOnline(code) {
 }
 
 $('solo').addEventListener('click', () => beginSolo(0));
-$('solo-boss').addEventListener('click', () => beginSolo(4));
+$('solo-boss').addEventListener('click', () => beginSolo(0, null, true));
 $('create').addEventListener('click', () => beginOnline(''));
 $('join').addEventListener('click', () => { const c = codeInput.value.trim().toUpperCase(); if (!c) { errEl.textContent = '請輸入房號'; codeInput.focus(); return; } beginOnline(c); });
 $('lobby-start').addEventListener('click', () => net?.start($('lobby-boss').checked));
@@ -515,7 +517,7 @@ function finishSoloRun() {
   track('run_end', runEndProps(world.abandoned ? 'abandon' : world.won ? (world.endless ? 'endless' : 'victory') : 'dead'));
   if (world.score > best) { best = world.score; lsSet('stardust_best', String(best)); }
   const kind = runKind, day = dailyInfo?.key || null;
-  submitRun(world.score, world.wave, { mode: kind, day, dustBonus: world.dustBonus || 0 }).then(r => {
+  submitRun(world.score, world.wave, { mode: kind, day, dustBonus: world.dustBonus || 0, boss: !!(world.mods && world.mods.bossRush) }).then(r => {
     if (!r) return;
     lastResult = { rank: r.rank, mode: kind, dust: r.dust };
     renderDust();

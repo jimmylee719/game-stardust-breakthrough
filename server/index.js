@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
 import { snapshotWorld } from '../shared/snapshot.js';
-import { OFFLINE_GRACE, TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked } from '../shared/constants.js';
+import { OFFLINE_GRACE, TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked, BOSS_RUSH_REWARD, weaponAllowed, defaultWeaponFor } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
 import { runSummary, applyRun, weekKey, dailyQuests, weeklyQuests, ACHIEVEMENTS } from '../shared/meta.js';
 import { ARENAS } from '../shared/constants.js';
@@ -99,7 +99,7 @@ async function handleApi(req, res, url) {
       const prof = await db.profile(me.id);
       if (score > 600 * (wave + 2) ** 2) return json(res, 400, { error: 'implausible' });
       const bonus = Math.max(0, Math.min(150, Number(b.dustBonus) | 0));   // 星塵碎片（事件撿到的），上限 150
-      const dust = dustFor(score, wave, prof?.unlocks) + bonus;
+      const dust = Math.round(dustFor(score, wave, prof?.unlocks) * (b.boss ? BOSS_RUSH_REWARD : 1)) + bonus;
       await db.grantDust(me.id, dust);
       let rank = null, id = null;
       if (score >= MIN_RUN_SCORE || mode === 'daily') { const r = await db.addRun({ mode, score, wave, party: [{ id: me.id, name: me.name }], day }); rank = r.rank; id = r.id; }
@@ -319,7 +319,7 @@ async function recordCoopRun(room) {
   try {
     const r = await db.addRun({ mode: 'coop', score: w.score, wave: w.wave, party });
     const dustBy = {};
-    for (const m of party) if (m.id) { const prof = await db.profile(m.id); const d = dustFor(w.score, w.wave, prof?.unlocks); await db.grantDust(m.id, d); dustBy[m.id] = d; }
+    for (const m of party) if (m.id) { const prof = await db.profile(m.id); const d = Math.round(dustFor(w.score, w.wave, prof?.unlocks) * (w.mods && w.mods.bossRush ? BOSS_RUSH_REWARD : 1)); await db.grantDust(m.id, d); dustBy[m.id] = d; }
     broadcast(room, { t: 'result', rank: r.rank, score: w.score, wave: w.wave, dustBy, metaBy });
     console.log(`[room ${room.code}] coop run recorded: score ${w.score} wave ${w.wave} rank #${r.rank}`);
   } catch (e) { console.error('record run failed', e.message); }
@@ -394,7 +394,8 @@ wss.on('connection', ws => {
         if (ws.readyState !== ws.OPEN || !rooms.has(room.code)) return;
         const unlocks = acct?.unlocks || [];
         const ship = shipUnlocked(wantShip, unlocks) ? wantShip : 'falcon';
-        const weapon = weaponUnlocked(wantWeapon, unlocks) ? wantWeapon : 'blaster';
+        let weapon = weaponUnlocked(wantWeapon, unlocks) ? wantWeapon : 'blaster';
+        if (!weaponAllowed(ship, weapon)) weapon = defaultWeaponFor(ship);
         const skin = skinUnlocked(wantSkin, unlocks) ? wantSkin : 'classic';
         const skill = skillUnlocked(wantSkill, unlocks) ? wantSkill : 'swarm';
         const id = room.nextPlayerId++;
@@ -423,7 +424,7 @@ wss.on('connection', ws => {
       case 'start':
         if (player.id !== room.hostId) return;
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
-          startRun(room.world, { startWave: m.boss ? 4 : 0, arena: room.arena });
+          startRun(room.world, { bossRush: !!m.boss, arena: room.arena });
           room.events.length = 0; room.departed = []; room.recorded = false;
           for (const p of room.world.players) logEvent('run_start', { mode: 'coop', ship: p.ship, wave0: m.boss ? 4 : 0, players: room.world.players.length }, p.acctId || null);
           broadcast(room, { t: 'started' });

@@ -105,6 +105,9 @@ export const ENEMY_BLINK_FROM_WAVE = 9;   // 飛鏢 / 射手從第 7 波起會�
 export const PERFECT_WAVE_BONUS = 120;   // × 波數
 export const GRAZE_SCORE = 5;
 export const BOSS_EVERY = 5;
+/** Boss 挑戰：每一波都只出 Boss（1–6 隻隨機，越後面越多），連續 8 波通關；分數與星塵 ×1.5 */
+export const BOSS_RUSH_WAVES = 8;
+export const BOSS_RUSH_REWARD = 1.5;
 export const BOSS_RADIUS = 110;   // 約原本的 2 倍
 
 /** 通關波數：第 20 波的 Boss 擊破即「突圍成功」，可選擇繼續無盡模式 */
@@ -208,9 +211,9 @@ export const SHIPS = [
     stats: { hp: 0.7, speed: 1.25, fire: 1.25, dmg: 0.8 }, apply: p => { p.maxHp = 70; p.hp = 70; p.speedMul *= 1.25; p.fireRate *= 0.8; p.damage *= 0.8; p.dashCdMax = 0.8; p.blinkCdMax = 1.2; p.r = 12; p.flags.blinkStrike = true; p.flags.noShield = true; } },
   { id: 'bastion', icon: '🛡️', name: '堡壘',   cost: 800,  desc: '重裝：生命 170、傷害 +30%，正面 120° 能量盾擋住敵彈；閃現變成盾擊（短距衝撞、擊退並傷害）；速度 -20%、射速 -25%', trait: '正面護盾',
     stats: { hp: 1.7, speed: 0.8, fire: 0.75, dmg: 1.3 }, apply: p => { p.maxHp = 170; p.hp = 170; p.speedMul *= 0.8; p.fireRate *= 1.33; p.damage *= 1.3; p.bulletSize += 0.3; p.dashCdMax = 1.6; p.r = 16; p.flags.frontShield = true; p.flags.shieldBash = true; } },
-  { id: 'carrier', icon: '🛸', name: '母艦',   cost: 1200, desc: '航艦：自身武器傷害 -35%，但開局 3 台僚機、僚機繼承主武器屬性且傷害 ×1.4，「無人僚機」升級每級 +2 台；生命 110', trait: '僚機艦隊',
+  { id: 'carrier', icon: '🛸', name: '母艦',   cost: 1200, noWeapons: ['blade'], desc: '航艦：自身武器傷害 -35%，但開局 3 台僚機、僚機繼承主武器屬性且傷害 ×1.4，「無人僚機」升級每級 +2 台；生命 110', trait: '僚機艦隊',
     stats: { hp: 1.1, speed: 0.95, fire: 0.85, dmg: 0.65 }, apply: p => { p.maxHp = 110; p.hp = 110; p.speedMul *= 0.95; p.fireRate *= 1.18; p.damage *= 0.65; p.flags.droneBoost = true; for (let i = 0; i < 3; i++) p.drones.push({ a: i * TAU / 3, cd: 0.2 * i, x: p.x, y: p.y }); } },
-  { id: 'ronin',   icon: '⚔️', name: '劍聖',   cost: 1500, desc: '只能用光刃：光刃傷害 ×2、每次命中回 2 生命、衝刺帶斬擊、格擋子彈回 1 生命；生命 120；不能裝其他武器', trait: '純近戰',
+  { id: 'ronin',   icon: '⚔️', name: '劍聖',   cost: 1500, weapons: ['blade'], desc: '只能用光刃：光刃傷害 ×2、每次命中回 2 生命、衝刺帶斬擊、格擋子彈回 1 生命；生命 120；不能裝其他武器', trait: '純近戰',
     stats: { hp: 1.2, speed: 1.1, fire: 1, dmg: 2 }, apply: p => { p.maxHp = 120; p.hp = 120; p.speedMul *= 1.1; p.weapon = 'blade'; p.flags.meleeOnly = true; p.flags.bladeMaster = true; p.flags.dashSlash = true; } },
   { id: 'wraith',  icon: '👻', name: '幽靈',   cost: 1500, desc: '玻璃大砲：生命 60、永遠沒有護盾，但閃現冷卻 0.6 秒、每次擊殺重置閃現；傷害 +15%', trait: '無限閃現',
     stats: { hp: 0.6, speed: 1.05, fire: 1, dmg: 1.15 }, apply: p => { p.maxHp = 60; p.hp = 60; p.speedMul *= 1.05; p.damage *= 1.15; p.blinkCdMax = 0.6; p.r = 12; p.flags.noShield = true; p.flags.killResetBlink = true; } },
@@ -270,7 +273,7 @@ export const EVOLUTIONS = [
 export function evolutionFor(weapon, upgrades) {
   return EVOLUTIONS.find(e => e.weapon === weapon && Object.entries(e.needs).every(([id, lv]) => (upgrades[id] || 0) >= lv)) || null;
 }
-export const WEAPON_STATS = { laserDps: 3.2, flameRange: 250, flameCone: 0.4, flameDps: 4.5, frostRange: 520, frostDps: 2.4, frostSlow: 0.4, frostFreezeAfter: 2, arcRange: 380, arcJump: 210, arcTargets: 4, arcDmg: 2.6, arcRate: 2.4,
+export const WEAPON_STATS = { laserDps: 4.2, flameRange: 250, flameCone: 0.4, flameDps: 4.5, frostRange: 520, frostDps: 3.2, frostSlow: 0.4, frostFreezeAfter: 2, arcRange: 380, arcJump: 210, arcTargets: 4, arcDmg: 2.6, arcRate: 2.4,
   bladeRange: 95, bladeArc: 1.1, bladeDmg: 3.4, bladeRate: 2.6, bladeKnock: 380 };
 export function weaponById(id) { return WEAPONS.find(w => w.id === id) || WEAPONS[0]; }
 export function weaponUnlocked(id, unlocks) { return id === 'blaster' || (unlocks || []).includes('weapon:' + id); }
@@ -356,6 +359,15 @@ export const SKILLS = [
 export const skillById = id => SKILLS.find(s => s.id === id) || SKILLS[0];
 export function skillUnlocked(id, unlocks) { return id === 'swarm' || (unlocks || []).includes('skill:' + id); }
 export const ENERGY = { max: 100, perKill: 5, perElite: 8, perBoss: 30, passive: 0.8 };
+/** 機體與武器相容：劍聖只能光刃；母艦靠僚機作戰，不能拿光刃 */
+export function weaponAllowed(shipId, weaponId) {
+  const s = SHIPS.find(x => x.id === shipId);
+  if (!s) return true;
+  if (s.weapons) return s.weapons.includes(weaponId);
+  if (s.noWeapons) return !s.noWeapons.includes(weaponId);
+  return true;
+}
+export function defaultWeaponFor(shipId) { const s = SHIPS.find(x => x.id === shipId); return s && s.weapons ? s.weapons[0] : 'blaster'; }
 export function shipUnlocked(id, unlocks) { return id === 'falcon' || (unlocks || []).includes('ship:' + id); }
 export function applyShip(p, shipId) { const s = shipById(shipId); s.apply(p); p.ship = s.id; }
 

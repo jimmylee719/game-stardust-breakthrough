@@ -3,7 +3,7 @@
 // 這個模組同時在瀏覽器（單機）與伺服器（多人）執行。
 import { TAU, rand, randInt, rnd, clamp, dist2, angleDiff } from '../../shared/math.js';
 import {
-  SKILLS, skillById, ENERGY,
+  SKILLS, skillById, ENERGY, BOSS_RUSH_WAVES, BOSS_RUSH_REWARD, weaponAllowed, defaultWeaponFor,
   WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS, BOSS_KINDS, BOSS_DOUBLE_FROM_WAVE, BOSS_DOUBLE_CHANCE, AMBIENT, PERFECT_WAVE_BONUS, GRAZE_SCORE, ENEMY_BLINK_FROM_WAVE,
   UPGRADES, UPGRADE_EVERY_WAVES, WAVE_MODES, MODE_SCHEDULE, MODE_CHANCE_AFTER, MODE_CHANCE,
   DOWNED_TIME, REVIVE_RANGE, REVIVE_TIME, OFFLINE_GRACE, sanitizeName, applyPerks, applyShip, activeSynergies, SYNERGIES, WIN_WAVE, WIN_BONUS, WEAPON_STATS,
@@ -67,7 +67,8 @@ export function addPlayer(world, { id, name, local = false, token = null, acctId
     flags: {}, emp: 0, frozen: 0, turrets: [], evolved: null, lastHitBy: null, swingT: 0, swingCd: 0, laserRamp: 0, stormCd: 0, adaptMul: 1,
     skill, energy: 0, overdrive: 0, novaT: 0, skillHeld: false,
   };
-  p.baseWeapon = weapon;
+  if (!weaponAllowed(ship, weapon)) weapon = defaultWeaponFor(ship);
+  p.baseWeapon = weapon; p.weapon = weapon;
   applyShip(p, ship);
   if (p.flags.meleeOnly) p.weapon = 'blade';
   applyPerks(p, perks);
@@ -84,7 +85,7 @@ export function joinMidGame(world, opts) {
 }
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
-export function startRun(world, { startWave = 0, mods = null, daily = false, arena = null } = {}) {
+export function startRun(world, { startWave = 0, mods = null, daily = false, arena = null, bossRush = false } = {}) {
   const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship, weapon: p.flags?.meleeOnly ? p.baseWeapon || p.weapon : p.weapon, skin: p.skin, skill: p.skill }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
@@ -92,6 +93,7 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
   if (world.arena === 'abyss') world.drag = 0.85;
   world.mods = Object.fromEntries((mods || []).map(m => [typeof m === 'string' ? m : m.id, true]));
   if (daily) world.mods.daily = true;
+  if (bossRush) world.mods.bossRush = true;
   roster.forEach(r => addPlayer(world, r));
   world.wave = world.mods.skip ? Math.max(startWave, 3) : startWave;
   world.upgradeOffered = true;
@@ -349,7 +351,7 @@ function nextWave(world, fx) {
   world.wave++;
   world.upgradeOffered = false;
   world.waveMode = null; world.beacon = null; world.modeTimer = 0; world.waveTheme = null;
-  if (world.wave % BOSS_EVERY === 0) { startBossWave(world, fx); return; }
+  if (world.mods.bossRush || world.wave % BOSS_EVERY === 0) { startBossWave(world, fx); return; }
   const mode = chooseMode(world);
   if (mode) { startMode(world, mode, fx); return; }
   fx.sfx('wave');
@@ -477,7 +479,7 @@ function makeBoss(world, kind, tier, slot, hpMul) {
   const suffix = kind === 'annihilator' ? BOSS_NAMES[Math.min(tier - 1, BOSS_NAMES.length - 1)].replace('殲滅者 ', '') : ['Mk.I', 'Mk.II', 'Mk.III', 'Ω'][Math.min(tier - 1, 3)];
   return {
     id: world.nextId++, kind, tier, slot, name: `${K.name} ${suffix}`,
-    x: world.W * (slot === 0 ? 0.5 : slot < 0 ? 0.3 : 0.7), y: -220, r: K.r, hp, maxHp: hp, phase: 1,
+    x: world.W * (0.5 + slot * 0.14), y: -220 - Math.abs(slot) * 60, r: K.r, hp, maxHp: hp, phase: 1,
     vx: 0, vy: 0, t: rand(0, 3), spin: 0, hitFlash: 0, speedMul: K.speed,
     entering: true, atk: 'idle', atkT: 1.8 + rand(0, 0.8), atkIdx: randInt(0, 3), sub: 0, aim: 0, chargeDir: null, chargeT: 0, dying: 0, laserId: null,
     cloak: 0, dodgeCd: rand(0, 1), wantPickup: null, slow: 0, armor: kind === 'titan' ? 0.7 : 1,
@@ -485,8 +487,19 @@ function makeBoss(world, kind, tier, slot, hpMul) {
   };
 }
 function spawnBoss(world, fx) {
-  const tier = Math.floor(world.wave / BOSS_EVERY);
   const kinds = Object.keys(BOSS_KINDS);
+  if (world.mods.bossRush) {
+    // Boss 挑戰：每波 1–6 隻（越後面上限越高），多隻時各自血量打折；最後一波固定含殲滅者 Ω
+    const tier = 1 + Math.floor((world.wave - 1) / 2), maxN = Math.min(6, 1 + Math.floor(world.wave / 2) + (world.endless ? 2 : 0));
+    const n = world.wave === BOSS_RUSH_WAVES && !world.endless ? Math.max(2, randInt(2, maxN)) : randInt(1, maxN);
+    const hpMul = Math.max(0.35, 1 / Math.sqrt(n));
+    for (let k = 0; k < n; k++) { const slot = (k - (n - 1) / 2); const kind = k === 0 && world.wave === BOSS_RUSH_WAVES && !world.endless ? 'annihilator' : kinds[randInt(0, kinds.length - 1)]; world.bosses.push(makeBoss(world, kind, tier, slot, hpMul)); }
+    if (n > 1) fx.text(world.W / 2, world.H / 2 - 80, `${n} 隻 Boss 同時來襲！`, '#ff3860', 30, 2.2);
+    for (const b of world.bosses) if (!world.stats.bossesSeen.includes(b.kind)) world.stats.bossesSeen.push(b.kind);
+    if (n > 1) world.stats.doublePending = true;
+    fx.sfx('wave'); return;
+  }
+  const tier = Math.floor(world.wave / BOSS_EVERY);
   const final = world.wave === WIN_WAVE && !world.endless;
   const double = !final && world.wave >= BOSS_DOUBLE_FROM_WAVE && rnd() < BOSS_DOUBLE_CHANCE;
   if (final) world.bosses.push(makeBoss(world, 'annihilator', tier, 0, 1));
@@ -771,19 +784,19 @@ function damageBoss(world, b, dmg, x, y, fx) {
 }
 function killBoss(world, b, fx) {
   for (const q of activePlayers(world)) q.energy = Math.min(ENERGY.max, (q.energy || 0) + ENERGY.perBoss);
-  const gain = 500 * b.tier;
+  const gain = Math.round(500 * b.tier * (world.mods.bossRush ? BOSS_RUSH_REWARD : 1));
   world.score += gain; world.combo += 10; world.comboTimer = 3;
   fx.text(b.x, b.y - 20, `${b.name} 擊破 +${gain}`, '#ffd166', 34, 2);
   fx.burst(b.x, b.y, '#fff', 100, 600, 1.2, 7); fx.burst(b.x, b.y, b.color, 100, 500, 1.2, 6);
   fx.ring(b.x, b.y, '#fff', b.r, Math.max(world.W, world.H), 0.9, 8); fx.ring(b.x, b.y, b.color, b.r, Math.max(world.W, world.H) * 0.6, 0.7, 5);
   fx.shake(24); fx.flash(0.6); fx.hitStop(0.25); fx.aberrate(1); fx.zoom(1); fx.crossPunch();
   const kinds = ['heal', 'shield', 'spread', 'rapid'];
-  for (let i = 0; i < 3; i++) world.pickups.push({ id: world.nextId++, x: b.x + rand(-80, 80), y: b.y + rand(-50, 50), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
+  for (let i = 0; i < (world.mods.bossRush ? 4 : 3); i++) world.pickups.push({ id: world.nextId++, x: b.x + rand(-80, 80), y: b.y + rand(-50, 50), kind: kinds[randInt(0, 3)], life: 15, t: 0 });
   world.bosses.splice(world.bosses.indexOf(b), 1);
   world.stats.bosses++;
   if (world.bosses.length) return;   // 還有另一隻：獎勵等全部擊破
   if (world.stats.doublePending) { world.stats.doubleBoss = true; world.stats.doublePending = false; }
-  const win = world.wave >= WIN_WAVE && !world.won;
+  const win = world.wave >= (world.mods.bossRush ? BOSS_RUSH_WAVES : WIN_WAVE) && !world.won;
   for (const p of world.players) {
     p.maxHp += 20; if (!p.dead) p.hp = Math.min(p.maxHp, p.hp + 40);
     if (p.downed) revive(world, p, fx);

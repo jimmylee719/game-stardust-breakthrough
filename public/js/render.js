@@ -1,6 +1,6 @@
 // 渲染：把世界狀態與特效畫到 Canvas。固定 1600x900 邏輯座標，等比縮放到視窗並加黑邊。
 import { TAU, rand, randInt, clamp } from '../../shared/math.js';
-import { skillById, PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById, arenaById, ELEMENTS, AFFIXES, EVENTS, EVOLUTIONS, ENEMY_TYPES, shipById, weaponById } from '../../shared/constants.js';
+import { BOSS_RUSH_WAVES, skillById, PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById, arenaById, ELEMENTS, AFFIXES, EVENTS, EVOLUTIONS, ENEMY_TYPES, shipById, weaponById } from '../../shared/constants.js';
 import { tr } from './i18n.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
@@ -74,14 +74,14 @@ export function createRenderer(canvas, world) {
     const A = arenaById(world.scene === 'menu' ? (ui.arena || 'space') : world.arena);
     // 背景圖鋪滿整個畫布（含黑邊），上面再壓一層場地漸層讓霓虹物件保持清楚
     const bgIm = T.pixelScale ? null : bgFor(A.id);
-    if (bgIm) { raw.save(); raw.globalAlpha = 0.9; drawCover(raw, bgIm, canvas.width, canvas.height); raw.restore(); }
+    if (bgIm) { raw.save(); raw.globalAlpha = 0.6; drawCover(raw, bgIm, canvas.width, canvas.height); raw.restore(); }
     applyView();
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
     const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
     bg.addColorStop(0, A.bg[0]); bg.addColorStop(1, A.bg[1]);
-    ctx.globalAlpha = bgIm ? 0.5 : 1; ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
-    if (bgIm) { ctx.fillStyle = 'rgba(3,4,10,.22)'; ctx.fillRect(0, 0, W, H); }
+    ctx.globalAlpha = bgIm ? 0.7 : 1; ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    if (bgIm) { ctx.fillStyle = 'rgba(3,4,10,.42)'; ctx.fillRect(0, 0, W, H); }
     drawArenaBackdrop(A, time);
 
     if (vfx.shake > 0.3) ctx.translate(rand(-vfx.shake, vfx.shake), rand(-vfx.shake, vfx.shake));
@@ -736,7 +736,7 @@ export function createRenderer(canvas, world) {
     ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = 'bold 32px sans-serif'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 10;
     ctx.fillText(String(world.score).padStart(6, '0'), W - 24, 20); ctx.shadowBlur = 0;
     ctx.font = '12px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText(tr(`最高 ${best}`), W - 24, 58);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText(world.endless ? `WAVE ${world.wave} · ${tr('無盡')}` : `WAVE ${world.wave} / ${WIN_WAVE}`, W - 24, 80);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText(world.endless ? `WAVE ${world.wave} · ${tr('無盡')}` : world.mods && world.mods.bossRush ? `BOSS ${world.wave} / ${BOSS_RUSH_WAVES}` : `WAVE ${world.wave} / ${WIN_WAVE}`, W - 24, 80);
     { const A = arenaById(world.arena); ctx.font = '12px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillText(`${A.icon} ${tr(A.name)}${world.dustBonus ? `  ✨+${world.dustBonus}` : ''}${p && p.evolved ? `  ${(EVOLUTIONS.find(e => e.id === p.evolved) || {}).icon || ''} ${tr((EVOLUTIONS.find(e => e.id === p.evolved) || {}).name || '')}` : ''}`, W - 24, 100); }
     if (world.event && EVENTS[world.event.id]) { const E = EVENTS[world.event.id]; ctx.textAlign = 'center'; ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10; ctx.font = 'bold 15px sans-serif'; ctx.fillText(`${E.icon} ${tr(E.name)}${E.dur ? `  ${Math.ceil(world.event.t)}s` : ''}`, W / 2, world.waveMode ? 62 : 24); ctx.shadowBlur = 0; ctx.textAlign = 'right'; }
     if (world.combo >= 3) {
@@ -846,7 +846,7 @@ export function createRenderer(canvas, world) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 30 + Math.sin(time * 4) * 8; ctx.font = 'bold 64px sans-serif'; ctx.fillText(tr('突圍成功'), W / 2, H / 2 - 110); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 40);
-    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '16px sans-serif'; ctx.fillText(tr(`擊破殲滅者 Ω，撐過 ${WIN_WAVE} 波`), W / 2, H / 2);
+    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '16px sans-serif'; ctx.fillText(world.mods && world.mods.bossRush ? tr(`Boss 挑戰通關：連續擊破 ${BOSS_RUSH_WAVES} 波 Boss`) : tr(`擊破殲滅者 Ω，撐過 ${WIN_WAVE} 波`), W / 2, H / 2);
     let y = H / 2 + 34;
     for (const p of world.players) { ctx.fillStyle = p.color; ctx.font = '14px sans-serif'; ctx.fillText(tr(`${p.name}：${p.kills} 擊殺`), W / 2, y); y += 20; }
     const pulse = 0.7 + 0.3 * Math.sin(time * 4);
