@@ -14,6 +14,7 @@ import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS, dayKey } from '../../shared/daily.js';
 import { ACHIEVEMENTS, QUESTS, dailyQuests, weeklyQuests, questText, runSummary, weekKey } from '../../shared/meta.js';
 import { tr, getLang, setLang, applyDom, registerZhHtml, onLangChange } from './i18n.js';
+import { paintArt } from './cardart.js';
 import './themes.js';   // 套用霓虹主題（唯一風格）
 import { track } from './analytics.js';
 import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe, getAccount, profile, buyPerk, fetchDaily, startDaily, exportCode, importCode, fetchMeta, reportRun, fetchRooms, quickMatch } from './account.js';
@@ -53,8 +54,9 @@ let skin = lsGet('stardust_skin') || 'classic';       // 塗裝
 let arena = lsGet('stardust_arena') || 'space';       // 場地
 let skillSel = lsGet('stardust_skill') || 'swarm';    // 主動技能
 /** 卡圖：有做好的才列進來（public/img/<kind>-<id>.webp，1024×1024 webp） */
-const ART = { ship: new Set(['falcon']), weapon: new Set([]), skill: new Set([]) };
-const artOf = (kind, id) => ART[kind].has(id) ? `<div class="art" style="background-image:url(img/${kind}-${id}.webp)"></div>` : '';
+const ART = { ship: new Set([]), weapon: new Set([]), skill: new Set([]) };
+// 沒有圖檔就用 cardart.js 即時畫（遊戲同款霓虹風）
+const artOf = (kind, id) => ART[kind].has(id) ? `<div class="art" style="background-image:url(img/${kind}-${id}.webp)"></div>` : `<canvas class="art" data-art="${kind}:${id}" width="256" height="256"></canvas>`;
 let runKind = 'solo';
 let runStartedAt = 0;   // 事件記錄用    // solo | daily（單機模式的成績歸類）
 let dailyInfo = null;    // 進行中的每日挑戰 {key, seed, mods}
@@ -170,6 +172,7 @@ function renderSkillCards() {
     const un = skillUnlocked(s.id, profile.unlocks);
     return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-skill="${s.id}">${artOf('skill', s.id)}<div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="ds">${escapeHtml(tr(s.desc))}<br><span style="color:#b8ffff">⚡ ${s.energy}</span></div>${un ? `<div class="cost ok">${s.id === cur ? tr('使用中') : tr('已解鎖')}</div>` : `<div class="cost">✨ ${s.cost}</div>`}</div>`;
   }).join('');
+  paintArt($('skill-cards'));
   for (const el of $('skill-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.skill;
     $('hangar-err').textContent = '';
@@ -206,6 +209,7 @@ function renderWeapons() {
   }).join('');
   const M = WEAPON_MODS[cur] || {}, names = { spread: '散射道具', rapid: '連射道具', pierce: '穿甲彈', bounce: '反彈彈', homing: '追蹤導引', bigshot: '巨型彈體' };
   $('weapon-mods').innerHTML = `${meleeOnly ? `<div style="color:#ff8c9c">${tr('劍聖只能使用光刃。')}</div>` : ''}<div><b>${T(weaponById(cur).name)}</b> ${tr('對升級 / 道具的反應：')}</div>` + Object.entries(M).map(([k, v]) => `<div><b>${tr(names[k])}</b> → ${escapeHtml(tr(v))}</div>`).join('');
+  paintArt($('weapon-cards'));
   for (const el of $('weapon-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.weapon;
     $('hangar-err').textContent = '';
@@ -225,6 +229,7 @@ function renderShips() {
     const un = shipUnlocked(s.id, profile.unlocks);
     return `<div class="ship ${s.id === cur ? 'on' : ''} ${un ? '' : 'locked'}" data-ship="${s.id}">${artOf('ship', s.id)}<div class="ic">${s.icon}</div><div class="nm">${T(s.name)}</div><div class="st"><span>${tr('生命')}</span>${bar(s.stats.hp)}<span>${tr('速度')}</span>${bar(s.stats.speed)}<span>${tr('射速')}</span>${bar(s.stats.fire)}<span>${tr('傷害')}</span>${bar(s.stats.dmg)}</div><div class="ds"><span style="color:#ffd166">${escapeHtml(tr(s.trait || ''))}</span> · ${escapeHtml(tr(s.desc))}</div><div class="cost ${un ? 'ok' : ''}">${un ? (s.id === cur ? tr('✔ 出擊中') : tr('已解鎖')) : '✨ ' + s.cost}</div></div>`;
   }).join('');
+  paintArt($('ship-cards'), currentSkin());
   for (const el of $('ship-cards').querySelectorAll('.ship')) el.addEventListener('click', async () => {
     const id = el.dataset.ship;
     $('hangar-err').textContent = '';

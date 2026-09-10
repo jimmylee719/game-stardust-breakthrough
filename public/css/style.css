@@ -2,7 +2,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; background: var(--bg); overflow: hidden; font-family: var(--font); color: var(--text); }
 :root { --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); }
-canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; cursor: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+canvas#game { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; cursor: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 #hint { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.35); font-size: 12px; letter-spacing: .1em; pointer-events: none; user-select: none; }
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: auto; }
@@ -180,6 +180,7 @@ canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh;
 /* 卡圖（有圖的機體 / 武器 / 技能才顯示；圖放 public/img/<kind>-<id>.webp） */
 .ship .art { width: 100%; aspect-ratio: 1; border-radius: 10px; margin-bottom: 6px; background-size: 140%; background-color: #070a1c; background-position: center; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); box-shadow: inset 0 0 24px rgba(0,0,0,.5); }
 .ship .art + .ic { font-size: 18px; margin-top: -2px; }
+.ship canvas.art { display: block; height: auto; }
 .panel.fit .sub { margin-bottom: 18px; }
 .panel.fit .divider { margin: 20px 0 12px; }
 .panel.fit .best { margin-top: 10px; }
