@@ -1,7 +1,8 @@
 :root { --accent: #4cc9f0; --gold: #ffd166; --danger: #ff3860; --good: #90f1a8; --text: #fff; --bg: #03040a; --panel: rgba(8,12,34,.72); --font: "Segoe UI", "Noto Sans TC", system-ui, sans-serif; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; background: var(--bg); overflow: hidden; font-family: var(--font); color: var(--text); }
-canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+:root { --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); }
+canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; cursor: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 #hint { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.35); font-size: 12px; letter-spacing: .1em; pointer-events: none; user-select: none; }
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: auto; }
@@ -139,6 +140,26 @@ canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action
 
 /* 首頁：不捲動，整塊依視窗自動縮放；按鈕邊距統一 */
 .fitbox { flex: 0 0 auto; margin: auto; }
+/* 機庫：電腦上三欄全展開、整塊縮放不捲動；窄螢幕退回單欄捲動 */
+.panel.hangar .hcols { display: block; }
+@media (min-width: 900px) {
+  .panel.hangar { width: min(97vw, 1720px); max-height: none; overflow: visible; padding: 22px 30px 18px; }
+  .panel.hangar .hcols { display: grid; grid-template-columns: 1.35fr 1fr 1.05fr 1.2fr; gap: 0 20px; align-items: start; }
+  .panel.hangar .hcols .divider:first-child { margin-top: 6px; }
+  .panel.hangar .hcols .ships { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .panel.hangar .hcols #ship-cards { grid-template-columns: repeat(4, 1fr); }
+  .panel.hangar .hcols .ships.skins { grid-template-columns: repeat(3, 1fr); }
+  .panel.hangar .hcols .ships.skills { grid-template-columns: repeat(3, 1fr); }
+  .panel.hangar .hcols .ship { padding: 8px 4px 8px; }
+  .panel.hangar .hcols .ship .ic { font-size: 24px; }
+  .panel.hangar .hcols .ship .nm { font-size: 13px; }
+  .panel.hangar .hcols .ship .ds { font-size: 10px; min-height: 0; }
+  .panel.hangar .hcols .perk-rows { max-height: none; overflow: visible; }
+  .panel.hangar .hcols .wmods { font-size: 10px; }
+  .panel.hangar .hcols .perk-rows li { padding: 6px 8px; }
+  .panel.hangar .hcols .perk-rows .ds { font-size: 10px; }
+  .panel.hangar .hcols .transfer .ds { font-size: 10px; }
+}
 .panel.fit { position: relative; max-height: none; overflow: visible; padding: 22px 30px 18px; width: min(96vw, 460px); }
 .panel.fit .cols { display: grid; grid-template-columns: 1fr; gap: 0 36px; align-items: start; }
 .panel.fit .col { min-width: 0; }

@@ -140,6 +140,7 @@ Object.assign(EXACT, {
   '合作排行榜': 'Co-op leaderboard', '今日挑戰': 'Daily challenge', '單人排行榜': 'Solo leaderboard', '合作成績會在隊伍結束時一併結算，你的擊殺數會計入': 'Co-op results are tallied when the team finishes; your kills count',
   '每日挑戰結束 · L 今日排行榜 · 點擊 或 Esc 回到選單': 'Daily challenge over · L today\'s board · click or Esc for menu', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到大廳': 'Click or Enter to play again · L leaderboard · Esc lobby', '等待房主再開一局 · L 排行榜 · Esc 回到大廳': 'Waiting for the host to restart · L leaderboard · Esc lobby', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到選單': 'Click or Enter to play again · L leaderboard · Esc menu',
   '暫停': 'Paused', '按 P 繼續': 'Press P to resume',
+  'iPhone / iPad：用 Safari「分享 → 加入主畫面」開啟，才會全螢幕沒有網址列': 'iPhone / iPad: open it via Safari "Share → Add to Home Screen" for full screen without the address bar',
   '目前': 'now', '每日任務': 'Daily quests', '每週任務': 'Weekly quests', '動能（脈衝砲 / 光刃）': 'Kinetic (blaster / blade)', '敵人屬性 × 武器屬性 = 傷害倍率（綠色有效、紅色被抵抗）': 'Enemy element × weapon element = damage multiplier (green effective, red resisted)', '✔ 使用中': '✔ In use',
   '生命': 'HP', '速度': 'Speed', '射速': 'Fire rate', '傷害': 'Damage', '星塵': 'Stardust', '累計': 'total', '進化': 'Evolution', '✔ 裝備中': '✔ Equipped', '✔ 出擊中': '✔ Flying', '劍聖只能使用光刃。': 'Ronin can only use the blade.', '對升級 / 道具的反應：': 'reacts to upgrades / pickups:',
   '尚未遭遇': 'Not encountered yet', '原生生物': 'Native creature', '未挑戰': 'Not attempted', '散射道具': 'Spread pickup', '連射道具': 'Rapid pickup',

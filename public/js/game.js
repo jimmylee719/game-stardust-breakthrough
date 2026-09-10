@@ -203,7 +203,7 @@ function spawnEnemy(world, type, x, y, scale = 1, opts = {}) {
   };
   if (element !== 'neutral') e.color = ELEMENTS[element].color;
   if (elite) {
-    const keys = Object.keys(AFFIXES), k = w >= DIFFICULTY.affixFromWave && rnd() < 0.5 ? 2 : 1;
+    const keys = Object.keys(AFFIXES), k = w >= DIFFICULTY.affixFromWave + 4 && rnd() < 0.5 ? 2 : 1;
     while (e.affixes.length < (opts.affixes ?? k)) { const a = keys[randInt(0, keys.length - 1)]; if (!e.affixes.includes(a)) e.affixes.push(a); }
     if (e.affixes.includes('hasted')) e.speed *= 1.4;
     if (e.affixes.includes('shielded')) e.shieldHp = 40;

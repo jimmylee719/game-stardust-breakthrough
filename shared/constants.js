@@ -61,7 +61,7 @@ export const DIFFICULTY = {
   countPerWave: 2.5,      // 每波敵人數 +2.5
   eliteFromWave: 3,       // 從第 3 波起出現精英（1.5 倍體型、3 倍血量、必掉道具、帶詞綴）
   eliteChance: w => Math.min(0.35, 0.08 + w * 0.018),
-  affixFromWave: 6,       // 第 6 波起精英可能有兩個詞綴
+  affixFromWave: 8,       // 第 6 波起精英可能有兩個詞綴
   shooterVolley: w => Math.min(4, 1 + Math.floor(w / 3)),   // 射手每次發射的子彈數上限（實際為 1..此值隨機）
   leadFromWave: 5,        // 射手從第 5 波起會預判玩家移動方向射擊
   dodgeFromWave: 3,       // 射手 / 雷射兵從第 3 波起、追擊者從第 5 波起會側移閃避來襲子彈
@@ -100,7 +100,7 @@ export const BOSS_DOUBLE_CHANCE = 0.4;
 export const AMBIENT = { fromWave: 3, cd: [20, 40], meteorHp: 320, meteorSpeed: 300, meteorDmg: 30, meteorScore: 150, ufoHp: 160, ufoLife: 13, ufoShootCd: 0.7, ufoScore: 250, ufoDmg: 18, ufoToxicCd: 4.5,
   fleetFromWave: 8, fleetChance: 0.35, mothershipHp: 900, mothershipLife: 42, mothershipScore: 1000, toxicR: 110, toxicLife: 9, toxicDps: 12,
   doomWarn: 4, doomEvery: 12, doomMax: 3, safeZones: [2, 6], safeR: 95 };
-export const ENEMY_BLINK_FROM_WAVE = 7;   // 飛鏢 / 射手從第 7 波起會閃現躲子彈
+export const ENEMY_BLINK_FROM_WAVE = 9;   // 飛鏢 / 射手從第 7 波起會閃現躲子彈
 /** 無傷清波 / 擦彈加分 */
 export const PERFECT_WAVE_BONUS = 120;   // × 波數
 export const GRAZE_SCORE = 5;
@@ -355,7 +355,7 @@ export const SKILLS = [
 ];
 export const skillById = id => SKILLS.find(s => s.id === id) || SKILLS[0];
 export function skillUnlocked(id, unlocks) { return id === 'swarm' || (unlocks || []).includes('skill:' + id); }
-export const ENERGY = { max: 100, perKill: 4, perElite: 8, perBoss: 30, passive: 0.8 };
+export const ENERGY = { max: 100, perKill: 5, perElite: 8, perBoss: 30, passive: 0.8 };
 export function shipUnlocked(id, unlocks) { return id === 'falcon' || (unlocks || []).includes('ship:' + id); }
 export function applyShip(p, shipId) { const s = shipById(shipId); s.apply(p); p.ship = s.id; }
 

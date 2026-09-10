@@ -214,29 +214,39 @@
   </div>
 </div>
 <div id="hangar" class="overlay" hidden>
-  <div class="panel wide">
+  <div class="fitbox"><div class="panel wide hangar">
     <h2 data-i18n>機庫</h2>
     <div id="hangar-dust" class="lb-me">✨ 星塵 0</div>
+    <div class="hcols">
+    <div class="col">
     <div class="divider"><span data-i18n>機體（點選出擊用的機體，每台玩法不同）</span></div>
     <div id="ship-cards" class="ships"></div>
+    </div>
+    <div class="col">
     <div class="divider"><span data-i18n>主武器（每把武器對升級的反應都不同）</span></div>
     <div id="weapon-cards" class="ships"></div>
     <div id="weapon-mods" class="wmods"></div>
+    </div>
+    <div class="col">
     <div class="divider"><span data-i18n>塗裝（純外觀）</span></div>
     <div id="skin-cards" class="ships skins"></div>
     <div class="divider"><span data-i18n>主動技能（擊殺累積能量，按 E / 滑鼠右鍵 / 觸控鈕施放）</span></div>
     <div id="skill-cards" class="ships skills"></div>
+    <div id="hangar-err" class="err"></div>
+    </div>
+    <div class="col">
     <div class="divider"><span data-i18n>永久強化（每局開局自動套用）</span></div>
     <ul id="perk-rows" class="perk-rows"></ul>
-    <div id="hangar-err" class="err"></div>
     <div class="divider"><span data-i18n>帳號轉移（換裝置繼續累積）</span></div>
     <div class="transfer">
       <div class="ds" data-i18n>你的進度綁在這台裝置的匿名帳號上。要在另一台裝置繼續，複製下面的轉移碼貼到那邊的「匯入」即可。轉移碼等同帳號密碼，不要公開。</div>
       <div class="row"><input id="xfer-code" type="text" readonly><button id="xfer-copy" data-i18n>複製</button></div>
       <div class="row"><input id="xfer-in" type="text" data-i18n-ph="貼上另一台裝置的轉移碼" placeholder="貼上另一台裝置的轉移碼"><button id="xfer-import" data-i18n>匯入</button></div>
     </div>
+    </div>
+    </div>
     <button id="hangar-close" class="small" data-i18n>關閉</button>
-  </div>
+  </div></div>
 </div>
 <div id="daily" class="overlay" hidden>
   <div class="panel">

@@ -5,7 +5,7 @@ import { tr } from './i18n.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
 import { themedContext, getTheme, onThemeChange } from './themes.js';
-import { touch, touchLayout } from './input.js';
+import { touch, touchLayout, insets } from './input.js';
 
 export function createRenderer(canvas, world) {
   const raw = canvas.getContext('2d');
@@ -18,11 +18,27 @@ export function createRenderer(canvas, world) {
     const T = getTheme();
     view.dpr = T.pixelScale || Math.min(window.devicePixelRatio || 1, 2);   // 像素風：降低內部解析度
     raw.imageSmoothingEnabled = !T.pixelScale;
-    view.cw = window.innerWidth; view.ch = window.innerHeight;
+    // 手機：用 visualViewport（網址列收合時高度會變），並避開瀏海 / 圓角的安全區（CSS env() 經 --sa* 變數讀進來）
+    const vv = window.visualViewport;
+    view.cw = Math.round(vv && vv.width ? vv.width : window.innerWidth); view.ch = Math.round(vv && vv.height ? vv.height : window.innerHeight);
+    const cs = getComputedStyle(document.documentElement), ins = k => parseFloat(cs.getPropertyValue(k)) || 0;
+    insets.t = ins('--sat'); insets.r = ins('--sar'); insets.b = ins('--sab'); insets.l = ins('--sal');
     canvas.width = view.cw * view.dpr; canvas.height = view.ch * view.dpr;
-    view.scale = Math.min(view.cw / W, view.ch / H);
-    view.ox = (view.cw - W * view.scale) / 2;
-    view.oy = (view.ch - H * view.scale) / 2;
+    const uw = view.cw - insets.l - insets.r, uh = view.ch - insets.t - insets.b;
+    view.scale = Math.min(uw / W, uh / H);
+    view.ox = insets.l + (uw - W * view.scale) / 2;
+    view.oy = insets.t + (uh - H * view.scale) / 2;
+  }
+  /** 場地背景圖（public/img/bg-<arena>.webp，AI 生成）：第一次用到才載入，沒載到就只有程式畫的漸層 */
+  const bgImgs = {};
+  function bgFor(id) {
+    if (typeof Image === 'undefined') return null;
+    if (!(id in bgImgs)) { const im = new Image(); im.decoding = 'async'; im.src = `img/bg-${id}.webp`; bgImgs[id] = im; }
+    const im = bgImgs[id]; return im.complete && im.naturalWidth ? im : null;
+  }
+  function drawCover(c, im, cw, ch) {
+    const s = Math.max(cw / im.naturalWidth, ch / im.naturalHeight), dw = im.naturalWidth * s, dh = im.naturalHeight * s;
+    c.drawImage(im, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
   }
   function toWorld(sx, sy) { return { x: (sx - view.ox) / view.scale, y: (sy - view.oy) / view.scale }; }
   function applyView() { ctx.setTransform(view.dpr * view.scale, 0, 0, view.dpr * view.scale, view.ox * view.dpr, view.oy * view.dpr); }
@@ -55,13 +71,17 @@ export function createRenderer(canvas, world) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const T = getTheme();
     raw.fillStyle = T.letterbox; raw.fillRect(0, 0, canvas.width, canvas.height);
+    const A = arenaById(world.scene === 'menu' ? (ui.arena || 'space') : world.arena);
+    // 背景圖鋪滿整個畫布（含黑邊），上面再壓一層場地漸層讓霓虹物件保持清楚
+    const bgIm = T.pixelScale ? null : bgFor(A.id);
+    if (bgIm) { raw.save(); raw.globalAlpha = 0.9; drawCover(raw, bgIm, canvas.width, canvas.height); raw.restore(); }
     applyView();
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
-    const A = arenaById(world.scene === 'menu' ? (ui.arena || 'space') : world.arena);
     const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
     bg.addColorStop(0, A.bg[0]); bg.addColorStop(1, A.bg[1]);
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = bgIm ? 0.5 : 1; ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    if (bgIm) { ctx.fillStyle = 'rgba(3,4,10,.22)'; ctx.fillRect(0, 0, W, H); }
     drawArenaBackdrop(A, time);
 
     if (vfx.shake > 0.3) ctx.translate(rand(-vfx.shake, vfx.shake), rand(-vfx.shake, vfx.shake));
@@ -837,7 +857,7 @@ export function createRenderer(canvas, world) {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 30);
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '16px sans-serif';
     ctx.fillText(tr(`撐到第 ${world.wave} 波 · 最高分 ${best}${world.score >= best && world.score > 0 ? '  🏆 新紀錄！' : ''}`), W / 2, H / 2 + 10);
-    const st = world.stats;
+    const st = world.stats; let extraLine = false;
     if (st) {
       const A = arenaById(world.arena);
       if (st.killedBy && !world.abandoned && !world.won) { ctx.fillStyle = '#ff8c9c'; ctx.font = 'bold 15px sans-serif'; ctx.fillText(tr(`被「${st.killedBy}」擊落`) + ` · ${A.icon} ${tr(A.name)}`, W / 2, H / 2 + 34); }
@@ -848,9 +868,9 @@ export function createRenderer(canvas, world) {
       const cw = 118, x0 = W / 2 - cells.length * cw / 2, yy = H / 2 + 60;
       cells.forEach(([k, v], i) => { ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.fillText(v, x0 + i * cw + cw / 2, yy); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.font = '11px sans-serif'; ctx.fillText(k, x0 + i * cw + cw / 2, yy + 18); });
       const extras = []; if (evo) extras.push(`${evo.icon} ${tr(evo.name)}`); if (st.events && st.events.length) extras.push(tr('事件') + ' ' + st.events.map(id => (EVENTS[id] || {}).icon || '').join(' ')); if (st.bestNoHit >= 30) extras.push(tr(`最長無傷 ${Math.round(st.bestNoHit)} 秒`)); if (st.parries) extras.push(tr(`格擋 ${st.parries}`));
-      if (extras.length) { ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '12px sans-serif'; ctx.fillText(extras.join('   ·   '), W / 2, yy + 42); }
+      if (extras.length) { ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '12px sans-serif'; ctx.fillText(extras.join('   ·   '), W / 2, yy + 44); extraLine = true; }
     }
-    let y = H / 2 + 118;
+    let y = H / 2 + (extraLine ? 136 : 118);
     if (ui.result) {
       ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 14; ctx.font = 'bold 22px sans-serif';
       const label = tr(ui.result.mode === 'coop' ? '合作排行榜' : ui.result.mode === 'daily' ? '今日挑戰' : '單人排行榜');

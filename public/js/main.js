@@ -81,7 +81,7 @@ function renderArenas(container, current, onPick, disabled = false) {
   if (!d || !d.classList.contains('arena-desc')) { d = document.createElement('div'); d.className = 'arena-desc'; container.after(d); }
   d.textContent = `${tr(A.desc)}${getLang() === 'zh' ? '。' + A.hazard : ''}`;
 }
-function renderMenuArenas() { renderArenas($('arena-cards'), arena, id => { arena = id; lsSet('stardust_arena', id); renderMenuArenas(); requestAnimationFrame(fitMenu); }); }
+function renderMenuArenas() { renderArenas($('arena-cards'), arena, id => { arena = id; lsSet('stardust_arena', id); world.arena = id; renderMenuArenas(); requestAnimationFrame(fitMenu); }); }
 
 // ---------- 選單 ----------
 nameInput.maxLength = NAME_MAX_LEN;
@@ -112,15 +112,20 @@ function goFullscreen() {
     try { const p = req.call(el, { navigationUI: 'hide' }); if (p && p.catch) p.catch(() => {}); } catch {}
   }
   if (matchMedia('(pointer: coarse)').matches && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+  // iOS Safari 沒有全螢幕 API：提醒一次用「加入主畫面」（PWA）才會全螢幕
+  if (!req && /iP(hone|ad|od)/.test(navigator.userAgent) && !navigator.standalone && !lsGet('stardust_ioshint')) { lsSet('stardust_ioshint', '1'); setTimeout(() => toast(tr('iPhone / iPad：用 Safari「分享 → 加入主畫面」開啟，才會全螢幕沒有網址列'), 7000), 800); }
 }
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen?.();
   else goFullscreen();
 }
 /** 首頁面板：依視窗大小整塊縮放，保證所有資訊同時看得到、不出現捲軸 */
-function fitMenu() {
-  const box = menuEl.querySelector('.fitbox'), panel = box && box.querySelector('.panel');
-  if (!panel || menuEl.hidden) return;
+function fitMenu() { fitPanel(menuEl); fitPanel(hangarEl); }
+/** 面板整塊縮放：首頁一律；機庫只在寬螢幕（窄螢幕退回捲動） */
+function fitPanel(overlay) {
+  const box = overlay.querySelector('.fitbox'), panel = box && box.querySelector('.panel');
+  if (!panel || overlay.hidden) return;
+  if (overlay !== menuEl && innerWidth < 900) { box.style.zoom = '1'; return; }
   // 用 zoom（會跟著改版面尺寸，置中正確、放得下就不會出現捲軸）；入場動畫的 transform 在 .panel 上，不會互相覆蓋
   box.style.zoom = '1';
   const s = Math.min(1, (innerHeight - 16) / panel.offsetHeight, (innerWidth - 12) / panel.offsetWidth);
@@ -128,7 +133,9 @@ function fitMenu() {
 }
 // resize 事件有時在版面重排前就觸發（媒體查詢切欄、字型載入）→ 下一幀再量一次，並用 ResizeObserver 盯著面板尺寸
 window.addEventListener('resize', () => { fitMenu(); requestAnimationFrame(fitMenu); setTimeout(fitMenu, 150); setTimeout(fitMenu, 450); });
-if ('ResizeObserver' in window) { const ro = new ResizeObserver(() => fitMenu()); const pn = menuEl.querySelector('.panel'); if (pn) ro.observe(pn); }
+if ('ResizeObserver' in window) { const ro = new ResizeObserver(() => fitMenu()); for (const el of [menuEl, hangarEl]) { const pn = el.querySelector('.panel'); if (pn) ro.observe(pn); } }
+window.addEventListener('orientationchange', () => { setTimeout(() => { renderer.resize(); fitMenu(); }, 300); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { renderer.resize(); fitMenu(); });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitMenu());
 document.addEventListener('fullscreenchange', () => { fitMenu(); const b = $('fs-toggle'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶'; });
 $('fs-toggle').addEventListener('click', toggleFullscreen);
@@ -247,7 +254,7 @@ $('open-help').addEventListener('click', () => { helpEl.hidden = false; });
 $('help-close').addEventListener('click', () => { helpEl.hidden = true; });
 $('open-privacy').addEventListener('click', () => { privacyEl.hidden = false; });
 $('privacy-close').addEventListener('click', () => { privacyEl.hidden = true; });
-$('open-hangar').addEventListener('click', async () => { hangarEl.hidden = false; renderHangar(); await fetchMe(); renderHangar(); });
+$('open-hangar').addEventListener('click', async () => { hangarEl.hidden = false; renderHangar(); requestAnimationFrame(fitMenu); await fetchMe(); renderHangar(); requestAnimationFrame(fitMenu); });
 $('hangar-close').addEventListener('click', () => { hangarEl.hidden = true; renderDust(); requestAnimationFrame(fitMenu); });
 $('xfer-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('xfer-code').value); toast('已複製轉移碼'); } catch { $('xfer-code').select(); } });
 $('xfer-import').addEventListener('click', async () => {

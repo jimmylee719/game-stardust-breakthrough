@@ -23,12 +23,15 @@ const STICK_R = 64;              // 搖桿最大半徑（CSS px）
 const DEAD = 0.12;
 
 /** 螢幕上的按鈕位置（螢幕 CSS px），輸入與渲染共用 */
+/** 手機安全區（瀏海 / 圓角 / Home 指示條），由 render.resize 從 CSS env() 讀入 */
+export const insets = { t: 0, r: 0, b: 0, l: 0 };
 export function touchLayout(cw, ch) {
+  const R = cw - insets.r, B = ch - insets.b;
   return {
-    dash: { x: cw - 86, y: ch - 86, r: 44 },
-    blink: { x: cw - 176, y: ch - 70, r: 36 },
-    skill: { x: cw - 150, y: ch - 150, r: 34 },
-    menu: { x: cw - 34, y: 34, r: 24 },
+    dash: { x: R - 86, y: B - 86, r: 44 },
+    blink: { x: R - 176, y: B - 70, r: 36 },
+    skill: { x: R - 150, y: B - 150, r: 34 },
+    menu: { x: R - 34, y: insets.t + 34, r: 24 },
   };
 }
 const inCircle = (x, y, c) => (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r ** 2;
