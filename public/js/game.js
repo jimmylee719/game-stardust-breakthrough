@@ -121,14 +121,15 @@ function schedule(world, delay, fn, spawn = false) { world.timers.push({ at: wor
 const spawnPending = world => world.timers.some(t => t.spawn);
 /** 可行動的玩家：沒死、沒倒地、沒斷線 */
 export function activePlayers(world) { return world.players.filter(p => !p.dead && !p.downed && !p.offline); }
+const FOG_REVEAL = 160;
 function nearestPlayer(world, x, y) {
   let best = null, bd = Infinity;
-  for (const p of activePlayers(world)) { const d = dist2(x, y, p.x, p.y); if (d < bd) { bd = d; best = p; } }
+  for (const p of activePlayers(world)) { const d = dist2(x, y, p.x, p.y); if (p.fog && d > FOG_REVEAL * FOG_REVEAL) continue; if (d < bd) { bd = d; best = p; } }
   return best;
 }
 export function nearestTarget(world, x, y, maxD) {
   let best = null, bd = maxD * maxD;
-  for (const e of world.enemies) { const d = dist2(x, y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
+  for (const e of world.enemies) { const d = dist2(x, y, e.x, e.y); if (e.fog && d > FOG_REVEAL * FOG_REVEAL) continue; if (d < bd) { bd = d; best = e; } }
   for (const b of world.bosses) if (!b.entering && b.dying <= 0) { const d = dist2(x, y, b.x, b.y); if (d < bd) { bd = d; best = b; } }
   return best;
 }
@@ -2109,6 +2110,8 @@ function updateArena(world, dt, fx) {
   }
 }
 function updateZones(world, dt, fx) {
+  for (const e of world.enemies) e.fog = false;
+  for (const q of world.players) q.fog = false;
   for (let i = world.zones.length - 1; i >= 0; i--) {
     const z = world.zones[i]; z.life -= dt;
     if (z.life <= 0) { world.zones.splice(i, 1); continue; }
@@ -2133,6 +2136,9 @@ function updateZones(world, dt, fx) {
       for (const q of activePlayers(world)) if (!z.hit.includes(q.id) && Math.abs(Math.hypot(q.x - z.x, q.y - z.y) - z.r) < 24) { z.hit.push(q.id); q.emp = 2; hurtPlayer(world, q, 8, fx, { x: z.x, y: z.y, by: 'EMP' }); fx.local(q).text(q.x, q.y - 34, 'EMP：2 秒不能衝刺 / 閃現', '#ffd166', 12, 1.2); }
     } else if (z.kind === 'geyser' || z.kind === 'spike') {
       if (z.life < 0.45 && !z.fired) { z.fired = true; const dmg = z.kind === 'geyser' ? 25 : 18; fx.burst(z.x, z.y, z.kind === 'geyser' ? '#ff8c42' : '#b8ffff', 22, 300, 0.5, 4); fx.ring(z.x, z.y, z.kind === 'geyser' ? '#ff8c42' : '#b8ffff', 10, z.r + 10, 0.3, 4); fx.noise(0.1, 0.08); for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < (z.r + q.r * 0.5) ** 2) hurtPlayer(world, q, dmg, fx, { x: z.x, y: z.y + 1, by: z.kind === 'geyser' ? '火柱' : '冰刺' }); }
+    } else if (z.kind === 'fog') {
+      for (const e of world.enemies) if (!e.ambient && dist2(e.x, e.y, z.x, z.y) < z.r * z.r) e.fog = true;
+      for (const q of activePlayers(world)) if (dist2(q.x, q.y, z.x, z.y) < z.r * z.r) { q.fog = true; if (rnd() < dt * 0.5) fx.local(q).text(q.x, q.y - 30, '毒霧隱蔽：敵人追蹤不到你', '#3ddc84', 11, 0.8); }
     } else if (z.kind === 'pressure') {
       for (const q of activePlayers(world)) { const qd = Math.hypot(z.x - q.x, z.y - q.y) || 1; if (qd < z.r) { q.vx += (z.x - q.x) / qd * 220 * dt; q.vy += (z.y - q.y) / qd * 220 * dt; if (qd < 40) drainPlayer(world, q, 12 * dt, fx, '深海壓力'); } }
     }

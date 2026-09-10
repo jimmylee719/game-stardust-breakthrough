@@ -183,6 +183,8 @@ export function createRenderer(canvas, world) {
   function drawEnemies() {
     for (const e of world.enemies) {
       ctx.save(); ctx.translate(e.x, e.y);
+      // 毒霧裡的敵人幾乎看不見，貼近才現形
+      if (e.fog) { const near = world.players.some(q => !q.dead && Math.hypot(q.x - e.x, q.y - e.y) < 160); ctx.globalAlpha = near ? 0.75 : 0.12; }
       ctx.shadowColor = e.color; ctx.shadowBlur = vfx.lowQ || world.enemies.length > 40 ? 0 : 14;
       ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.burn ? '#ff8c42' : e.stun ? '#ffffff' : e.slow ? '#b8ffff' : e.color; ctx.lineWidth = 2.5;
       if (e.slow && !e.burn) ctx.shadowColor = '#b8ffff';
@@ -399,6 +401,7 @@ export function createRenderer(canvas, world) {
     } else if (z.kind === 'fog') {
       const gr = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, z.r); gr.addColorStop(0, `rgba(120,220,140,${0.75 * fade})`); gr.addColorStop(0.6, `rgba(60,160,90,${0.6 * fade})`); gr.addColorStop(1, 'rgba(40,120,60,0)');
       ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
+      ctx.globalAlpha = fade * 0.7; ctx.fillStyle = '#bff5cc'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(tr('毒霧 · 互相看不見'), z.x, z.y);
     }
     ctx.restore();
   }
@@ -707,6 +710,7 @@ export function createRenderer(canvas, world) {
       if (p.spread > 1) tag(tr(`散射 ×${p.spread}`), '#ffd166');
       if (p.rapid > 0) tag(tr(`連射 ${p.rapid.toFixed(0)}s`), '#ff8c42');
       if (p.shield > 0) tag(tr(`護盾 ×${p.shield}`), '#4cc9f0');
+      if (p.fog) tag(tr('毒霧隱蔽'), '#3ddc84');
       if (p.laser > 0) tag(tr(`雷射 ${p.laser.toFixed(0)}s`), '#b8ffff');
       const ups = Object.entries(p.upgrades);
       if (ups.length) {

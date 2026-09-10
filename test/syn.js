@@ -294,4 +294,18 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   const sn = enemy(S.world, 800, 450, 30, { type: 'sniper', kind: 'sniper', speed: 0, atkCd: 0, dodgeCd: 9 }); step(S.world, 10); if (sn.warn !== 2) fail(`瞄準中的狙擊手應顯示紅色預警，實際 ${sn.warn}`);
   console.log('skills & warn ok');
 }
+// 22. 區域效果都要真的有作用（不是只有畫面）：毒霧讓敵人鎖不到玩家、玩家自動瞄準鎖不到敵人；咒印減速；壓力區拉；EMP 環；火柱噴發
+{
+  const F = mk({ arena: 'venom', wave: 3 }); F.p.x = 400; F.p.y = 450; F.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  F.world.zones.push({ id: 1, x: 400, y: 450, r: 170, life: 9, kind: 'fog' });
+  const far = enemy(F.world, 900, 450, 500, { type: 'shooter', kind: 'orbit', speed: 0, shootCd: 0, atkCd: 0 }); step(F.world, 3);
+  if (!F.p.fog) fail('霧裡的玩家應被標記 fog');
+  const { nearestTarget: NT } = await import('../public/js/game.js');
+  F.world.zones.push({ id: 2, x: 900, y: 450, r: 120, life: 9, kind: 'fog' }); step(F.world, 2); if (!far.fog) fail('霧裡的敵人應被標記 fog'); if (NT(F.world, 400, 450, 2000) === far) fail('霧裡的敵人不該被自動鎖定');
+  const Hx = mk({ wave: 3 }); Hx.p.x = 400; Hx.p.y = 450; Hx.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; Hx.world.zones.push({ id: 1, x: 400, y: 450, r: 110, life: 6, kind: 'hex' }); step(Hx.world, 2); if (!(Hx.p.hexed > 0)) fail('咒印應減速');
+  const Pz = mk({ arena: 'abyss', wave: 3 }); Pz.p.x = 500; Pz.p.y = 450; Pz.p.vx = 0; Pz.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; Pz.world.zones.push({ id: 1, x: 400, y: 450, r: 200, life: 7, kind: 'pressure' }); step(Pz.world, 5); if (!(Pz.p.vx < 0)) fail('壓力區應把玩家往中心拉');
+  const Em = mk({ arena: 'mercury', wave: 3 }); Em.p.x = 400; Em.p.y = 450; Em.p.inv = 0; Em.p.shield = 0; Em.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; Em.world.zones.push({ id: 1, x: 300, y: 450, r: 10, grow: 420, life: 1.1, kind: 'emp', hit: [] }); step(Em.world, 30); if (!(Em.p.emp > 0)) fail('EMP 環掃過應讓玩家 EMP');
+  const Gy = mk({ arena: 'inferno', wave: 3 }); Gy.p.x = 400; Gy.p.y = 450; Gy.p.inv = 0; Gy.p.shield = 0; Gy.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; const h0 = Gy.p.hp; Gy.world.zones.push({ id: 1, x: 400, y: 450, r: 70, life: 1.6, kind: 'geyser', fired: false }); step(Gy.world, 90); if (!(Gy.p.hp < h0)) fail('火柱噴發應造成傷害');
+  console.log('zone effects ok');
+}
 console.log('PASS');
