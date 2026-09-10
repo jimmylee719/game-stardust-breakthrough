@@ -308,4 +308,59 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   const Gy = mk({ arena: 'inferno', wave: 3 }); Gy.p.x = 400; Gy.p.y = 450; Gy.p.inv = 0; Gy.p.shield = 0; Gy.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; const h0 = Gy.p.hp; Gy.world.zones.push({ id: 1, x: 400, y: 450, r: 70, life: 1.6, kind: 'geyser', fired: false }); step(Gy.world, 90); if (!(Gy.p.hp < h0)) fail('火柱噴發應造成傷害');
   console.log('zone effects ok');
 }
+// 23. 新武器：散彈砲（6 顆霰彈）、飛彈（爆炸波及旁邊的敵人）、毒液砲（毒雲只毒敵人、離開仍中毒）
+{
+  const Sc = mk({ weapon: 'scatter' }); Sc.p.x = 400; Sc.p.y = 450; Sc.p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false };
+  step(Sc.world, 2); const pellets = Sc.world.bullets.filter(b => b.pellet).length; if (pellets < 6) fail(`散彈砲一次應射出 6 顆霰彈，實際 ${pellets}`);
+  const Mi = mk({ weapon: 'missile' }); Mi.p.x = 400; Mi.p.y = 450; Mi.p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false };
+  const m1 = enemy(Mi.world, 700, 450, 1000), m2 = enemy(Mi.world, 760, 450, 1000); step(Mi.world, 150);
+  if (!(m1.hp < 1000)) fail('飛彈應命中第一個敵人'); if (!(m2.hp < 1000)) fail('飛彈爆炸應波及旁邊的敵人（半徑 80）');
+  const Ve = mk({ weapon: 'venom' }); Ve.p.x = 560; Ve.p.y = 450; Ve.p.inv = 0; Ve.p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false };
+  const v1 = enemy(Ve.world, 600, 450, 1e6); step(Ve.world, 60);
+  if (!Ve.world.zones.some(z => z.kind === 'venom')) fail('毒液團命中應留下毒雲'); if (!(v1.poison > 0)) fail('毒雲裡的敵人應中毒'); if (!(v1.hp < 1e6)) fail('毒雲應造成傷害');
+  if (Ve.p.hp !== Ve.p.maxHp) fail('毒雲不該傷到自己人');
+  v1.x = 1400; v1.y = 100; const hp0 = v1.hp; step(Ve.world, 60); if (!(v1.hp < hp0)) fail('離開毒雲後應繼續中毒扣血');
+  console.log('new weapons ok');
+}
+// 24. 新機體：鳳凰每局一次浴火重生；收割者擊殺疊印記、被打掉一半
+{
+  const Ph = mk({ ship: 'phoenix' }); Ph.p.x = 400; Ph.p.y = 450; Ph.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  const hitMe = A => { A.p.inv = 0; A.p.shield = 0; A.world.enemyBullets.push({ id: A.world.nextId++, x: A.p.x, y: A.p.y, vx: 0, vy: 0, life: 1, r: 5, kind: 'shard' }); };
+  const near = enemy(Ph.world, 500, 450, 100);
+  Ph.p.hp = 1; hitMe(Ph); step(Ph.world, 2);
+  if (Ph.p.dead || Ph.world.scene !== 'play') fail('鳳凰第一次歸零應復活'); if (Ph.p.hp !== Ph.p.maxHp) fail('復活應回滿血'); if (Ph.p.flags.rebirth !== 0) fail('復活次數應用掉');
+  if (Ph.world.enemies.includes(near)) fail('復活火環應炸掉旁邊的敵人');
+  Ph.p.hp = 1; hitMe(Ph); step(Ph.world, 2); if (!Ph.p.dead) fail('鳳凰第二次歸零應陣亡');
+  const Rp = mk({ ship: 'reaper', weapon: 'blaster' }); Rp.p.x = 400; Rp.p.y = 450; Rp.p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false };
+  for (let k = 0; k < 4; k++) enemy(Rp.world, 520 + k * 40, 450, 1); step(Rp.world, 120);
+  if (!(Rp.p.harvest >= 2)) fail(`收割者擊殺應疊印記，實際 ${Rp.p.harvest}`);
+  const hv = Rp.p.harvest; Rp.p.input.fire = false; hitMe(Rp); step(Rp.world, 2); if (Rp.p.harvest !== Math.floor(hv / 2)) fail(`被打到應掉一半印記 ${hv} → ${Rp.p.harvest}`);
+  console.log('new ships ok');
+}
+// 25. 事件 / 場地危險無差別：太陽風暴、火柱、EMP、毒區都會打到敵人
+{
+  const Fl = mk({ arena: 'mercury', wave: 3 }); Fl.p.x = 1400; Fl.p.y = 450; Fl.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  const fe = enemy(Fl.world, 300, 450, 1000); Fl.world.flare = { x: -60, sx: -760, dir: 1, w: 90, t: 0, speed: 280, hit: [] }; step(Fl.world, 240);
+  if (!(fe.hp < 1000)) fail('太陽風暴應掃到敵人');
+  const Gy = mk({ arena: 'inferno', wave: 3 }); Gy.p.x = 1400; Gy.p.y = 450; Gy.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  const ge = enemy(Gy.world, 400, 450, 1000); Gy.world.zones.push({ id: 1, x: 400, y: 450, r: 70, life: 1.6, kind: 'geyser', fired: false }); step(Gy.world, 90);
+  if (!(ge.hp < 1000)) fail('火柱應噴到敵人');
+  const Em = mk({ arena: 'mercury', wave: 3 }); Em.p.x = 1400; Em.p.y = 450; Em.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  const ee = enemy(Em.world, 400, 450, 1000); Em.world.zones.push({ id: 1, x: 300, y: 450, r: 10, grow: 420, life: 1.1, kind: 'emp', hit: [] }); let stunned = false; for (let i = 0; i < 40 && !stunned; i++) { update(Em.world, 1 / 60, fx); if (ee.stun > 0) stunned = true; }
+  if (!stunned) fail('EMP 環應癱瘓敵人');
+  const Tx = mk({ arena: 'venom', wave: 3 }); Tx.p.x = 1400; Tx.p.y = 450; Tx.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false };
+  const te = enemy(Tx.world, 400, 450, 1000); Tx.world.zones.push({ id: 1, x: 400, y: 450, r: 100, life: 12, kind: 'toxic' }); step(Tx.world, 60);
+  if (!(te.hp < 1000)) fail('毒區應毒到敵人');
+  console.log('indiscriminate hazards ok');
+}
+// 26. 組合技在非子彈武器上也要有效果：餘燼 → 光刃機率點燃；彈幕牆 → 雷射反射段 +50%
+{
+  const Bl = mk({ weapon: 'blade' }); Bl.p.x = 400; Bl.p.y = 450; Bl.p.syn.ember = true; Bl.p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false };
+  const be = enemy(Bl.world, 470, 450, 1e6); let burned = false; for (let i = 0; i < 900 && !burned; i++) { update(Bl.world, 1 / 60, fx); be.x = 470; be.y = 450; be.vx = be.vy = 0; if (be.burn > 0) burned = true; }
+  if (!burned) fail('餘燼組合技：光刃揮擊 15 秒內應至少點燃一次');
+  const laserDmg = wall => { const L = mk({ weapon: 'laser' }); L.p.x = 1500; L.p.y = 450; L.p.bounce = 1; if (wall) L.p.syn.wall = true; L.p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false }; const le = enemy(L.world, 1300, 450, 1e6); step(L.world, 60); return 1e6 - le.hp; };
+  const a = laserDmg(false), b = laserDmg(true);
+  if (!(a > 0)) fail('反彈雷射應打到身後的敵人'); if (!(b > a * 1.3)) fail(`彈幕牆應讓反射光束傷害提高：${a.toFixed(1)} → ${b.toFixed(1)}`);
+  console.log('synergy fallbacks ok');
+}
 console.log('PASS');

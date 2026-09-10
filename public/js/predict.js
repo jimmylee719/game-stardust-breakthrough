@@ -5,7 +5,7 @@ import { stepPlayer, NULL_FX } from './game.js';
 import { TICK_RATE } from '../../shared/constants.js';
 
 const TICK_DT = 1 / TICK_RATE;
-const FIELDS = ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'r', 'speedMul', 'dashCdMax', 'color', 'blinkCd', 'blinkCdMax', 'emp', 'frozen', 'hexed'];
+const FIELDS = ['x', 'y', 'vx', 'vy', 'dashing', 'dashCd', 'inv', 'r', 'speedMul', 'dashCdMax', 'color', 'blinkCd', 'blinkCdMax', 'emp', 'frozen', 'hexed', 'harvest'];
 
 export function createPredictor(world) {
   const NO_ENEMIES = [];

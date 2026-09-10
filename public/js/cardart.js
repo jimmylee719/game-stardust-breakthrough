@@ -1,6 +1,6 @@
 // 機庫卡圖：用遊戲自己的霓虹風格即時畫在 <canvas>（不需要外部圖檔）。
 // 機體用戰場上同一個船身輪廓，武器 / 技能畫示意圖；有 AI 圖檔時 main.js 會改用圖檔。
-import { skinById } from '../../shared/constants.js';
+import { skinById, SHIP_HULL, SHIP_FLAME } from '../../shared/constants.js';
 const TAU = Math.PI * 2;
 
 /** 各機體的船身輪廓（朝 +x）；與 render.js 的 shipPath 同一組資料 */
@@ -12,6 +12,8 @@ function shipPath(ctx, ship) {
   else if (ship === 'engineer') { ctx.moveTo(14, 0); ctx.lineTo(6, 10); ctx.lineTo(-10, 10); ctx.lineTo(-14, 4); ctx.lineTo(-14, -4); ctx.lineTo(-10, -10); ctx.lineTo(6, -10); ctx.closePath(); ctx.moveTo(-2, -14); ctx.lineTo(-2, 14); }
   else if (ship === 'bastion') { ctx.moveTo(16, 0); ctx.lineTo(8, 12); ctx.lineTo(-12, 14); ctx.lineTo(-8, 0); ctx.lineTo(-12, -14); ctx.lineTo(8, -12); }
   else if (ship === 'carrier') { ctx.moveTo(20, 0); ctx.lineTo(4, 8); ctx.lineTo(-14, 8); ctx.lineTo(-10, 0); ctx.lineTo(-14, -8); ctx.lineTo(4, -8); ctx.closePath(); ctx.moveTo(-2, 14); ctx.lineTo(-12, 14); ctx.lineTo(-8, 9); ctx.moveTo(-2, -14); ctx.lineTo(-12, -14); ctx.lineTo(-8, -9); }
+  else if (ship === 'phoenix') { ctx.moveTo(20, 0); ctx.lineTo(-2, 6); ctx.lineTo(-16, 16); ctx.lineTo(-8, 4); ctx.lineTo(-12, 0); ctx.lineTo(-8, -4); ctx.lineTo(-16, -16); ctx.lineTo(-2, -6); }
+  else if (ship === 'reaper') { ctx.moveTo(22, 0); ctx.lineTo(0, 4); ctx.lineTo(-6, 14); ctx.lineTo(-14, 10); ctx.lineTo(-8, 0); ctx.lineTo(-14, -10); ctx.lineTo(-6, -14); ctx.lineTo(0, -4); }
   else { ctx.moveTo(18, 0); ctx.lineTo(-10, 11); ctx.lineTo(-5, 0); ctx.lineTo(-10, -11); }
   ctx.closePath();
 }
@@ -32,7 +34,7 @@ export function drawShipCard(canvas, shipId, skinId = 'classic', color = '#4cc9f
   backdrop(ctx, S, shipId.length * 977 + 13, '#0b1030');
   ctx.save(); ctx.translate(S / 2, S / 2); ctx.rotate(-Math.PI / 2); ctx.scale(S / 72, S / 72);
   // 推進火焰
-  ctx.fillStyle = 'rgba(255,170,60,.85)'; ctx.shadowColor = '#ff8c42'; ctx.shadowBlur = 14; ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-30, 0); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = SHIP_FLAME[shipId] || 'rgba(255,170,60,.85)'; ctx.shadowColor = SHIP_FLAME[shipId] || '#ff8c42'; ctx.shadowBlur = 14; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-30, 0); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
   // 機體特徵
   if (shipId === 'bastion') { neon(ctx, '#4cc9f0', 14); ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 30, -1.05, 1.05); ctx.stroke(); }
   if (shipId === 'carrier') { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10; for (let i = 0; i < 3; i++) { const a = i * TAU / 3 + 0.4; ctx.save(); ctx.translate(Math.cos(a) * 30, Math.sin(a) * 30); ctx.rotate(a + Math.PI / 2); ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, 4); ctx.lineTo(-2, 0); ctx.lineTo(-4, -4); ctx.closePath(); ctx.fill(); ctx.restore(); } }
@@ -41,14 +43,16 @@ export function drawShipCard(canvas, shipId, skinId = 'classic', color = '#4cc9f
   if (shipId === 'wasp') { ctx.globalAlpha = 0.5; neon(ctx, '#ffd166', 12); ctx.beginPath(); ctx.arc(-34, 0, 9, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
   if (shipId === 'engineer') { neon(ctx, '#ffd166', 10); for (const y of [-26, 26]) { ctx.beginPath(); ctx.arc(-6, y, 5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-6, y); ctx.lineTo(6, y); ctx.stroke(); } }
   if (shipId === 'falcon') { ctx.globalAlpha = 0.35; neon(ctx, '#90f1a8', 10); ctx.beginPath(); ctx.arc(0, 0, 34, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
+  if (shipId === 'phoenix') { neon(ctx, '#ff8c42', 18); ctx.lineWidth = 2.5; for (const k of [-1, 1]) { ctx.beginPath(); ctx.moveTo(-4, 6 * k); ctx.quadraticCurveTo(-18, 14 * k, -34, 24 * k); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-8, 10 * k); ctx.quadraticCurveTo(-20, 20 * k, -28, 32 * k); ctx.stroke(); } ctx.globalAlpha = 0.4; ctx.beginPath(); ctx.arc(0, 0, 36, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
+  if (shipId === 'reaper') { neon(ctx, '#ff3860', 18); ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(6, 0, 30, -1.0, 1.0); ctx.stroke(); ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(6, 0, 22, -0.8, 0.8); ctx.stroke(); ctx.globalAlpha = 1; ctx.fillStyle = '#ff3860'; for (let i = 0; i < 5; i++) { const a = -0.8 + i * 0.4; ctx.beginPath(); ctx.arc(6 + Math.cos(a) * 30, Math.sin(a) * 30, 2, 0, TAU); ctx.fill(); } }
   // 船身
-  ctx.fillStyle = sk.hull; ctx.strokeStyle = sk.stroke || color; ctx.shadowColor = sk.glow || color; ctx.shadowBlur = 22; ctx.lineWidth = 2.2; if (sk.dash) ctx.setLineDash([5, 4]);
+  ctx.fillStyle = sk.id === 'classic' ? (SHIP_HULL[shipId] || sk.hull) : sk.hull; ctx.strokeStyle = sk.stroke || color; ctx.shadowColor = sk.glow || color; ctx.shadowBlur = 22; ctx.lineWidth = 2.2; if (sk.dash) ctx.setLineDash([5, 4]);
   shipPath(ctx, shipId); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle = color; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(4, 0, 3.5, 0, TAU); ctx.fill();
   ctx.restore();
 }
 
-const WCOL = { blaster: '#4cc9f0', flame: '#ff8c42', frost: '#b8ffff', arc: '#c77dff', laser: '#ffffff', blade: '#ffd166' };
+const WCOL = { blaster: '#4cc9f0', flame: '#ff8c42', frost: '#b8ffff', arc: '#c77dff', laser: '#ffffff', blade: '#ffd166', scatter: '#ffb347', missile: '#ff5f3a', venom: '#3ddc84' };
 export function drawWeaponCard(canvas, id) {
   const S = canvas.width, ctx = canvas.getContext('2d'); if (!ctx) return;
   const c = WCOL[id] || '#4cc9f0';
@@ -60,6 +64,9 @@ export function drawWeaponCard(canvas, id) {
   else if (id === 'frost') { ctx.lineWidth = 7; ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(62, 0); ctx.stroke(); ctx.globalAlpha = 1; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(62, 0); ctx.stroke(); for (let i = 0; i < 4; i++) { const x = 18 + i * 12; for (let k = 0; k < 6; k++) { const a = k * TAU / 6 + i; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + Math.cos(a) * 6, Math.sin(a) * 6); ctx.stroke(); } } }
   else if (id === 'arc') { const r = seeded(21); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(6, 0); let x = 6, y = 0; while (x < 60) { x += 6 + r() * 6; y = (r() - 0.5) * 26; ctx.lineTo(x, y); } ctx.stroke(); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(30, 4); ctx.lineTo(40, 18); ctx.lineTo(50, 14); ctx.stroke(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 3, 0, TAU); ctx.fill(); }
   else if (id === 'laser') { ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(184,255,255,.35)'; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(66, 0); ctx.stroke(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(66, 0); ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#b8ffff'; ctx.beginPath(); ctx.moveTo(60, -8); ctx.lineTo(66, 0); ctx.lineTo(60, 8); ctx.stroke(); }
+  else if (id === 'scatter') { const r = seeded(31); for (let i = 0; i < 7; i++) { const a = (i / 6 - 0.5) * 0.8, L = 30 + r() * 26; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(6 + Math.cos(a) * 6, Math.sin(a) * 6); ctx.lineTo(6 + Math.cos(a) * L, Math.sin(a) * L); ctx.stroke(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(6 + Math.cos(a) * L, Math.sin(a) * L, 2.5, 0, TAU); ctx.fill(); } ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(6, 0, 14, -0.9, 0.9); ctx.stroke(); ctx.globalAlpha = 1; }
+  else if (id === 'missile') { ctx.strokeStyle = 'rgba(255,140,66,.7)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(4, 8); ctx.quadraticCurveTo(20, 14, 30, 2); ctx.stroke(); ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.save(); ctx.translate(34, 0); ctx.rotate(-0.2); ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(4, -6); ctx.lineTo(-10, -6); ctx.lineTo(-10, 6); ctx.lineTo(4, 6); ctx.closePath(); ctx.fill(); ctx.restore(); neon(ctx, c, 18); for (let i = 1; i <= 3; i++) { ctx.globalAlpha = 1 - i * 0.28; ctx.lineWidth = 3 - i * 0.6; ctx.beginPath(); ctx.arc(58, -4, i * 8, 0, TAU); ctx.stroke(); } ctx.globalAlpha = 1; }
+  else if (id === 'venom') { ctx.fillStyle = 'rgba(61,220,132,.25)'; ctx.beginPath(); ctx.arc(46, 4, 24, 0, TAU); ctx.fill(); ctx.setLineDash([4, 5]); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(46, 4, 24, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = c; ctx.shadowBlur = 16; ctx.beginPath(); ctx.arc(20, -6, 7, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(30, -14, 4, 0, TAU); ctx.fill(); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(4, 4); ctx.quadraticCurveTo(14, -18, 30, -14); ctx.stroke(); ctx.fillStyle = '#bff5cc'; for (let i = 0; i < 4; i++) { const a = i * 1.6, rr = 8 + i * 4; ctx.beginPath(); ctx.arc(46 + Math.cos(a) * rr, 4 + Math.sin(a) * rr, 2.5, 0, TAU); ctx.fill(); } }
   else if (id === 'blade') { ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(10, 0, 40, -1.1, 1.1); ctx.stroke(); ctx.lineWidth = 1.5; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(10, 0, 30, -0.9, 0.9); ctx.stroke(); ctx.globalAlpha = 1; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(0, 5); ctx.lineTo(2, 0); ctx.lineTo(0, -5); ctx.closePath(); ctx.fill(); }
   ctx.restore();
 }

@@ -21,14 +21,14 @@ import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
-const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily'), helpEl = $('help'), privacyEl = $('privacy');
+const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily'), helpEl = $('help'), privacyEl = $('privacy'), aboutEl = $('about');
 const settingsEl = $('settings'), roomsEl = $('rooms'), questsEl = $('quests'), achEl = $('ach'), codexEl = $('codex');
 const nameInput = $('name'), codeInput = $('code');
 const errEl = $('err'), bestEl = $('best');
-const OVERLAYS = [menuEl, lobbyEl, pauseEl, lbEl, hangarEl, dailyEl, helpEl, privacyEl, settingsEl, roomsEl, questsEl, achEl, codexEl];
+const OVERLAYS = [menuEl, lobbyEl, pauseEl, lbEl, hangarEl, dailyEl, helpEl, privacyEl, aboutEl, settingsEl, roomsEl, questsEl, achEl, codexEl];
 
 // 說明 / 隱私的中文版存起來，切語言時可以切回來
-registerZhHtml('help', $('help-body').innerHTML); registerZhHtml('privacy', $('privacy-body').innerHTML);
+registerZhHtml('help', $('help-body').innerHTML); registerZhHtml('privacy', $('privacy-body').innerHTML); registerZhHtml('about', $('about-body').innerHTML);
 applyDom();
 
 const world = createWorld();
@@ -95,7 +95,7 @@ codeInput.value = (new URLSearchParams(location.search).get('room') || '').toUpp
 function showMenu(msg = '') {
   if (net) { net.close(); net = null; }
   mode = 'solo';
-  world.scene = 'menu'; world.players.length = 0;
+  world.scene = 'menu'; world.players.length = 0; wasFullscreen = false;
   for (const el of OVERLAYS) el.hidden = true;
   menuEl.hidden = false;
   errEl.textContent = msg;
@@ -145,7 +145,15 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitM
 document.addEventListener('fullscreenchange', () => { fitMenu(); const b = $('fs-toggle'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶'; });
 $('fs-toggle').addEventListener('click', toggleFullscreen);
 $('lang-toggle').addEventListener('click', () => { setLang(getLang() === 'zh' ? 'en' : 'zh'); });
-function refreshLangUi() { $('lang-toggle').textContent = getLang() === 'zh' ? 'EN' : '中'; $('opt-lang').value = getLang(); renderMenuArenas(); renderDust(); bestEl.textContent = best > 0 ? tr(`最高 ${best}`) : ''; requestAnimationFrame(fitMenu); }
+function syncSeoMeta() {
+  const en = getLang() === 'en';
+  document.title = en ? 'Stardust Breakout — Free Neon Co-op Space Shooter (Browser, No Download)' : '星塵突圍 Stardust Breakout｜免費霓虹風合作太空射擊（瀏覽器直接玩）';
+  const d = document.querySelector('meta[name="description"]'); if (d) d.content = en ? 'Stardust Breakout is a free browser-based neon 2D co-op arena shooter: 6 arenas, 9 ships, 9 weapons with evolutions, 6 active skills, boss rush, daily challenge and global leaderboards. Up to 4 players, no download, no sign-up, no ads.' : '星塵突圍是免費的瀏覽器霓虹風 2D 合作太空射擊：六個場地、九台機體、九種可進化武器、六個主動技能、Boss 挑戰、每日挑戰與全球排行榜。最多 4 人連線，不用下載、不用註冊、沒有廣告。';
+  for (const m of document.querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]')) m.content = document.title;
+  for (const m of document.querySelectorAll('meta[property="og:description"], meta[name="twitter:description"]')) m.content = d ? d.content : '';
+  const og = document.querySelector('meta[property="og:locale"]'); if (og) og.content = en ? 'en_US' : 'zh_TW';
+}
+function refreshLangUi() { syncSeoMeta(); $('lang-toggle').textContent = getLang() === 'zh' ? 'EN' : '中'; $('opt-lang').value = getLang(); renderMenuArenas(); renderDust(); bestEl.textContent = best > 0 ? tr(`最高 ${best}`) : ''; requestAnimationFrame(fitMenu); }
 onLangChange(refreshLangUi); refreshLangUi();
 
 function beginSolo(startWave = 0, daily = null, bossRush = false) {
@@ -263,6 +271,8 @@ function renderHangar() {
 $('open-help').addEventListener('click', () => { helpEl.hidden = false; });
 $('help-close').addEventListener('click', () => { helpEl.hidden = true; });
 $('open-privacy').addEventListener('click', () => { privacyEl.hidden = false; });
+$('open-about').addEventListener('click', () => { aboutEl.hidden = false; });
+$('about-close').addEventListener('click', () => { aboutEl.hidden = true; });
 $('privacy-close').addEventListener('click', () => { privacyEl.hidden = true; });
 $('open-hangar').addEventListener('click', async () => { hangarEl.hidden = false; renderHangar(); requestAnimationFrame(fitMenu); await fetchMe(); renderHangar(); requestAnimationFrame(fitMenu); });
 $('hangar-close').addEventListener('click', () => { hangarEl.hidden = true; renderDust(); requestAnimationFrame(fitMenu); });
@@ -360,7 +370,7 @@ async function openCodex() {
     $('codex-sub').textContent = tr(`遇過 ${list.filter(([k]) => seen.events[k]).length} / ${list.length} 種隨機事件`);
     body.innerHTML = `<div class="grid">${list.map(([k, e]) => `<div class="card ${seen.events[k] ? '' : 'unseen'}"><div class="nm">${e.icon} ${seen.events[k] ? escapeHtml(tr(e.name)) : '？？？'}</div><div class="ds">${seen.events[k] ? escapeHtml(tr(e.desc)) : tr('尚未遭遇')}</div></div>`).join('')}</div>`;
   } else {
-    const wel = ['kinetic', 'fire', 'ice', 'plasma', 'light'], wname = { kinetic: '動能（脈衝砲 / 光刃）', fire: '火焰槍', ice: '冰凍光線', plasma: '閃電鏈', light: '雷射砲' };
+    const wel = ['kinetic', 'fire', 'ice', 'plasma', 'light', 'toxic'], wname = { kinetic: '動能（脈衝砲 / 光刃 / 散彈砲）', fire: '火焰（火焰槍 / 飛彈）', ice: '冰凍光線', plasma: '閃電鏈', light: '雷射砲', toxic: '毒液砲' };
     $('codex-sub').textContent = tr('敵人屬性 × 武器屬性 = 傷害倍率（綠色有效、紅色被抵抗）');
     body.innerHTML = `<table><tr><th></th>${wel.map(w => `<th>${escapeHtml(tr(wname[w]))}</th>`).join('')}</tr>${Object.keys(ELEMENTS).map(el => `<tr><th style="color:${ELEMENTS[el].color}">${ELEMENTS[el].icon} ${escapeHtml(tr(ELEMENTS[el].name))}</th>${wel.map(w => { const v = (AFFINITY[el] || {})[w] ?? 1; return `<td class="${v > 1 ? 'hi' : v < 1 ? 'lo' : ''}">×${v}</td>`; }).join('')}</tr>`).join('')}</table>`;
   }
@@ -494,17 +504,25 @@ for (const b of lbEl.querySelectorAll('[data-mode]')) b.addEventListener('click'
 for (const b of lbEl.querySelectorAll('[data-period]')) b.addEventListener('click', () => { lb.period = b.dataset.period; refreshLeaderboard(); });
 
 // ---------- Esc 選單 ----------
+let wasFullscreen = false;
+function updatePauseFsBtn() { const b = $('pause-fs'); if (b) b.textContent = document.fullscreenElement ? tr('🗗 離開全螢幕') : tr('⛶ 全螢幕'); }
 function openPause() {
   if (world.scene === 'menu' || world.scene === 'gameover' || world.scene === 'victory') return;
+  wasFullscreen = wasFullscreen || !!document.fullscreenElement;
+  setTimeout(updatePauseFsBtn, 50);
   if (mode === 'solo') { if (world.scene === 'play') togglePause(world); $('pause-title').textContent = tr('暫停'); $('pause-sub').textContent = tr('單人模式已暫停'); }
   else { $('pause-title').textContent = tr('選單'); $('pause-sub').textContent = tr('多人模式不會暫停，隊友仍在戰鬥'); }
   pauseEl.hidden = false;
 }
-function closePause() {
+function closePause(resumeFs = false) {
   pauseEl.hidden = true;
   if (mode === 'solo' && world.scene === 'pause') togglePause(world);
+  // 瀏覽器按 Esc 會自動離開全螢幕；按「繼續」（使用者手勢）時把它接回來
+  if (resumeFs && wasFullscreen && !document.fullscreenElement) goFullscreen();
 }
-$('pause-resume').addEventListener('click', closePause);
+$('pause-resume').addEventListener('click', () => closePause(true));
+$('pause-fs').addEventListener('click', () => { toggleFullscreen(); wasFullscreen = !document.fullscreenElement; setTimeout(updatePauseFsBtn, 120); });
+document.addEventListener('fullscreenchange', updatePauseFsBtn);
 $('pause-leave').addEventListener('click', leaveGame);
 /** 單人：這局結束並上傳成績；多人：離開隊伍，留在結算畫面 */
 function runEndProps(reason) {

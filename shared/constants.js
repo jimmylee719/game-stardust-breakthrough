@@ -218,8 +218,15 @@ export const SHIPS = [
   { id: 'wraith',  icon: '👻', name: '幽靈',   cost: 1500, desc: '玻璃大砲：生命 60、永遠沒有護盾，但閃現冷卻 0.6 秒、每次擊殺重置閃現；傷害 +15%', trait: '無限閃現',
     stats: { hp: 0.6, speed: 1.05, fire: 1, dmg: 1.15 }, apply: p => { p.maxHp = 60; p.hp = 60; p.speedMul *= 1.05; p.damage *= 1.15; p.blinkCdMax = 0.6; p.r = 12; p.flags.noShield = true; p.flags.killResetBlink = true; } },
   { id: 'engineer', icon: '🔧', name: '工程師', cost: 1800, desc: '衝刺時在原地放下砲塔（最多 2 座、20 秒、繼承主武器）；自身射速 -20%、速度 -10%；生命 120', trait: '砲塔',
-    stats: { hp: 1.2, speed: 0.9, fire: 0.8, dmg: 1 }, apply: p => { p.maxHp = 120; p.hp = 120; p.speedMul *= 0.9; p.fireRate *= 1.25; p.flags.turrets = 2; } },
+    stats: { hp: 1.2, speed: 0.9, fire: 0.8, dmg: 1 }, hull: '#fff3c4', flame: '#ffd166', apply: p => { p.maxHp = 120; p.hp = 120; p.speedMul *= 0.9; p.fireRate *= 1.25; p.flags.turrets = 2; } },
+  { id: 'phoenix', icon: '🔥', name: '鳳凰',   cost: 2000, desc: '浴火重生：每局一次，生命歸零時原地復活回滿血並炸出火環（200 火焰傷害、清空周圍敵彈）；衝刺沿路留下火焰；火焰類傷害 +25%；生命 90', trait: '浴火重生',
+    stats: { hp: 0.9, speed: 1.1, fire: 1, dmg: 1 }, hull: '#ffe0c2', flame: '#ff5f3a', apply: p => { p.maxHp = 90; p.hp = 90; p.speedMul *= 1.1; p.flags.rebirth = 1; p.flags.fireTrail = true; p.flags.fireBoost = true; } },
+  { id: 'reaper',  icon: '💀', name: '收割者', cost: 2200, desc: '收割印記：每次擊殺疊 1 層（上限 25），每層傷害 +2%、速度 +1%；被打到會掉一半印記；技能能量獲得 ×1.5；生命 85、撿不到護盾', trait: '越殺越強',
+    stats: { hp: 0.85, speed: 1, fire: 1, dmg: 1.5 }, hull: '#3a1020', flame: '#ff3860', apply: p => { p.maxHp = 85; p.hp = 85; p.flags.harvest = true; p.flags.noShield = true; p.harvest = 0; } },
 ];
+/** 各機體的船身底色與推進火焰色（塗裝為「標準」時使用；其他塗裝覆蓋船身色） */
+export const SHIP_HULL = { falcon: '#e8f6ff', wasp: '#fff8d6', bastion: '#d6ecff', carrier: '#e0e6ff', ronin: '#f5f5ff', wraith: '#e8ddff', engineer: '#fff3c4', phoenix: '#ffe0c2', reaper: '#3a1020' };
+export const SHIP_FLAME = { falcon: '#ff9c3c', wasp: '#ffd166', bastion: '#4cc9f0', carrier: '#90f1a8', ronin: '#ffffff', wraith: '#c77dff', engineer: '#ffd166', phoenix: '#ff5f3a', reaper: '#ff3860' };
 /** 塗裝：純外觀，用星塵解鎖（unlocks 內存 'skin:<id>'）。hull 機身、stroke 輪廓、glow 光暈；null 用玩家辨識色 */
 export const SKINS = [
   { id: 'classic', icon: '⬜', name: '標準',   cost: 0,   hull: '#e8f6ff', stroke: null, glow: null },
@@ -243,9 +250,12 @@ export const WEAPONS = [
   { id: 'arc',     icon: '⚡', name: '閃電鏈',   cost: 1200, desc: '自動命中最近的敵人並連鎖跳到最多 4 個目標；射速較慢' },
   { id: 'laser',   icon: '🔆', name: '雷射砲',   cost: 1000, desc: '按住持續射出貫穿光束，命中路徑上所有敵人；傷害隨傷害升級成長' },
   { id: 'blade',   icon: '🗡️', name: '光刃',     cost: 700,  desc: '近戰：朝瞄準方向揮出扇形光刃，傷害 ×3.4 並擊退，能格擋子彈；沒有射程' },
+  { id: 'scatter', icon: '💥', name: '散彈砲',   cost: 800,  desc: '一次噴出 6 顆短程霰彈，貼臉全中傷害極高、越遠越散；射速慢，有後座力' },
+  { id: 'missile', icon: '🚀', name: '飛彈發射器', cost: 1100, desc: '發射會追蹤的火箭，命中爆炸波及半徑 80 內所有敵人（火焰屬性）；彈速慢、射速慢' },
+  { id: 'venom',   icon: '☣️', name: '毒液砲',   cost: 1000, desc: '拋射毒液團，命中或落地留下 4 秒毒雲：雲裡的敵人持續中毒、減速，離開後仍會毒 3 秒；對自己人無害' },
 ];
 /** 武器的攻擊屬性（對照 AFFINITY 用） */
-export const WEAPON_ELEMENT = { blaster: 'kinetic', flame: 'fire', frost: 'ice', arc: 'plasma', laser: 'light', blade: 'kinetic' };
+export const WEAPON_ELEMENT = { blaster: 'kinetic', flame: 'fire', frost: 'ice', arc: 'plasma', laser: 'light', blade: 'kinetic', scatter: 'kinetic', missile: 'fire', venom: 'toxic' };
 /**
  * 同一個升級 / 道具在不同武器上的效果不同（機庫會顯示）。實作散在 game.js 的武器分派段。
  * 鍵：spread 散射道具、rapid 連射道具、pierce 穿甲、bounce 反彈、homing 追蹤、bigshot 巨型彈體
@@ -257,6 +267,9 @@ export const WEAPON_MODS = {
   arc:     { spread: '連鎖目標 +1', rapid: '放電頻率 ×2', pierce: '連鎖跳躍距離 +60%', bounce: '閃電可以跳回打過的目標', homing: '鎖定射程 +50%', bigshot: '每道閃電傷害 +40%' },
   laser:   { spread: '分成多道光束扇形射出', rapid: '傷害 ×1.6', pierce: '持續照射同一目標傷害遞增', bounce: '光束撞牆反射', homing: '光束自動彎向最近的敵人', bigshot: '光束變寬' },
   blade:   { spread: '揮擊扇形更寬', rapid: '揮擊速度 ×2', pierce: '擊退距離加倍', bounce: '每次揮擊放出一道劍氣', homing: '揮擊時會朝最近的敵人短距衝刺', bigshot: '揮擊半徑 +40%' },
+  scatter: { spread: '霰彈數 +2', rapid: '射速 ×1.8', pierce: '霰彈可穿透', bounce: '霰彈撞牆反彈且射程加倍', homing: '霰彈飛行中會聚向最近的敵人', bigshot: '霰彈變大並帶擊退' },
+  missile: { spread: '一次多發火箭', rapid: '射速 ×2', pierce: '爆炸半徑 +30%', bounce: '火箭撞牆反彈繼續追蹤', homing: '追蹤更靈敏、鎖定範圍更遠', bigshot: '爆炸傷害 +40%' },
+  venom:   { spread: '一次多發毒液團', rapid: '射速 ×2', pierce: '中毒時間更長', bounce: '毒液團撞牆反彈', homing: '毒液團會彎向最近的敵人', bigshot: '毒雲半徑 +50%' },
 };
 /**
  * 武器進化：局內湊齊條件（needs 為升級 id → 等級）後，下一次升級選單會出現進化卡；一局只能進化一次。
@@ -269,12 +282,18 @@ export const EVOLUTIONS = [
   { id: 'storm',   weapon: 'arc',     icon: '🌩️', name: '雷暴',     needs: { homing: 2 },               desc: '連鎖目標加倍，而且每秒隨機落雷打最近的敵人' },
   { id: 'solar',   weapon: 'laser',   icon: '☀️', name: '太陽炮',   needs: { damage: 3 },               desc: '光束加寬一倍、持續照射傷害遞增到 2.5 倍，無視 Boss 裝甲' },
   { id: 'dance',   weapon: 'blade',   icon: '🌸', name: '幻影劍舞', needs: { speed: 2, dash: 1 },       desc: '衝刺沿路斬擊，每次揮擊留下一道會自動追擊的殘影' },
+  { id: 'dragon',  weapon: 'scatter', icon: '🐉', name: '龍息霰彈', needs: { bigshot: 2, damage: 2 },   desc: '霰彈數加倍，每顆霰彈都會點燃敵人並穿透一個目標' },
+  { id: 'cluster', weapon: 'missile', icon: '🎆', name: '集束飛彈', needs: { explosive: 2, homing: 1 }, desc: '火箭爆炸後再分裂出 4 枚小火箭各自追蹤' },
+  { id: 'plague',  weapon: 'venom',   icon: '🦠', name: '瘟疫',     needs: { lifesteal: 2, pierce: 1 }, desc: '中毒的敵人死亡時在原地留下新的毒雲（會傳染）' },
 ];
 export function evolutionFor(weapon, upgrades) {
   return EVOLUTIONS.find(e => e.weapon === weapon && Object.entries(e.needs).every(([id, lv]) => (upgrades[id] || 0) >= lv)) || null;
 }
 export const WEAPON_STATS = { laserDps: 4.2, flameRange: 250, flameCone: 0.4, flameDps: 4.5, frostRange: 520, frostDps: 3.2, frostSlow: 0.4, frostFreezeAfter: 2, arcRange: 380, arcJump: 210, arcTargets: 4, arcDmg: 2.6, arcRate: 2.4,
-  bladeRange: 95, bladeArc: 1.1, bladeDmg: 3.4, bladeRate: 2.6, bladeKnock: 380 };
+  bladeRange: 95, bladeArc: 1.1, bladeDmg: 3.4, bladeRate: 2.6, bladeKnock: 380,
+  scatterPellets: 6, scatterRate: 3.2, scatterSpread: 0.55, scatterLife: 0.3, scatterDmg: 1.0, scatterKick: 220,
+  missileRate: 3.6, missileSpeed: 0.55, missileDmg: 1.4, missileR: 80, missileSplash: 1.6,
+  venomRate: 3.0, venomSpeed: 0.6, venomDmg: 0.8, venomR: 70, venomLife: 4, venomDps: 1.6, venomPoison: 3 };
 export function weaponById(id) { return WEAPONS.find(w => w.id === id) || WEAPONS[0]; }
 export function weaponUnlocked(id, unlocks) { return id === 'blaster' || (unlocks || []).includes('weapon:' + id); }
 
@@ -290,11 +309,11 @@ export const ELEMENTS = {
 };
 export const AFFINITY = {
   neutral: {},
-  fire:   { ice: 1.6, water: 1.5, fire: 0.5 },
-  ice:    { fire: 1.7, plasma: 1.2, ice: 0.5, kinetic: 0.85 },
+  fire:   { ice: 1.6, water: 1.5, fire: 0.5, toxic: 0.7 },
+  ice:    { fire: 1.7, plasma: 1.2, ice: 0.5, kinetic: 0.85, toxic: 1.2 },
   toxic:  { fire: 1.5, light: 1.3, toxic: 0.5, kinetic: 0.9 },
-  water:  { plasma: 1.8, ice: 1.3, fire: 0.5, water: 0.5 },
-  plasma: { kinetic: 1.4, water: 1.3, plasma: 0.5, light: 0.7 },
+  water:  { plasma: 1.8, ice: 1.3, fire: 0.5, water: 0.5, toxic: 1.3 },
+  plasma: { kinetic: 1.4, water: 1.3, plasma: 0.5, light: 0.7, toxic: 0.8 },
   void:   { light: 1.6, plasma: 1.2, kinetic: 0.8 },
 };
 export function affinity(enemyElement, weaponElement) { return (AFFINITY[enemyElement] || {})[weaponElement] ?? 1; }
@@ -330,7 +349,7 @@ export const AFFIXES = {
   thorns:    { name: '荊棘',   icon: '🌵', desc: '撞到它或用光刃砍它會被反傷 8' },
 };
 /**
- * 隨機事件：第 4 波起，每 25–50 秒有機率觸發一個（沒有 Boss 時）。實作在 game.js 的 startEvent / updateEvent。
+ * 隨機事件：第 4 波起，每 25–40 秒觸發一個（沒有 Boss 時）。實作在 game.js 的 startEvent / updateEvent。事件與場地危險都是無差別攻擊。
  */
 export const EVENTS = {
   supply:    { name: '補給空投', icon: '📦', desc: '補給箱落下，守住 10 秒可拿 3 個道具與星塵；敵人會衝過去搶', dur: 10 },
@@ -344,7 +363,7 @@ export const EVENTS = {
   shower:    { name: '流星雨',   icon: '☄️', desc: '連續流星橫越戰場，打爆有道具', dur: 0 },
 };
 export const EVENT_FROM_WAVE = 4;
-export const EVENT_CD = [25, 50];
+export const EVENT_CD = [25, 40];   // 每 25–40 秒一次；事件與場地危險一律無差別（敵人也會被打到）
 
 export function shipById(id) { return SHIPS.find(s => s.id === id) || SHIPS[0]; }
 /** 主動技能：擊殺累積能量（右上 HUD 能量條），滿了按 E / 右鍵 / 觸控鈕施放。第一個免費，其餘用星塵解鎖 */

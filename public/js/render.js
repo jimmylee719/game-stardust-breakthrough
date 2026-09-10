@@ -1,6 +1,6 @@
 // 渲染：把世界狀態與特效畫到 Canvas。固定 1600x900 邏輯座標，等比縮放到視窗並加黑邊。
 import { TAU, rand, randInt, clamp } from '../../shared/math.js';
-import { BOSS_RUSH_WAVES, skillById, PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById, arenaById, ELEMENTS, AFFIXES, EVENTS, EVOLUTIONS, ENEMY_TYPES, shipById, weaponById } from '../../shared/constants.js';
+import { BOSS_RUSH_WAVES, skillById, PICKUP_STYLE, UPGRADES, WAVE_MODES, REVIVE_TIME, SYNERGIES, synergyIfPicked, WIN_WAVE, WEAPON_STATS, skinById, SHIP_HULL, SHIP_FLAME, arenaById, ELEMENTS, AFFIXES, EVENTS, EVOLUTIONS, ENEMY_TYPES, shipById, weaponById } from '../../shared/constants.js';
 import { tr } from './i18n.js';
 import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
@@ -186,7 +186,8 @@ export function createRenderer(canvas, world) {
       // 毒霧裡的敵人幾乎看不見，貼近才現形
       if (e.fog) { const near = world.players.some(q => !q.dead && Math.hypot(q.x - e.x, q.y - e.y) < 160); ctx.globalAlpha = near ? 0.75 : 0.12; }
       ctx.shadowColor = e.color; ctx.shadowBlur = vfx.lowQ || world.enemies.length > 40 ? 0 : 14;
-      ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.burn ? '#ff8c42' : e.stun ? '#ffffff' : e.slow ? '#b8ffff' : e.color; ctx.lineWidth = 2.5;
+      ctx.strokeStyle = e.hitFlash > 0 ? '#fff' : e.burn ? '#ff8c42' : e.stun ? '#ffffff' : e.poison ? '#3ddc84' : e.slow ? '#b8ffff' : e.color; ctx.lineWidth = 2.5;
+      if (e.poison && !e.burn) ctx.shadowColor = '#3ddc84';
       if (e.slow && !e.burn) ctx.shadowColor = '#b8ffff';
       if (e.burn) ctx.shadowColor = '#ff8c42';
       ctx.fillStyle = e.hitFlash > 0 ? 'rgba(255,255,255,.6)' : e.color + '33';
@@ -309,8 +310,15 @@ export function createRenderer(canvas, world) {
     for (const b of world.bullets) {
       const ek = b.element === 'kinetic' || b.element === 'light' ? 'neutral' : b.element; const ec = ek && ELEMENTS[ek] ? ELEMENTS[ek].color : null;
       if (b.slash) { ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx)); ctx.strokeStyle = '#fff'; ctx.shadowColor = '#f8c'; ctx.shadowBlur = 14; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(-20, 0, 34, -0.9, 0.9); ctx.stroke(); ctx.restore(); continue; }
+      if (b.rocket) {
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx)); const s = b.size || 1;
+        ctx.strokeStyle = 'rgba(255,140,66,.8)'; ctx.shadowColor = '#ff8c42'; ctx.lineWidth = 3 * s; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-8 * s, 0); ctx.lineTo(-22 * s - rand(0, 8), 0); ctx.stroke();
+        ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.beginPath(); ctx.moveTo(10 * s, 0); ctx.lineTo(2 * s, -4 * s); ctx.lineTo(-8 * s, -4 * s); ctx.lineTo(-8 * s, 4 * s); ctx.lineTo(2 * s, 4 * s); ctx.closePath(); ctx.fill();
+        ctx.restore(); continue;
+      }
+      if (b.glob) { const s = (b.size || 1) * 5; ctx.shadowColor = '#3ddc84'; ctx.fillStyle = '#3ddc84'; ctx.beginPath(); ctx.arc(b.x, b.y, s, 0, TAU); ctx.fill(); ctx.fillStyle = '#bff5cc'; ctx.beginPath(); ctx.arc(b.x - s * 0.3, b.y - s * 0.3, s * 0.35, 0, TAU); ctx.fill(); continue; }
       ctx.shadowColor = b.rail ? '#9ff' : b.burn ? '#ff8c42' : ec || (b.homing ? '#ffd166' : '#fff'); ctx.strokeStyle = b.rail ? '#c8ffff' : b.burn ? '#ffb070' : ec || (b.homing ? '#fff3c4' : '#fff'); ctx.lineWidth = 3 * b.size; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * (b.rail ? 0.045 : 0.02), b.y - b.vy * (b.rail ? 0.045 : 0.02)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * (b.rail ? 0.045 : b.pellet ? 0.012 : 0.02), b.y - b.vy * (b.rail ? 0.045 : b.pellet ? 0.012 : 0.02)); ctx.stroke();
     }
     for (const b of world.enemyBullets) {
       if (b.kind === 'mine') {
@@ -398,6 +406,13 @@ export function createRenderer(canvas, world) {
       ctx.globalAlpha = fade * 0.7; ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1.5;
       for (let i = 0; i < 3; i++) { const rr = z.r * ((1 - ((time * 0.5 + i / 3) % 1))); ctx.globalAlpha = fade * 0.5 * ((time * 0.5 + i / 3) % 1); ctx.beginPath(); ctx.arc(z.x, z.y, rr, 0, TAU); ctx.stroke(); }
       ctx.globalAlpha = fade * 0.8; ctx.fillStyle = '#4cc9f0'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(tr('深海壓力'), z.x, z.y);
+    } else if (z.kind === 'venom') {
+      const a = fade * (0.6 + 0.15 * Math.sin(time * 5 + z.id));
+      const gr = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, z.r); gr.addColorStop(0, `rgba(120,255,160,${0.35 * a})`); gr.addColorStop(0.7, `rgba(61,220,132,${0.18 * a})`); gr.addColorStop(1, 'rgba(61,220,132,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
+      ctx.globalAlpha = a; ctx.strokeStyle = '#7dffa0'; ctx.shadowColor = '#3ddc84'; ctx.shadowBlur = 12; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]); ctx.lineDashOffset = time * 50; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#bff5cc'; for (let k = 0; k < 5; k++) { const aa = -time * 1.1 + k * TAU / 5 + z.id, rr = z.r * (0.3 + 0.35 * Math.sin(time * 1.7 + k)); ctx.globalAlpha = a * 0.6; ctx.beginPath(); ctx.arc(z.x + Math.cos(aa) * rr, z.y + Math.sin(aa) * rr, 4, 0, TAU); ctx.fill(); }
+      ctx.globalAlpha = a; ctx.shadowBlur = 0; ctx.fillStyle = '#7dffa0'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(tr('☣ 毒雲'), z.x, z.y);
     } else if (z.kind === 'fog') {
       const gr = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, z.r); gr.addColorStop(0, `rgba(120,220,140,${0.75 * fade})`); gr.addColorStop(0.6, `rgba(60,160,90,${0.6 * fade})`); gr.addColorStop(1, 'rgba(40,120,60,0)');
       ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
@@ -591,11 +606,13 @@ export function createRenderer(canvas, world) {
       ctx.globalAlpha = (p.inv > 0 && Math.sin(time * 40) > 0) ? 0.35 : 1;
       ctx.shadowColor = p.color; ctx.shadowBlur = 20;
       const thrust = Math.hypot(p.vx, p.vy) / 320;
-      ctx.fillStyle = `rgba(255,${140 + randInt(0, 80)},60,${0.5 + thrust * 0.5})`;
+      ctx.fillStyle = SHIP_FLAME[p.ship] || `rgba(255,${140 + randInt(0, 80)},60,${0.5 + thrust * 0.5})`; ctx.globalAlpha *= 0.55 + thrust * 0.45;
       ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-16 - thrust * 14 - rand(0, 6), 0); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = (p.inv > 0 && Math.sin(time * 40) > 0) ? 0.35 : 1;
       const sk = skinById(p.skin);
-      ctx.fillStyle = sk.hull; ctx.strokeStyle = sk.stroke || p.color; ctx.shadowColor = sk.glow || p.color; ctx.lineWidth = 2; if (sk.dash) ctx.setLineDash([5, 4]);
+      ctx.fillStyle = sk.id === 'classic' ? (SHIP_HULL[p.ship] || sk.hull) : sk.hull; ctx.strokeStyle = sk.stroke || p.color; ctx.shadowColor = sk.glow || p.color; ctx.lineWidth = 2; if (sk.dash) ctx.setLineDash([5, 4]);
       shipPath(p.ship); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+      shipAccent(p, time);
       if (p.blinkFlash) { ctx.globalAlpha = 0.6; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.r + 12, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
       ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(4, 0, 3.5, 0, TAU); ctx.fill();
       ctx.restore();
@@ -605,6 +622,8 @@ export function createRenderer(canvas, world) {
       const tw = ctx.measureText(p.name).width + 14;
       ctx.fillStyle = 'rgba(3,4,10,.65)'; roundRect(-tw / 2, -p.r - 30, tw, 18, 9); ctx.fill();
       ctx.fillStyle = p.color; ctx.fillText(p.name, 0, -p.r - 21);
+      if (p.harvest > 0) { ctx.fillStyle = '#ff3860'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(`💀 ×${p.harvest}`, 0, p.r + 16); }
+      if (p.rebirth || (p.flags && p.flags.rebirth > 0)) { ctx.fillStyle = '#ff8c42'; ctx.font = '11px sans-serif'; ctx.fillText('🔥', 0, p.r + 16); }
       // 小血條（多人時看隊友血量）
       if (world.players.length > 1) {
         ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(-16, -p.r - 10, 32, 3);
@@ -613,6 +632,19 @@ export function createRenderer(canvas, world) {
       ctx.restore();
       ctx.globalAlpha = 1;
     }
+  }
+  /** 各機體的辨識特徵（畫在船身上，已 translate/rotate）：讓每台一眼就不同 */
+  function shipAccent(p, time) {
+    const s = p.ship; ctx.lineWidth = 1.5;
+    if (s === 'wasp') { ctx.strokeStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 8; for (const y of [-7, 7]) { ctx.beginPath(); ctx.moveTo(4, y * 0.6); ctx.lineTo(-8, y); ctx.stroke(); } }
+    else if (s === 'wraith') { ctx.globalAlpha *= 0.4; ctx.strokeStyle = '#c77dff'; ctx.shadowColor = '#c77dff'; ctx.setLineDash([3, 3]); ctx.save(); ctx.translate(-10, 0); shipPath(s); ctx.stroke(); ctx.restore(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
+    else if (s === 'engineer') { ctx.strokeStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 8; for (const y of [-14, 14]) { ctx.beginPath(); ctx.arc(-2, y, 3, 0, TAU); ctx.stroke(); } }
+    else if (s === 'carrier') { ctx.strokeStyle = '#90f1a8'; ctx.shadowColor = '#90f1a8'; ctx.shadowBlur = 8; ctx.beginPath(); ctx.moveTo(-6, -4); ctx.lineTo(10, -4); ctx.moveTo(-6, 4); ctx.lineTo(10, 4); ctx.stroke(); }
+    else if (s === 'phoenix') { ctx.strokeStyle = '#ff8c42'; ctx.shadowColor = '#ff5f3a'; ctx.shadowBlur = 16; ctx.lineWidth = 2; for (const k of [-1, 1]) { ctx.beginPath(); ctx.moveTo(-4, 6 * k); ctx.quadraticCurveTo(-14, 12 * k, -22 - Math.sin(time * 12) * 3, 18 * k); ctx.stroke(); } }
+    else if (s === 'reaper') { ctx.strokeStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 14; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(4, 0, 20, -0.75, 0.75); ctx.stroke(); ctx.fillStyle = '#ff3860'; ctx.beginPath(); ctx.arc(6, 0, 2.5, 0, TAU); ctx.fill(); }
+    else if (s === 'bastion') { ctx.strokeStyle = '#4cc9f0'; ctx.shadowBlur = 0; ctx.beginPath(); ctx.moveTo(-8, -8); ctx.lineTo(4, -6); ctx.moveTo(-8, 8); ctx.lineTo(4, 6); ctx.stroke(); }
+    else if (s === 'ronin') { ctx.strokeStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 10; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(10, 0); ctx.stroke(); }
+    ctx.shadowBlur = 20;
   }
   /** 各機體的船身輪廓（朝 +x），畫在已 translate/rotate 的座標系 */
   function shipPath(ship) {
@@ -623,6 +655,8 @@ export function createRenderer(canvas, world) {
     else if (ship === 'engineer') { ctx.moveTo(14, 0); ctx.lineTo(6, 10); ctx.lineTo(-10, 10); ctx.lineTo(-14, 4); ctx.lineTo(-14, -4); ctx.lineTo(-10, -10); ctx.lineTo(6, -10); ctx.closePath(); ctx.moveTo(-2, -14); ctx.lineTo(-2, 14); }
     else if (ship === 'bastion') { ctx.moveTo(16, 0); ctx.lineTo(8, 12); ctx.lineTo(-12, 14); ctx.lineTo(-8, 0); ctx.lineTo(-12, -14); ctx.lineTo(8, -12); }
     else if (ship === 'carrier') { ctx.moveTo(20, 0); ctx.lineTo(4, 8); ctx.lineTo(-14, 8); ctx.lineTo(-10, 0); ctx.lineTo(-14, -8); ctx.lineTo(4, -8); ctx.closePath(); ctx.moveTo(-2, 14); ctx.lineTo(-12, 14); ctx.lineTo(-8, 9); ctx.moveTo(-2, -14); ctx.lineTo(-12, -14); ctx.lineTo(-8, -9); }
+    else if (ship === 'phoenix') { ctx.moveTo(20, 0); ctx.lineTo(-2, 6); ctx.lineTo(-16, 16); ctx.lineTo(-8, 4); ctx.lineTo(-12, 0); ctx.lineTo(-8, -4); ctx.lineTo(-16, -16); ctx.lineTo(-2, -6); }
+    else if (ship === 'reaper') { ctx.moveTo(22, 0); ctx.lineTo(0, 4); ctx.lineTo(-6, 14); ctx.lineTo(-14, 10); ctx.lineTo(-8, 0); ctx.lineTo(-14, -10); ctx.lineTo(-6, -14); ctx.lineTo(0, -4); }
     else { ctx.moveTo(18, 0); ctx.lineTo(-10, 11); ctx.lineTo(-5, 0); ctx.lineTo(-10, -11); }
     ctx.closePath();
   }

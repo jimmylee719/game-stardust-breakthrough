@@ -1,7 +1,8 @@
 {
   "name": "星塵突圍 Stardust Breakout",
   "short_name": "星塵突圍",
-  "description": "霓虹風 2D 合作太空射擊：六個場地、七種機體、武器進化、每日挑戰、全球排行榜。",
+  "description": "免費霓虹風 2D 合作太空射擊：六個場地、九台機體、九種可進化武器、六個主動技能、Boss 挑戰、每日挑戰、全球排行榜。最多 4 人連線。",
+  "categories": ["games", "entertainment"],
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

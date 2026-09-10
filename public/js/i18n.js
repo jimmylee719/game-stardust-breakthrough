@@ -2,7 +2,7 @@
 // tr(text)：精確對照 → 樣式規則（含數字）→ 原文。HTML 用 data-i18n / data-i18n-ph 屬性標記。
 const KEY = 'stardust_lang';
 let lang = 'zh';
-try { lang = localStorage.getItem(KEY) || ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch {}
+try { const q = new URLSearchParams(location.search).get('lang'); lang = (q === 'en' || q === 'zh') ? q : localStorage.getItem(KEY) || ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch {}
 const listeners = new Set();
 export function getLang() { return lang; }
 export function setLang(l) { lang = l === 'en' ? 'en' : 'zh'; try { localStorage.setItem(KEY, lang); } catch {} applyDom(); for (const f of listeners) f(lang); }
@@ -35,7 +35,21 @@ const EXACT = {
   // 武器 / 進化 / 機體
   '脈衝砲': 'Blaster', '火焰槍': 'Flamethrower', '冰凍光線': 'Frost beam', '閃電鏈': 'Arc chain', '雷射砲': 'Laser', '光刃': 'Blade',
   '殲星機砲': 'Railgun', '地獄噴發': 'Hellfire', '絕對零度': 'Absolute zero', '雷暴': 'Thunderstorm', '太陽炮': 'Solar lance', '幻影劍舞': 'Phantom dance',
-  '獵鷹': 'Falcon', '黃蜂': 'Wasp', '堡壘': 'Bastion', '母艦': 'Carrier', '劍聖': 'Ronin', '幽靈': 'Wraith', '工程師': 'Engineer',
+  '獵鷹': 'Falcon', '黃蜂': 'Wasp', '堡壘': 'Bastion', '母艦': 'Carrier', '劍聖': 'Ronin', '幽靈': 'Wraith', '工程師': 'Engineer', '鳳凰': 'Phoenix', '收割者': 'Reaper',
+  '散彈砲': 'Scatter cannon', '飛彈發射器': 'Missile launcher', '毒液砲': 'Venom cannon', '龍息霰彈': 'Dragon breath', '集束飛彈': 'Cluster missiles', '瘟疫': 'Plague',
+  '浴火重生': 'Rebirth', '越殺越強': 'Snowball', '浴火重生！': 'Reborn from the ashes!', '瘟疫擴散': 'Plague spreads', '☣ 毒雲': '☣ Venom cloud', '⛶ 全螢幕': '⛶ Fullscreen', '🗗 離開全螢幕': '🗗 Exit fullscreen', 'ℹ️ 關於遊戲': 'ℹ️ About',
+  '浴火重生：每局一次，生命歸零時原地復活回滿血並炸出火環（200 火焰傷害、清空周圍敵彈）；衝刺沿路留下火焰；火焰類傷害 +25%；生命 90': 'Rebirth: once per run, when HP hits zero you revive on the spot at full HP and burst a fire ring (200 fire damage, clears nearby enemy shots); dashes leave a fire trail; fire damage +25%; HP 90',
+  '收割印記：每次擊殺疊 1 層（上限 25），每層傷害 +2%、速度 +1%；被打到會掉一半印記；技能能量獲得 ×1.5；生命 85、撿不到護盾': 'Harvest marks: every kill adds a stack (max 25), each stack +2% damage and +1% speed; getting hit loses half your stacks; skill energy gain ×1.5; HP 85, cannot pick up shields',
+  '一次噴出 6 顆短程霰彈，貼臉全中傷害極高、越遠越散；射速慢，有後座力': 'Fires 6 short-range pellets at once: devastating up close, spreads out with distance; slow fire rate, strong recoil',
+  '發射會追蹤的火箭，命中爆炸波及半徑 80 內所有敵人（火焰屬性）；彈速慢、射速慢': 'Fires homing rockets that explode on impact, hitting every enemy within 80 (fire element); slow projectile, slow fire rate',
+  '拋射毒液團，命中或落地留下 4 秒毒雲：雲裡的敵人持續中毒、減速，離開後仍會毒 3 秒；對自己人無害': 'Lobs venom globs that leave a 4 s poison cloud on impact: enemies inside are poisoned and slowed, and stay poisoned 3 s after leaving; harmless to your team',
+  '霰彈數加倍，每顆霰彈都會點燃敵人並穿透一個目標': 'Doubles the pellet count; every pellet ignites enemies and pierces one target',
+  '火箭爆炸後再分裂出 4 枚小火箭各自追蹤': 'Each explosion splits into 4 mini rockets that home on their own',
+  '中毒的敵人死亡時在原地留下新的毒雲（會傳染）': 'Poisoned enemies leave a fresh venom cloud when they die (it spreads)',
+  '霰彈數 +2': 'Pellets +2', '射速 ×1.8': 'Fire rate ×1.8', '霰彈可穿透': 'Pellets pierce', '霰彈撞牆反彈且射程加倍': 'Pellets ricochet off walls and range doubles', '霰彈飛行中會聚向最近的敵人': 'Pellets curve toward the nearest enemy', '霰彈變大並帶擊退': 'Bigger pellets with knockback',
+  '一次多發火箭': 'Multiple rockets per shot', '射速 ×2': 'Fire rate ×2', '爆炸半徑 +30%': 'Blast radius +30%', '火箭撞牆反彈繼續追蹤': 'Rockets bounce off walls and keep homing', '追蹤更靈敏、鎖定範圍更遠': 'Sharper homing, longer lock range', '爆炸傷害 +40%': 'Blast damage +40%',
+  '一次多發毒液團': 'Multiple globs per shot', '中毒時間更長': 'Poison lasts longer', '毒液團撞牆反彈': 'Globs bounce off walls', '毒液團會彎向最近的敵人': 'Globs curve toward the nearest enemy', '毒雲半徑 +50%': 'Cloud radius +50%',
+  '動能（脈衝砲 / 光刃 / 散彈砲）': 'Kinetic (blaster / blade / scatter)', '火焰（火焰槍 / 飛彈）': 'Fire (flamethrower / missiles)',
   // 升級
   '強化彈頭': 'Heavy rounds', '高速裝填': 'Fast reload', '穿甲彈': 'Piercing', '反彈彈': 'Ricochet', '追蹤導引': 'Homing', '無人僚機': 'Drone', '汲血核心': 'Lifesteal', '連鎖爆裂': 'Chain blast', '裝甲強化': 'Armor', '推進器': 'Thrusters', '衝刺冷卻': 'Dash cooldown', '牽引光束': 'Tractor beam', '巨型彈體': 'Big shot',
   // 敵人
@@ -68,6 +82,8 @@ const RULES = [
   [/^組合技 (.+)$/, (m) => `Synergy ${m[1].replace(/^(\S+) (.+)$/, (_, i, n) => i + ' ' + tr(n))}`],
   [/^你的最佳：(\d+) 分（第 (\d+) 波）· 全部時間第 (\d+) 名 · 共 (\d+) 局$/, (m) => `Your best: ${m[1]} (wave ${m[2]}) · all-time #${m[3]} · ${m[4]} runs`],
   [/^進化 · (.+)$/, (m) => `Evolution · ${tr(m[1])}`],
+  [/^收割印記 ×(\d+)$/, (m) => `Harvest ×${m[1]}`],
+  [/^印記流失 → ×(\d+)$/, (m) => `Marks lost → ×${m[1]}`],
   [/^(\d+) 隻 Boss 同時來襲！$/, (m) => `${m[1]} bosses incoming!`],
   [/^見過 (\d+) \/ (\d+) 種敵人（打過就會記錄）$/, (m) => `Seen ${m[1]} / ${m[2]} enemy types (recorded once you fight them)`],
   [/^最高第 (\d+) 波$/, (m) => `Best wave ${m[1]}`],
@@ -140,7 +156,7 @@ Object.assign(EXACT, {
   '選擇一項強化（點擊卡片或按 1 / 2 / 3）': 'Pick an upgrade (click a card or press 1 / 2 / 3)', '突圍成功': 'BREAKOUT!', '無盡模式終結': 'Endless run over', '已離開戰鬥': 'Left the fight', '撤退': 'Retreated', '全員陣亡': 'Squad wiped', '艦艇損毀': 'Ship destroyed',
   '合作排行榜': 'Co-op leaderboard', '今日挑戰': 'Daily challenge', '單人排行榜': 'Solo leaderboard', '合作成績會在隊伍結束時一併結算，你的擊殺數會計入': 'Co-op results are tallied when the team finishes; your kills count',
   '每日挑戰結束 · L 今日排行榜 · 點擊 或 Esc 回到選單': 'Daily challenge over · L today\'s board · click or Esc for menu', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到大廳': 'Click or Enter to play again · L leaderboard · Esc lobby', '等待房主再開一局 · L 排行榜 · Esc 回到大廳': 'Waiting for the host to restart · L leaderboard · Esc lobby', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到選單': 'Click or Enter to play again · L leaderboard · Esc menu',
-  '暫停': 'Paused', '按 P 繼續': 'Press P to resume',
+  '暫停': 'Paused', '按 P 繼續': 'Press P to resume', '關於遊戲': 'About the game',
   '這台機體不能用這把武器': 'This ship cannot use that weapon', '母艦靠僚機作戰，不能裝光刃。': 'The Carrier fights with drones and cannot mount the blade.',
   'Boss 挑戰：每一波都只有 Boss（1–6 隻隨機），連續 8 波通關，分數與星塵 ×1.5': 'Boss rush: every wave is bosses only (1–6 at random), clear 8 waves to win, score and stardust ×1.5',
   'Boss 挑戰通關：連續擊破 8 波 Boss': 'Boss rush cleared: 8 boss waves in a row',
@@ -180,10 +196,29 @@ const ZH_HTML = {};
 const EN_HTML = {
   help: `<h3>Controls</h3><ul><li><b>Desktop</b>: WASD / arrows move · mouse aims · left button fires · Shift dash · <b>Space blink</b> (teleport, invulnerable, 3 s cooldown) · Esc menu · M mute · upgrades with 1 / 2 / 3 or click, 0 skips (+20 HP)</li><li><b>Phone</b>: landscape. Drag left half = move; drag right half = aim & fire; auto-aim at the nearest enemy when not aiming; bottom-right buttons dash / blink; top-right ☰ menu. Auto-aim / auto-fire can be toggled in Settings.</li></ul>
 <h3>Arenas & elements</h3><ul><li>Six arenas, each with its own hazards and native creatures: Deep space (void rifts), Inferno (lava, fire geysers), Mercury (gravity wells, solar storms), Venom (drifting toxic tides), Abyss (drag, currents, pressure), Glacier (slippery ice, blizzards, ice spikes).</li><li>Every weapon has an element and every creature has an affinity: frost hurts fire creatures, fire hurts ice and toxic, lightning wrecks water creatures, kinetic rounds (blaster / blade) punch through plasma, lasers cut void. Super-effective hits show ×1.5+.</li></ul>
-<h3>Run structure</h3><ul><li>An upgrade every 2 waves (always after a boss). Two matching upgrades trigger a <b>synergy</b>. Collect the right upgrades for your weapon and an <b>evolution</b> card appears (one per run).</li><li>Boss every 5 waves; from wave 10 two bosses can show up together. Beat wave 20 for <b>Breakout</b>, then keep going endless.</li><li>Special waves (asteroids, bullet hell, bounty, beacon, convoy), enemy squads (sniper nests, kamikaze rushes, shield walls…), elites with affixes, and random events from wave 4: supply drops, wormholes, solar wind, black holes, rifts, dust storms, hunters, eclipses, meteor showers.</li><li>Every enemy attacks: swarmers explode on contact, tanks lob shells, wardens block from the front, snipers line up 1.4 s shots, mortars mark your landing spot, kamikazes rush you, hexers slow you… Purple dashed lines are lasers, orange rings are mines.</li></ul>
-<h3>Weapons, ships, upgrades</h3><ul><li>Six weapons (blaster, flamethrower, frost beam, arc chain, laser, blade). The same upgrade does different things per weapon: ricochet makes bullets bounce, but turns flames into fire pools and lets the blade throw a slash wave. Check the hangar.</li><li>Seven ships with real playstyles: Wasp blinks every 1.2 s with an explosion, Bastion blocks from the front and shield-bashes, Carrier fights with drones, Ronin is melee only, Wraith has near-infinite blinks but no shields, Engineer drops turrets when dashing.</li></ul>
+<h3>Run structure</h3><ul><li>An upgrade every 2 waves (always after a boss). Two matching upgrades trigger a <b>synergy</b>. Collect the right upgrades for your weapon and an <b>evolution</b> card appears (one per run).</li><li>Boss every 5 waves; from wave 10 two bosses can show up together. Beat wave 20 for <b>Breakout</b>, then keep going endless.</li><li>Special waves (asteroids, bullet hell, bounty, beacon, convoy), enemy squads (sniper nests, kamikaze rushes, shield walls…), elites with affixes, and random events every 25–40 s from wave 4: supply drops, wormholes, solar wind, black holes, rifts, dust storms, hunters, eclipses, meteor showers. <b>Events and arena hazards hit everyone</b>: solar storms, geysers, ice spikes, toxic pools, EMP rings, pressure zones and black holes hurt enemies too, so use them.</li><li>Every enemy attacks: swarmers explode on contact, tanks lob shells, wardens block from the front, snipers line up 1.4 s shots, mortars mark your landing spot, kamikazes rush you, hexers slow you… Purple dashed lines are lasers, orange rings are mines.</li></ul>
+<h3>Weapons, ships, upgrades</h3><ul><li>Nine weapons (blaster, flamethrower, frost beam, arc chain, laser, blade, scatter cannon, missile launcher, venom cannon). The same upgrade does different things per weapon: ricochet makes bullets bounce, but turns flames into fire pools, lets the blade throw a slash wave and doubles pellet range. Synergies also work on non-bullet weapons (Ember ignites on beam / swing hits, Bullet wall boosts reflected beams by 50% and adds an arc target). Check the hangar.</li><li>Nine ships with real playstyles: Wasp blinks every 1.2 s with an explosion, Bastion blocks from the front and shield-bashes, Carrier fights with drones, Ronin is melee only, Wraith has near-infinite blinks but no shields, Engineer drops turrets when dashing, Phoenix is reborn once per run and leaves a fire trail, Reaper grows stronger with every kill (and loses marks when hit).</li></ul>
 <h3>Co-op (up to 4)</h3><ul><li>Create a room → share the 4-letter code or invite link → host starts. Public rooms and quick match are on the menu. Stay near a downed teammate 3 s to revive; reconnect within 15 s after a drop.</li></ul>
 <h3>Progression</h3><ul><li>Runs earn <b>stardust</b> to unlock ships, weapons, skins and perks. Daily quests, weekly quests and achievements pay extra dust. The daily challenge uses the same seed for everyone, once per day.</li></ul>`,
+  about: `<h3>What is this game</h3>
+<p><b>Stardust Breakout (星塵突圍)</b> is a free neon 2D co-op space shooter that runs right in your browser, made by <b>Vanture Co., Ltd.</b> No download, no sign-up, no ads; playable on desktop and phones, with up to 4 players in co-op.</p>
+<h3>Features</h3>
+<ul>
+<li><b>Six arenas</b>: Deep space, Inferno, Mercury, Venom, Abyss and Glacier, each with its own hazards (void rifts, lava, solar storms, toxic fog, currents, blizzards) and native creatures; elemental affinities change damage.</li>
+<li><b>Nine ships</b>: Falcon, Wasp, Bastion, Carrier, Ronin, Wraith, Engineer, Phoenix and Reaper, each with a distinct mechanic (blink strikes, front shield, drone fleet, pure melee, endless blinks, turrets, rebirth, snowballing marks).</li>
+<li><b>Nine weapons</b>: Blaster, Flamethrower, Frost beam, Arc chain, Laser, Blade, Scatter cannon, Missile launcher and Venom cannon; the same upgrade behaves differently on each weapon, and meeting the requirements unlocks a weapon evolution.</li>
+<li><b>Six active skills</b>: Missile rain, Nuke, Time stop, Aegis pulse, Singularity and Overdrive, charged by kills.</li>
+<li><b>Every enemy attacks</b> and telegraphs its skills with a warning mark; elites carry affixes, four boss types, and random events (supply drops, wormholes, black holes, eclipses, meteor showers…) plus arena hazards hit everyone, enemies included.</li>
+<li><b>Boss rush</b> (bosses only, 1–6 at random, 8 waves, ×1.5 rewards), <b>daily challenge</b> (same rules worldwide) and <b>global leaderboards</b> (solo / co-op / daily, all-time / weekly).</li>
+<li><b>Meta progression</b>: stardust unlocks ships, weapons, skills, skins and permanent perks; daily and weekly quests, achievements and a codex.</li>
+</ul>
+<h3>FAQ</h3>
+<p><b>Do I need to download or sign up?</b> No, open the URL and play. Progress is tied to an anonymous browser account; move it to another device with the transfer code in the hangar.</p>
+<p><b>Does it work on mobile?</b> Yes, in landscape: drag the left half to move, the right half to aim and fire. On iPhone use Safari “Add to Home Screen” for full screen.</p>
+<p><b>How do I play with friends?</b> Create a room, share the 4-letter code or invite link, and the host launches; or use public rooms and quick match.</p>
+<p><b>What data is collected?</b> Only an anonymous ID and anonymous play events (wave reached, upgrades picked). No names, emails, ads or tracking cookies. See the privacy note.</p>
+<h3>Tech</h3>
+<p>Pure HTML5 Canvas 2D + Web Audio, server-authoritative 30 Hz simulation over WebSocket, installable as a PWA.</p>`,
   privacy: `<ul><li>This is a game made for fun. <b>No sign-up, and we never collect names, emails, phone numbers or any personal data.</b></li><li>On first visit an anonymous random ID is generated in your browser to store scores, dust and unlocks. Clearing browser data means a fresh identity; we cannot link it to a person.</li><li>Your pilot callsign is only shown on leaderboards and above your ship.</li><li>To balance the game we log <b>anonymous play events</b> (wave reached, upgrades chosen, ship used, phone or desktop). They are tied only to the anonymous ID, contain nothing identifying, and are never shared.</li><li>No ads, no tracking cookies, no third-party analytics.</li></ul>`,
 };
 export function registerZhHtml(id, html) { ZH_HTML[id] = html; }

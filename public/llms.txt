@@ -1,0 +1,27 @@
+# 星塵突圍 Stardust Breakout
+
+> Free neon 2D co-op arena space shooter that runs in the browser (HTML5 Canvas). Made by 凡圖有限公司 Vanture Co., Ltd. (https://getvanture.com). No download, no sign-up, no ads. Up to 4 players. Traditional Chinese and English.
+
+- Play: https://game-stardust-breakthrough-production.up.railway.app/ (English UI: https://game-stardust-breakthrough-production.up.railway.app/?lang=en)
+- Publisher: Vanture Co., Ltd. — https://getvanture.com
+- Source: https://github.com/jimmylee719/game-stardust-breakthrough
+
+## Facts
+
+- Genre: arena / twin-stick shoot 'em up with roguelite upgrades; single player, co-op up to 4, daily challenge, boss rush, global leaderboards.
+- Arenas (6): Deep space, Inferno, Mercury, Venom, Abyss, Glacier — each with unique hazards (void rifts, lava and geysers, gravity wells and solar storms, toxic fog, currents and pressure zones, blizzards and ice spikes) and native creatures. Elemental affinities (kinetic / fire / ice / plasma / light / toxic vs neutral / fire / ice / toxic / water / plasma / void) change damage.
+- Ships (9): Falcon (adaptive), Wasp (blink strike), Bastion (front shield + shield bash), Carrier (drone fleet, cannot use the blade), Ronin (blade only), Wraith (endless blinks, no shield), Engineer (turrets on dash), Phoenix (rebirth once per run + fire trail), Reaper (harvest marks: stronger with each kill, lose half when hit).
+- Weapons (9): Blaster, Flamethrower, Frost beam, Arc chain, Laser, Blade, Scatter cannon, Missile launcher, Venom cannon. Each reacts differently to the same upgrades (pierce / ricochet / homing / big shot / spread / rapid) and has one evolution (Railgun, Hellfire, Absolute zero, Thunderstorm, Solar lance, Phantom dance, Dragon breath, Cluster missiles, Plague).
+- Active skills (6), charged by kills: Missile rain, Nuke, Time stop, Aegis pulse, Singularity, Overdrive.
+- Enemies: every enemy type attacks and telegraphs skills with a "!" mark; elites carry affixes; four boss types (Annihilator, Hive, Phantom, Titan). Random events every 25–40 s from wave 4 (supply drop, wormhole, solar wind, black hole, rift, dust storm, hunter, eclipse, meteor shower); events and arena hazards are indiscriminate and hurt enemies too.
+- Progression: 20 waves to "break out", then endless. Upgrade every 2 waves (13 upgrades, 7 synergies). Stardust (meta currency) unlocks ships, weapons, skills, skins and perks; daily / weekly quests, achievements, codex.
+- Controls: WASD / arrows move, mouse aim, left button fire, Shift dash, Space blink, E / right-click skill, Esc pause. Touch: left half move, right half aim & fire, buttons for dash / blink / skill.
+- Privacy: anonymous browser account only; no personal data, no ads, no tracking cookies; transfer code moves progress between devices.
+- Tech: pure HTML5 Canvas 2D + Web Audio, Node.js + WebSocket server-authoritative 30 Hz simulation, PWA installable.
+
+## FAQ
+
+- Is it free? Yes, completely free with no ads or purchases.
+- Do I need an account? No.
+- Can I play on mobile? Yes, landscape, touch controls; iPhone: Safari "Add to Home Screen" for full screen.
+- How many players? 1–4 (co-op rooms with a 4-letter code, public rooms, quick match).

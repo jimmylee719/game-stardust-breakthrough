@@ -1,0 +1,8 @@
+# 星塵突圍 Stardust Breakout — https://game-stardust-breakthrough-production.up.railway.app
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin.html
+Disallow: /health
+
+Sitemap: https://game-stardust-breakthrough-production.up.railway.app/sitemap.xml
