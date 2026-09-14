@@ -363,4 +363,24 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (!(a > 0)) fail('反彈雷射應打到身後的敵人'); if (!(b > a * 1.3)) fail(`彈幕牆應讓反射光束傷害提高：${a.toFixed(1)} → ${b.toFixed(1)}`);
   console.log('synergy fallbacks ok');
 }
+// 27. 探索任務：地圖決定性、地形擋玩家 / 子彈、敵人在視野外環帶生成、中繼站啟動 → 撤離點 → 撤離成功
+{
+  const { genMap, resolveObstacles, obstacleAt, MISSION } = await import('../shared/map.js');
+  const a = genMap(12345, 'inferno'), b = genMap(12345, 'inferno');
+  if (JSON.stringify(a.obstacles) !== JSON.stringify(b.obstacles) || a.objectives.length !== MISSION.objectives) fail('同種子應生成同一張地圖');
+  const M = mk({}); startRun(M.world, { mission: true, arena: 'space' }); M.world.timers.length = 0; M.world.enemies.length = 0; M.world.hazardCd = 999; M.world.eventCd = 999; M.world.ambientCd = 999; M.world.patrolCd = 999;
+  const p = M.world.players[0]; if (M.world.W !== MISSION.W || !M.world.obstacles.length) fail('任務模式應是大地圖 + 地形');
+  const ob = M.world.obstacles[0]; p.x = ob.x; p.y = ob.y; p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; step(M.world, 2);
+  if (Math.hypot(p.x - ob.x, p.y - ob.y) < ob.r + p.r - 1) fail('玩家不該站在地形裡');
+  p.x = ob.x - ob.r - 120; p.y = ob.y; p.input = { ix: 0, iy: 0, angle: 0, fire: true, dash: false }; step(M.world, 40);
+  if (M.world.bullets.some(bb => obstacleAt(M.world.obstacles, bb.x, bb.y, 0))) fail('子彈不該穿進地形');
+  p.input.fire = false; M.world.patrolCd = 0; step(M.world, 90);
+  if (!M.world.enemies.length) fail('巡邏隊應生成'); if (M.world.enemies.some(e => Math.hypot(e.x - p.x, e.y - p.y) < 650)) fail('敵人應在視野外生成');
+  M.world.enemies.length = 0; M.world.timers.length = 0; M.world.patrolCd = 999;
+  for (const o of M.world.objectives) { p.x = o.x; p.y = o.y; step(M.world, Math.ceil(MISSION.activate * 60) + 10); if (!o.done) fail('站在中繼站裡應啟動'); if (M.world.scene === 'upgrade') { chooseUpgrade(M.world, 1, 0, fx); } M.world.patrolCd = 999; M.world.enemies.length = 0; M.world.timers.length = 0; }
+  if (!M.world.extract.active) fail('三座中繼站啟動後撤離點應出現');
+  p.x = M.world.extract.x; p.y = M.world.extract.y; step(M.world, Math.ceil(MISSION.extract * 60) + 10);
+  if (M.world.scene !== 'victory' || !M.world.won) fail(`全員在撤離點撐夠久應撤離成功，實際 ${M.world.scene}`);
+  console.log('mission ok:', M.world.obstacles.length, 'obstacles, score', M.world.score);
+}
 console.log('PASS');

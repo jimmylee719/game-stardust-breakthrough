@@ -10,7 +10,7 @@ const log = [];
 const fx = { ...NULL_FX, text: (x, y, t) => log.push(`[t=${world.time.toFixed(1)}s] ${t}`), local: () => fx };
 const world = createWorld();
 for (let i = 0; i < nPlayers; i++) addPlayer(world, { id: i + 1, name: `Bot${i + 1}`, local: i === 0, ship: args.ship || 'falcon', weapon: args.weapon || 'blaster', skill: args.skill || 'swarm' });
-startRun(world, { startWave: Number(args.wave) || 0, arena: args.arena || 'space', bossRush: !!args.boss });
+startRun(world, { startWave: Number(args.wave) || 0, arena: args.arena || 'space', bossRush: !!args.boss, mission: !!args.mission });
 if (args.god) for (const p of world.players) Object.assign(p, { pierce: 3, bounce: 2, homing: 3, explosive: 60, lifesteal: 6, bulletSize: 2, maxHp: 1e6, hp: 1e6 }) && [0, 1, 2].forEach(i => p.drones.push({ a: i, cd: 0, x: p.x, y: p.y }));
 
 const dt = 1 / 60;

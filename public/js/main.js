@@ -156,7 +156,7 @@ function syncSeoMeta() {
 function refreshLangUi() { syncSeoMeta(); $('lang-toggle').textContent = getLang() === 'zh' ? 'EN' : '中'; $('opt-lang').value = getLang(); renderMenuArenas(); renderDust(); bestEl.textContent = best > 0 ? tr(`最高 ${best}`) : ''; requestAnimationFrame(fitMenu); }
 onLangChange(refreshLangUi); refreshLangUi();
 
-function beginSolo(startWave = 0, daily = null, bossRush = false) {
+function beginSolo(startWave = 0, daily = null, bossRush = false, mission = false) {
   ensureAudio(); goFullscreen();
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
@@ -164,9 +164,10 @@ function beginSolo(startWave = 0, daily = null, bossRush = false) {
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
   addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(), skill: currentSkill() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false; metaReported = false;
-  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush });
+  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush, mission });
+  if (mission) toast(tr('探索任務：啟動三座中繼站，再到撤離點全員撐 8 秒。地形可以掩護，敵人會從視野外湧來'), 5000);
   runStartedAt = performance.now();
-  track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: bossRush });
+  track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: bossRush, mission });
   if (bossRush) toast(tr('Boss 挑戰：每一波都只有 Boss（1–6 隻隨機），連續 8 波通關，分數與星塵 ×1.5'), 4500);
   for (const el of OVERLAYS) el.hidden = true;
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
@@ -439,9 +440,12 @@ function beginOnline(code) {
 
 $('solo').addEventListener('click', () => beginSolo(0));
 $('solo-boss').addEventListener('click', () => beginSolo(0, null, true));
+$('solo-mission').addEventListener('click', () => beginSolo(0, null, false, true));
+/** 大廳的模式選擇（房主）：normal / boss / mission */
+function lobbyMode() { const el = document.querySelector('input[name="lobby-mode"]:checked'); return el ? el.value : 'normal'; }
 $('create').addEventListener('click', () => beginOnline(''));
 $('join').addEventListener('click', () => { const c = codeInput.value.trim().toUpperCase(); if (!c) { errEl.textContent = '請輸入房號'; codeInput.focus(); return; } beginOnline(c); });
-$('lobby-start').addEventListener('click', () => net?.start($('lobby-boss').checked));
+$('lobby-start').addEventListener('click', () => net?.start(lobbyMode()));
 $('lobby-public').addEventListener('change', e => net?.send({ t: 'public', on: e.target.checked }));
 $('lobby-leave').addEventListener('click', () => showMenu());
 $('copy-link').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('room-link').href); $('copy-link').textContent = '已複製！'; setTimeout(() => $('copy-link').textContent = '複製邀請連結', 1500); } catch {} });
@@ -535,7 +539,7 @@ function finishSoloRun() {
   track('run_end', runEndProps(world.abandoned ? 'abandon' : world.won ? (world.endless ? 'endless' : 'victory') : 'dead'));
   if (world.score > best) { best = world.score; lsSet('stardust_best', String(best)); }
   const kind = runKind, day = dailyInfo?.key || null;
-  submitRun(world.score, world.wave, { mode: kind, day, dustBonus: world.dustBonus || 0, boss: !!(world.mods && world.mods.bossRush) }).then(r => {
+  submitRun(world.score, world.wave, { mode: kind, day, dustBonus: world.dustBonus || 0, boss: !!(world.mods && world.mods.bossRush), mission: !!(world.mods && world.mods.mission) }).then(r => {
     if (!r) return;
     lastResult = { rank: r.rank, mode: kind, dust: r.dust };
     renderDust();
@@ -581,7 +585,7 @@ attachInput(canvas, renderer.toWorld, {
     if (code === 'KeyM') toggleMute();
     if (code === 'KeyP' && mode === 'solo') { if (world.scene === 'pause') closePause(); else openPause(); }
     if (world.scene === 'victory') { if (code === 'Enter') victoryChoice(true); return; }
-    if (code === 'Enter' && world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); }
+    if (code === 'Enter' && world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start(lobbyMode()); }
     if (world.scene === 'upgrade') {
       const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2, Digit0: -1, Numpad0: -1 }[code];
       if (n !== undefined) pickUpgrade(n);
@@ -591,7 +595,7 @@ attachInput(canvas, renderer.toWorld, {
     ensureAudio();
     if (button !== 0 || overlayOpen()) return;
     if (world.scene === 'victory') { victoryChoice(true); return; }
-    if (world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start($('lobby-boss').checked); return; }
+    if (world.scene === 'gameover') { if (leftTeam || runKind === 'daily') showMenu(); else if (mode === 'solo') beginSolo(0); else if (hostId === myId) net?.start(lobbyMode()); return; }
     if (world.scene === 'upgrade') {
       const i = renderer.upgradeCardRects().findIndex(r => mouse.x >= r.x && mouse.x <= r.x + r.w && mouse.y >= r.y && mouse.y <= r.y + r.h);
       if (i >= 0) { pickUpgrade(i); return; }
@@ -605,6 +609,7 @@ attachInput(canvas, renderer.toWorld, {
 });
 /** 勝利畫面：true = 繼續無盡模式，false = 結束並結算（多人只有房主能決定） */
 function victoryChoice(endless) {
+  if (world.mods && world.mods.mission) endless = false;   // 探索任務沒有無盡模式
   if (mode === 'solo') { if (endless) { continueEndless(world); toast('無盡模式：敵人會持續變強', 3000); } else { finishRun(world); fx.sfx('gameover'); finishSoloRun(); } }
   else if (hostId === myId) net?.send({ t: endless ? 'endless' : 'finish' });
 }
@@ -625,6 +630,7 @@ function loop(now) {
 function frame(now) {
   const rawDt = Math.min(0.05, (now - last) / 1000); last = now;
   uiTime += rawDt; trackFrame((now - last + rawDt * 1000) / 1000);
+  renderer.refreshMouse(mouse);   // 攝影機移動時滑鼠的世界座標也要跟著變
   const p = me();
 
   if (mode === 'online' && net) {

@@ -13,7 +13,7 @@ export function connect({ name, code, token, acct, ship, weapon, skin, skill, on
     send(m) { if (net.ws && net.ws.readyState === WebSocket.OPEN) net.ws.send(JSON.stringify(m)); },
     sendInput(inp) { net.send({ t: 'input', ...inp }); },
     chooseUpgrade(idx) { net.send({ t: 'upgrade', idx }); },
-    start(boss = false) { net.send({ t: 'start', boss }); },
+    start(mode = 'normal') { net.send({ t: 'start', boss: mode === 'boss' || mode === true, mission: mode === 'mission' }); },
     close() { net.closedByUser = true; try { net.ws?.close(); } catch {} },
     applyTo(world, now) {
       if (!net.curr) return [];

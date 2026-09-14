@@ -1,5 +1,6 @@
 // 世界快照：伺服器每 tick 把世界壓成可 JSON 化的物件；客戶端還原並做插值。
-import { UPGRADES, EVOLUTIONS } from './constants.js';
+import { UPGRADES, EVOLUTIONS, WORLD } from './constants.js';
+import { genMap } from './map.js';
 import { angleDiff, lerp } from './math.js';
 
 const r1 = v => Math.round(v * 10) / 10;
@@ -9,7 +10,10 @@ export function snapshotWorld(world) {
     scene: world.scene, time: r1(world.time), wave: world.wave, waveTimer: r1(world.waveTimer),
     score: world.score, combo: world.combo, comboTimer: r1(world.comboTimer), bossWarn: r1(world.bossWarn),
     waveMode: world.waveMode, modeTimer: r1(world.modeTimer), abandoned: world.abandoned || undefined, won: world.won || undefined, endless: world.endless || undefined,
-    arena: world.arena, waveTheme: world.waveTheme || undefined, event: world.event ? { id: world.event.id, t: r1(world.event.t) } : null, dustBonus: world.dustBonus || undefined,
+    arena: world.arena, mods: world.mods, waveTheme: world.waveTheme || undefined,
+    map: world.mods.mission ? { seed: world.mapSeed } : undefined, missionT: world.mods.mission ? r1(world.missionT) : undefined, alarm: world.alarm > 0 ? r1(world.alarm) : undefined,
+    objectives: world.mods.mission ? world.objectives.map(o => ({ x: o.x, y: o.y, r: o.r, p: r1(o.progress), done: o.done, active: o.active || undefined })) : undefined,
+    extract: world.mods.mission && world.extract ? { x: world.extract.x, y: world.extract.y, r: world.extract.r, t: r1(world.extract.t), active: world.extract.active } : undefined, event: world.event ? { id: world.event.id, t: r1(world.event.t) } : null, dustBonus: world.dustBonus || undefined,
     crate: world.crate ? { kind: 'crate', x: world.crate.x, y: world.crate.y, r: world.crate.r, hp: Math.round(world.crate.hp), maxHp: world.crate.maxHp, hitFlash: world.crate.hitFlash > 0 ? 1 : 0, alive: world.crate.alive } : null,
     hole: world.hole ? { x: world.hole.x, y: world.hole.y, r: world.hole.r, life: r1(world.hole.life) } : null,
     wells: world.wells.map(w => ({ id: w.id, x: w.x, y: w.y, r: w.r, life: r1(w.life) })),
@@ -59,6 +63,9 @@ export function applySnapshot(world, prev, curr, t) {
   const s = curr;
   Object.assign(world, { scene: s.scene, time: s.time, wave: s.wave, waveTimer: s.waveTimer, score: s.score, combo: s.combo, comboTimer: s.comboTimer, bossWarn: s.bossWarn, waveMode: s.waveMode, modeTimer: s.modeTimer, abandoned: !!s.abandoned, won: !!s.won, endless: !!s.endless,
     arena: s.arena || 'space', waveTheme: s.waveTheme || null, event: s.event || null, dustBonus: s.dustBonus || 0, crate: s.crate || null, hole: s.hole || null, wells: s.wells || [], flare: s.flare || null, drag: s.drag || 1, chrono: s.chrono || 0, blizzard: s.blizzard || 0, wind: s.wind || null, eclipse: s.eclipse || 0 });
+  world.mods = s.mods || {};
+  if (s.map) { if (world.mapSeed !== s.map.seed) { const m = genMap(s.map.seed, s.arena || 'space'); world.mapSeed = s.map.seed; world.W = m.W; world.H = m.H; world.obstacles = m.obstacles; world.start = m.start; } world.objectives = s.objectives || []; world.extract = s.extract || null; world.missionT = s.missionT || 0; world.alarm = s.alarm || 0; }
+  else if (world.mapSeed) { world.mapSeed = 0; world.W = WORLD.W; world.H = WORLD.H; world.obstacles = []; world.objectives = []; world.extract = null; world.start = null; }
   if (s.stats) world.stats = s.stats;
   world.beacon = s.beacon && prev && prev.beacon ? { ...s.beacon, x: lerp(prev.beacon.x, s.beacon.x, t), y: lerp(prev.beacon.y, s.beacon.y, t) } : s.beacon;
   world.zones = (s.zones || []).slice(); world.safeZones = (s.safeZones || []).slice(); world.doom = s.doom || null;
