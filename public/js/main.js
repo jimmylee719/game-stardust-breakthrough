@@ -674,7 +674,16 @@ if (codeInput.value) $('join').click(); // 用邀請連結進來：自動加入
 requestAnimationFrame(loop);
 
 // PWA：可安裝、離線也能開單人
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// Service worker：註冊後主動檢查更新（回到分頁時也檢查）；新版本接管時若在首頁就直接重新整理，遊玩中則等回到首頁再重整
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  let hadController = !!navigator.serviceWorker.controller, reloadPending = false;
+  navigator.serviceWorker.register('sw.js').then(reg => { reg.update().catch(() => {}); document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); }); }).catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }   // 第一次安裝不用重整
+    if (world.scene === 'menu' && menuEl && !menuEl.hidden) location.reload(); else { reloadPending = true; toast(tr('遊戲有新版本，回到首頁會自動更新'), 5000); }
+  });
+  setInterval(() => { if (reloadPending && world.scene === 'menu' && !menuEl.hidden) location.reload(); }, 2000);
+}
 
 // 除錯 / 自動測試用
 window.__dbg = () => ({ world, vfx, me: me(), mode, net, predictor, hostId, arena });

@@ -166,7 +166,7 @@ Object.assign(EXACT, {
   '選擇一項強化（點擊卡片或按 1 / 2 / 3）': 'Pick an upgrade (click a card or press 1 / 2 / 3)', '突圍成功': 'BREAKOUT!', '無盡模式終結': 'Endless run over', '已離開戰鬥': 'Left the fight', '撤退': 'Retreated', '全員陣亡': 'Squad wiped', '艦艇損毀': 'Ship destroyed',
   '合作排行榜': 'Co-op leaderboard', '今日挑戰': 'Daily challenge', '單人排行榜': 'Solo leaderboard', '合作成績會在隊伍結束時一併結算，你的擊殺數會計入': 'Co-op results are tallied when the team finishes; your kills count',
   '每日挑戰結束 · L 今日排行榜 · 點擊 或 Esc 回到選單': 'Daily challenge over · L today\'s board · click or Esc for menu', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到大廳': 'Click or Enter to play again · L leaderboard · Esc lobby', '等待房主再開一局 · L 排行榜 · Esc 回到大廳': 'Waiting for the host to restart · L leaderboard · Esc lobby', '點擊 或 按 Enter 再來一局 · L 排行榜 · Esc 回到選單': 'Click or Enter to play again · L leaderboard · Esc menu',
-  '暫停': 'Paused', '按 P 繼續': 'Press P to resume', '關於遊戲': 'About the game',
+  '暫停': 'Paused', '按 P 繼續': 'Press P to resume', '關於遊戲': 'About the game', '遊戲有新版本，回到首頁會自動更新': 'A new version is ready — it will load when you return to the home screen',
   '🧭 探索任務': '🧭 Expedition', '探索任務': 'Expedition', '一般波次': 'Standard waves', '中繼站': 'Relay', '撤離點': 'Extraction', '撤離成功': 'Extracted', '前往撤離點': 'Head to the extraction point', '⚠ 警戒：敵人增援中': '⚠ Alert: reinforcements incoming',
   '中繼站啟動中…守住！': 'Relay activating… hold the position!', '全部啟動！前往撤離點': 'All relays online! Head to extraction', 'Enter / Esc 結算': 'Enter / Esc to finish',
   '探索任務：啟動三座中繼站，再到撤離點全員撐 8 秒。地形可以掩護，敵人會從視野外湧來': 'Expedition: activate three relays, then hold the extraction point for 8 s with the whole team. Terrain gives cover; enemies pour in from beyond your view',
