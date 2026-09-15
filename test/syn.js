@@ -367,8 +367,8 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
 {
   const { genMap, resolveObstacles, obstacleAt, MISSION } = await import('../shared/map.js');
   const a = genMap(12345, 'inferno'), b = genMap(12345, 'inferno');
-  if (JSON.stringify(a.obstacles) !== JSON.stringify(b.obstacles) || a.objectives.length !== MISSION.objectives) fail('同種子應生成同一張地圖');
-  const M = mk({}); startRun(M.world, { mission: true, arena: 'space' }); M.world.timers.length = 0; M.world.enemies.length = 0; M.world.hazardCd = 999; M.world.eventCd = 999; M.world.ambientCd = 999; M.world.patrolCd = 999;
+  if (JSON.stringify(a.obstacles) !== JSON.stringify(b.obstacles) || a.sites.length !== MISSION.objectives) fail("同種子應生成同一張地圖");
+  const M = mk({}); startRun(M.world, { mission: true, missionType: 'relay', arena: 'space' }); M.world.timers.length = 0; M.world.enemies.length = 0; M.world.hazardCd = 999; M.world.eventCd = 999; M.world.ambientCd = 999; M.world.patrolCd = 999;
   const p = M.world.players[0]; if (M.world.W !== MISSION.W || !M.world.obstacles.length) fail('任務模式應是大地圖 + 地形');
   const ob = M.world.obstacles[0]; p.x = ob.x; p.y = ob.y; p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; step(M.world, 2);
   if (Math.hypot(p.x - ob.x, p.y - ob.y) < ob.r + p.r - 1) fail('玩家不該站在地形裡');
@@ -382,5 +382,29 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   p.x = M.world.extract.x; p.y = M.world.extract.y; step(M.world, Math.ceil(MISSION.extract * 60) + 10);
   if (M.world.scene !== 'victory' || !M.world.won) fail(`全員在撤離點撐夠久應撤離成功，實際 ${M.world.scene}`);
   console.log('mission ok:', M.world.obstacles.length, 'obstacles, score', M.world.score);
+}
+// 28. 任務類型：蟲巢（拆掉才算）、Boss 據點（靠近才出、擊破算）、殲滅（計數達標）
+{
+  const { MISSION } = await import('../shared/map.js');
+  const quiet = A => { A.world.timers.length = 0; A.world.enemies = A.world.enemies.filter(e => e.type === 'nest'); A.world.hazardCd = 999; A.world.eventCd = 999; A.world.ambientCd = 999; A.world.patrolCd = 999; };
+  const N = mk({}); startRun(N.world, { mission: true, missionType: 'nests', arena: 'space', seed: 777 }); quiet(N); N.p = N.world.players[0];
+  const nests = N.world.enemies.filter(e => e.type === 'nest'); if (nests.length !== 3 || N.world.objectives.length !== 3) fail('拆巢任務應有 3 座蟲巢');
+  N.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; N.p.x = nests[0].x - 400; N.p.y = nests[0].y; step(N.world, 60 * 8);
+  if (!N.world.enemies.some(e => e.type !== 'nest')) fail('蟲巢應生出敵人');
+  for (const e of nests) { e.hp = 0; const idx = N.world.enemies.indexOf(e); if (idx >= 0) { N.world.enemies[idx].hp = 0; } }
+  N.p.x = 100; N.p.y = 100; N.world.enemies = N.world.enemies.filter(e => e.type === 'nest'); N.world.timers.length = 0;
+  // 讓蟲巢死亡：用 hp 0 + 一顆子彈命中最簡單 → 直接呼叫 update 讓 hp<=0 的敵人被清掉
+  for (const e of nests) { e.hp = 1; } N.p.x = nests[0].x - 200; N.p.y = nests[0].y; N.p.input.fire = true; N.p.input.angle = 0; step(N.world, 120); N.p.input.fire = false;
+  if (!N.world.objectives[0].done) fail('打掉蟲巢 1 應完成目標 1');
+  const B = mk({}); startRun(B.world, { mission: true, missionType: 'boss', arena: 'space', seed: 777 }); quiet(B); B.p = B.world.players[0];
+  const site = B.world.objectives[0]; if (site.kind !== 'boss') fail('Boss 任務應有據點');
+  B.p.input = { ix: 0, iy: 0, angle: 0, fire: false, dash: false }; B.p.x = site.x; B.p.y = site.y + 200; step(B.world, 5);
+  if (!site.spawned || !B.world.bosses.length) fail('靠近據點應出 Boss'); if (Math.abs(B.world.bosses[0].homeY - site.y) > 1) fail('Boss 應錨在據點');
+  for (const b of B.world.bosses.slice()) { b.hp = 0; b.dying = 0.01; } step(B.world, 120);
+  if (!site.done && B.world.bosses.length) fail('Boss 全滅後據點應肅清');
+  const K = mk({}); startRun(K.world, { mission: true, missionType: 'exterminate', arena: 'space', seed: 777 }); quiet(K); K.p = K.world.players[0];
+  const ko = K.world.objectives[0]; if (ko.kind !== 'kill' || ko.need < 40) fail('殲滅任務應有擊殺目標');
+  ko.count = ko.need; step(K.world, 2); if (!ko.done || !K.world.extract.active) fail('殲滅達標應完成並開撤離點');
+  console.log('mission types ok');
 }
 console.log('PASS');

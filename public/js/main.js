@@ -9,6 +9,7 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects, trackFrame } 
 import { ensureAudio, toggleMute, isMuted, setMood, getMusicVolume, setMusicVolume, getSfxEnabled, setSfxEnabled } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
+import { MISSION_TYPES } from '../../shared/map.js';
 import { weaponAllowed, defaultWeaponFor, SKILLS, skillById, skillUnlocked, sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS, dayKey } from '../../shared/daily.js';
@@ -156,7 +157,10 @@ function syncSeoMeta() {
 function refreshLangUi() { syncSeoMeta(); $('lang-toggle').textContent = getLang() === 'zh' ? 'EN' : '中'; $('opt-lang').value = getLang(); renderMenuArenas(); renderDust(); bestEl.textContent = best > 0 ? tr(`最高 ${best}`) : ''; requestAnimationFrame(fitMenu); }
 onLangChange(refreshLangUi); refreshLangUi();
 
-function beginSolo(startWave = 0, daily = null, bossRush = false, mission = false) {
+/** 首頁選的任務類型（random = 依種子隨機） */
+function missionTypeChoice() { const el = document.querySelector('input[name="mtype"]:checked'); return el && el.value !== 'random' ? el.value : null; }
+function beginSolo(startWave = 0, daily = null, bossRush = false) {
+  const mission = true, missionType = bossRush ? 'boss' : daily ? null : missionTypeChoice();
   ensureAudio(); goFullscreen();
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
@@ -164,10 +168,10 @@ function beginSolo(startWave = 0, daily = null, bossRush = false, mission = fals
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
   addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(), skill: currentSkill() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false; metaReported = false;
-  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush, mission });
-  if (mission) toast(tr('探索任務：啟動三座中繼站，再到撤離點全員撐 8 秒。地形可以掩護，敵人會從視野外湧來'), 5000);
+  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush, mission, missionType, seed: daily ? daily.seed : 0 });
+  { const T = MISSION_TYPES[world.missionType]; if (T) toast(`${T.icon} ${tr(T.name)}：${tr(T.desc)}${bossRush ? tr('（Boss 挑戰：一次多隻，獎勵 ×1.5）') : ''}`, 5000); }
   runStartedAt = performance.now();
-  track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: bossRush, mission });
+  track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: bossRush, mission, type: world.missionType });
   if (bossRush) toast(tr('Boss 挑戰：每一波都只有 Boss（1–6 隻隨機），連續 8 波通關，分數與星塵 ×1.5'), 4500);
   for (const el of OVERLAYS) el.hidden = true;
   if (daily) toast('每日挑戰：' + daily.mods.map(id => DAILY_MODS.find(m => m.id === id)?.name).join(' + '), 3500);
@@ -440,8 +444,7 @@ function beginOnline(code) {
 
 $('solo').addEventListener('click', () => beginSolo(0));
 $('solo-boss').addEventListener('click', () => beginSolo(0, null, true));
-$('solo-mission').addEventListener('click', () => beginSolo(0, null, false, true));
-/** 大廳的模式選擇（房主）：normal / boss / mission */
+/** 大廳的任務選擇（房主）：random / relay / exterminate / nests / boss / bossrush */
 function lobbyMode() { const el = document.querySelector('input[name="lobby-mode"]:checked'); return el ? el.value : 'normal'; }
 $('create').addEventListener('click', () => beginOnline(''));
 $('join').addEventListener('click', () => { const c = codeInput.value.trim().toUpperCase(); if (!c) { errEl.textContent = '請輸入房號'; codeInput.focus(); return; } beginOnline(c); });

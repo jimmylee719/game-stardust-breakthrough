@@ -211,9 +211,8 @@
         <label for="name" data-i18n>飛行員代號</label>
         <input id="name" type="text" data-i18n-ph="輸入你的名字" placeholder="輸入你的名字" autocomplete="off" spellcheck="false">
         <div class="row main">
-          <button id="solo" class="primary" data-i18n>單人出擊</button>
-          <button id="solo-boss" class="boss" data-i18n>Boss 挑戰</button>
-          <button id="solo-mission" class="boss" data-i18n>🧭 探索任務</button>
+          <button id="solo" class="primary" data-i18n>🧭 單人出擊</button>
+          <button id="solo-boss" class="boss" data-i18n>👑 Boss 挑戰</button>
         </div>
         <div class="row meta">
           <button id="open-daily" data-i18n>📅 每日挑戰</button>
@@ -230,6 +229,8 @@
       <div class="col">
         <div class="divider tight"><span data-i18n>選擇場地</span></div>
         <div id="arena-cards" class="arenas"></div>
+        <div class="divider tight"><span data-i18n>任務類型</span></div>
+        <div id="mtype-row" class="check modes"><label><input type="radio" name="mtype" value="random" checked> <span data-i18n>🎲 隨機</span></label><label><input type="radio" name="mtype" value="relay"> <span data-i18n>📡 中繼站</span></label><label><input type="radio" name="mtype" value="exterminate"> <span data-i18n>💀 殲滅</span></label><label><input type="radio" name="mtype" value="nests"> <span data-i18n>🕳️ 拆巢</span></label><label><input type="radio" name="mtype" value="boss"> <span data-i18n>👑 Boss 據點</span></label></div>
         <div class="divider"><span data-i18n>與朋友連線（最多 4 人）</span></div>
         <div class="row">
           <button id="create" data-i18n>建立房間</button>
@@ -256,7 +257,7 @@
     <button id="copy-link" class="small" data-i18n>複製邀請連結</button>
     <ul id="lobby-players" class="players"></ul>
     <div id="lobby-arena-wrap"><div class="divider tight"><span data-i18n>選擇場地</span></div><div id="lobby-arena" class="arenas"></div></div>
-    <div id="lobby-boss-row" class="check modes" hidden><label><input type="radio" name="lobby-mode" value="normal" checked> <span data-i18n>一般波次</span></label><label><input type="radio" name="lobby-mode" value="boss"> <span data-i18n>Boss 挑戰</span></label><label><input type="radio" name="lobby-mode" value="mission"> <span data-i18n>🧭 探索任務</span></label></div>
+    <div id="lobby-boss-row" class="check modes" hidden><label><input type="radio" name="lobby-mode" value="random" checked> <span data-i18n>🎲 隨機</span></label><label><input type="radio" name="lobby-mode" value="relay"> <span data-i18n>📡 中繼站</span></label><label><input type="radio" name="lobby-mode" value="exterminate"> <span data-i18n>💀 殲滅</span></label><label><input type="radio" name="lobby-mode" value="nests"> <span data-i18n>🕳️ 拆巢</span></label><label><input type="radio" name="lobby-mode" value="boss"> <span data-i18n>👑 Boss 據點</span></label><label><input type="radio" name="lobby-mode" value="bossrush"> <span data-i18n>👑👑 Boss 挑戰</span></label></div>
     <label id="lobby-public-row" class="check" hidden><input id="lobby-public" type="checkbox"> <span data-i18n>公開房間（會出現在公開房間列表，讓其他玩家加入）</span></label>
     <button id="lobby-start" class="primary" hidden data-i18n>出擊</button>
     <div id="lobby-wait" class="wait" hidden data-i18n>等待房主開始…</div>
@@ -363,7 +364,7 @@
     <ul>
       <li>每 2 波三選一強化，Boss 擊破後必給。兩個特定升級各 1 級會啟動<b>組合技</b>；湊齊武器對應的升級會出現<b>武器進化</b>卡（一局一次）。</li>
       <li>每 5 波一隻 Boss，第 10 波起可能同時兩隻；擊破第 20 波的殲滅者 Ω 即<b>突圍成功</b>，可繼續無盡模式。</li>
-      <li><b>探索任務</b>：3 × 3 個畫面大的地圖、攝影機跟著你走。地圖上有會擋子彈與機體的地形（可以拿來掩護，反彈子彈會在地形上彈），敵人從視野外不斷湧來、威脅等級每 45 秒 +1。任務：站在三座中繼站各 6 秒把它們啟動（啟動中敵人加倍），全部啟動後撤離點會亮起，全員站進去撐 8 秒就撤離成功（分數 +3000、星塵 ×1.3）。右下小地圖看目標與隊友，畫面邊緣的金色箭頭指向最近的中繼站。</li>
+      <li><b>每一局都是任務</b>（沒有固定框框的競技場）：3 × 3 個畫面大的地圖、攝影機跟著你走。四種任務：📡 中繼站啟動、💀 殲滅（擊殺指定數量）、🕳️ 拆除蟲巢（蟲巢會不斷生敵，拆掉才停）、👑 Boss 據點（靠近據點 Boss 才現身；Boss 挑戰一次出好幾隻）。地圖上散落 8 個星塵礦點，撿到就是這局的額外星塵。地圖上有會擋子彈與機體的地形（可以拿來掩護，反彈子彈會在地形上彈），敵人從視野外不斷湧來、威脅等級每 45 秒 +1。任務：站在三座中繼站各 6 秒把它們啟動（啟動中敵人加倍），全部啟動後撤離點會亮起，全員站進去撐 8 秒就撤離成功（分數 +3000、星塵 ×1.3）。右下小地圖看目標與隊友，畫面邊緣的金色箭頭指向最近的中繼站。</li>
       <li>特殊波次（小行星帶、彈幕求生、懸賞獵殺、防衛信標、護送運輸艦）、敵方小隊（狙擊陣地、自爆蟲潮、盾牆推進…）、帶詞綴的精英，以及第 4 波起每 25–40 秒一次的隨機事件：補給空投、蟲洞、太陽風、黑洞、時空裂縫、星塵風暴、追獵者、日蝕、流星雨。<b>事件與場地危險都是無差別攻擊</b>：太陽風暴、火柱、冰刺、毒區、EMP、壓力區、黑洞也會打到敵人，可以利用。</li>
       <li>每個敵人都會攻擊：蟲群撞上就炸、重裝射重砲、護盾兵正面免疫、狙擊手瞄準 1.4 秒、迫擊砲先標記落點、自爆蟲貼身爆炸、咒術師放減速咒印……紫色虛線是雷射、橘色圓環是地雷。</li>
     </ul>

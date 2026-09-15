@@ -6,7 +6,7 @@ import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
 import { themedContext, getTheme, onThemeChange } from './themes.js';
 import { touch, touchLayout, insets } from './input.js';
-import { MISSION, TERRAIN } from '../../shared/map.js';
+import { MISSION, MISSION_TYPES, TERRAIN } from '../../shared/map.js';
 
 export function createRenderer(canvas, world) {
   const raw = canvas.getContext('2d');
@@ -29,6 +29,7 @@ export function createRenderer(canvas, world) {
     }
     const k = 1 - Math.exp(-dt * 7);
     cam.x += (cam.tx - cam.x) * k; cam.y += (cam.ty - cam.y) * k;
+    if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y)) { cam.x = cam.tx = Number.isFinite(cam.tx) ? cam.tx : 0; cam.y = cam.ty = Number.isFinite(cam.ty) ? cam.ty : 0; }   // 防呆：任何 NaN 都不能污染攝影機
   }
   const vis = (x, y, m = 80) => x > cam.x - m && x < cam.x + W + m && y > cam.y - m && y < cam.y + H + m;
   /** 前景視差圖層（public/img/fg-<arena>.webp，黑底 + screen 混合當透明層）；底部裁掉 AI 常畫的地平線 */
@@ -107,7 +108,23 @@ export function createRenderer(canvas, world) {
     if (!world.mods || !world.mods.mission) return;
     ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     (world.objectives || []).forEach((o, i) => {
-      if (!vis(o.x, o.y, o.r + 80)) return;
+      if (o.kind === 'kill' || !vis(o.x, o.y, o.r + 120)) return;
+      if (o.kind === 'nest') {
+        // 蟲巢本體是敵人（drawEnemies 畫）；這裡只畫據點範圍與標籤
+        const c = o.done ? '#3ddc84' : '#c77dff';
+        ctx.shadowColor = c; ctx.shadowBlur = 10; ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.setLineDash([6, 10]); ctx.lineDashOffset = time * 30; ctx.globalAlpha = 0.6;
+        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0; ctx.fillStyle = c; ctx.font = 'bold 14px sans-serif'; ctx.fillText(o.done ? tr(`蟲巢 ${i + 1} ✔`) : tr(`蟲巢 ${i + 1}`), o.x, o.y - o.r - 18);
+        return;
+      }
+      if (o.kind === 'boss') {
+        const c = o.done ? '#3ddc84' : '#ff3860';
+        ctx.shadowColor = c; ctx.shadowBlur = 14; ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.setLineDash([14, 12]); ctx.lineDashOffset = -time * 30; ctx.globalAlpha = o.spawned ? 0.35 : 0.7;
+        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        if (!o.spawned) { ctx.fillStyle = c; ctx.font = 'bold 40px sans-serif'; ctx.fillText('👑', o.x, o.y); ctx.font = 'bold 15px sans-serif'; ctx.fillText(tr('Boss 據點'), o.x, o.y - 40); }
+        else if (o.done) { ctx.shadowBlur = 0; ctx.fillStyle = c; ctx.font = 'bold 15px sans-serif'; ctx.fillText(tr('據點已肅清'), o.x, o.y - 40); }
+        return;
+      }
       const c = o.done ? '#3ddc84' : o.active ? '#fff' : '#ffd166', prog = (o.p ?? o.progress ?? 0) / MISSION.activate;
       ctx.shadowColor = c; ctx.shadowBlur = 16; ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.setLineDash([10, 8]); ctx.lineDashOffset = -time * 40;
       ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
@@ -140,7 +157,9 @@ export function createRenderer(canvas, world) {
     const objs = world.objectives || [], done = objs.filter(o => o.done).length, ex = world.extract;
     ctx.textAlign = 'center'; ctx.font = 'bold 15px sans-serif';
     const t = Math.floor(world.missionT || 0), mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, '0');
-    ctx.fillStyle = '#fff'; ctx.fillText(`🧭 ${ex && ex.active ? tr('前往撤離點') : tr(`啟動中繼站 ${done} / ${objs.length}`)}  ·  ${mm}:${ss}`, W / 2, world.waveMode || world.event ? 82 : 24);
+    const T = MISSION_TYPES[world.missionType] || MISSION_TYPES.relay, ko = objs.find(o => o.kind === 'kill'), bo = objs.find(o => o.kind === 'boss');
+    const goal = ex && ex.active ? tr('前往撤離點') : ko ? tr(`殲滅 ${ko.count || 0} / ${ko.need || 0}`) : bo ? (bo.spawned ? tr('擊破據點的 Boss') : tr('前往 Boss 據點')) : world.missionType === 'nests' ? tr(`拆除蟲巢 ${done} / ${objs.length}`) : tr(`啟動中繼站 ${done} / ${objs.length}`);
+    ctx.fillStyle = '#fff'; ctx.fillText(`${T.icon} ${tr(T.name)} · ${goal}  ·  ${mm}:${ss}`, W / 2, world.waveMode || world.event ? 82 : 24);
     if (world.alarm > 0) { ctx.fillStyle = `rgba(255,56,96,${0.6 + 0.4 * Math.sin(time * 8)})`; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('⚠ 警戒：敵人增援中'), W / 2, 46); }
     // 小地圖
     const mw = 210, mh = Math.round(mw * world.H / world.W), mx = W - mw - 24, my = H - mh - 24;
@@ -150,7 +169,8 @@ export function createRenderer(canvas, world) {
     ctx.fillStyle = 'rgba(140,160,200,.35)'; for (const o of world.obstacles || []) { ctx.beginPath(); ctx.arc(mx + o.x * sx, my + o.y * sy, Math.max(1.5, o.r * sx), 0, TAU); ctx.fill(); }
     // 視窗框
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.strokeRect(mx + cam.x * sx, my + cam.y * sy, W * sx, H * sy);
-    objs.forEach(o => { ctx.fillStyle = o.done ? '#3ddc84' : '#ffd166'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(mx + o.x * sx, my + o.y * sy, o.done ? 3 : 4 + Math.sin(time * 5) * 1.2, 0, TAU); ctx.fill(); });
+    objs.forEach(o => { if (o.kind === 'kill') return; ctx.fillStyle = o.done ? '#3ddc84' : o.kind === 'boss' ? '#ff3860' : o.kind === 'nest' ? '#c77dff' : '#ffd166'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(mx + o.x * sx, my + o.y * sy, o.done ? 3 : 4 + Math.sin(time * 5) * 1.2, 0, TAU); ctx.fill(); });
+    for (const c of world.pickups) if (c.cache) { ctx.fillStyle = '#fff3c4'; ctx.shadowBlur = 0; ctx.fillRect(mx + c.x * sx - 1.5, my + c.y * sy - 1.5, 3, 3); }
     if (ex && ex.active) { ctx.fillStyle = '#4cc9f0'; ctx.shadowColor = '#4cc9f0'; ctx.beginPath(); ctx.arc(mx + ex.x * sx, my + ex.y * sy, 4 + Math.sin(time * 6) * 1.5, 0, TAU); ctx.fill(); }
     ctx.shadowBlur = 0;
     if (me) for (const e of world.enemies) { if (Math.hypot(e.x - me.x, e.y - me.y) > 1300) continue; ctx.fillStyle = e.elite ? '#ff8c42' : '#ff3860'; ctx.fillRect(mx + e.x * sx - 1, my + e.y * sy - 1, 2, 2); }
@@ -376,6 +396,7 @@ export function createRenderer(canvas, world) {
       else if (e.type === 'tank') { for (let i = 0; i < 8; i++) { const a = i * TAU / 8, r = i % 2 ? e.r : e.r * 0.8; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
       else if (e.type === 'shooter') { ctx.arc(0, 0, e.r, 0, TAU); ctx.moveTo(e.r * 0.5, 0); ctx.arc(0, 0, e.r * 0.5, 0, TAU); }
       else if (e.type === 'lancer') { ctx.moveTo(e.r * 1.6, 0); ctx.lineTo(0, e.r * 0.55); ctx.lineTo(-e.r, 0); ctx.lineTo(0, -e.r * 0.55); ctx.closePath(); ctx.moveTo(e.r * 0.5, 0); ctx.arc(e.r * 0.2, 0, e.r * 0.3, 0, TAU); }
+      else if (e.type === 'nest') { for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + e.wobble * 0.15; ctx.lineTo(Math.cos(a) * e.r, Math.sin(a) * e.r); } ctx.closePath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + Math.PI / 6 - e.wobble * 0.3, rr = e.r * (0.45 + 0.08 * Math.sin(e.wobble * 2 + i)); ctx.moveTo(Math.cos(a) * rr + 6, Math.sin(a) * rr); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 6, 0, TAU); } ctx.moveTo(e.r * 0.25, 0); ctx.arc(0, 0, e.r * 0.25, 0, TAU); }
       else if (e.type === 'bounty') { for (let i = 0; i < 12; i++) { const a = i * TAU / 12 + e.wobble * 0.5, rr = i % 2 ? e.r : e.r * 0.55; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
       else if (e.type === 'meteor') { const n = 10; for (let i = 0; i < n; i++) { const a = i * TAU / n; const rr = e.r * (0.7 + 0.3 * Math.abs(Math.sin(i * 1.9 + e.id))); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
       else if (e.type === 'ufo') { ctx.rotate(-Math.atan2(e.vy, e.vx)); ctx.ellipse(0, 4, e.r * 1.4, e.r * 0.5, 0, 0, TAU); ctx.moveTo(e.r * 0.6, -2); ctx.arc(0, -2, e.r * 0.6, Math.PI, 0); }
@@ -1058,7 +1079,7 @@ export function createRenderer(canvas, world) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 30 + Math.sin(time * 4) * 8; ctx.font = 'bold 64px sans-serif'; ctx.fillText(world.mods && world.mods.mission ? tr('撤離成功') : tr('突圍成功'), W / 2, H / 2 - 110); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 40);
-    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '16px sans-serif'; ctx.fillText(world.mods && world.mods.mission ? tr(`三座中繼站全部啟動，全員撤離 · 用時 ${Math.floor((world.missionT || 0) / 60)}:${String(Math.floor(world.missionT || 0) % 60).padStart(2, '0')}`) : world.mods && world.mods.bossRush ? tr(`Boss 挑戰通關：連續擊破 ${BOSS_RUSH_WAVES} 波 Boss`) : tr(`擊破殲滅者 Ω，撐過 ${WIN_WAVE} 波`), W / 2, H / 2);
+    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '16px sans-serif'; ctx.fillText(world.mods && world.mods.mission ? tr(`任務完成：${tr((MISSION_TYPES[world.missionType] || MISSION_TYPES.relay).name)} · 全員撤離 · 用時 ${Math.floor((world.missionT || 0) / 60)}:${String(Math.floor(world.missionT || 0) % 60).padStart(2, '0')}`) : world.mods && world.mods.bossRush ? tr(`Boss 挑戰通關：連續擊破 ${BOSS_RUSH_WAVES} 波 Boss`) : tr(`擊破殲滅者 Ω，撐過 ${WIN_WAVE} 波`), W / 2, H / 2);
     let y = H / 2 + 34;
     for (const p of world.players) { ctx.fillStyle = p.color; ctx.font = '14px sans-serif'; ctx.fillText(tr(`${p.name}：${p.kills} 擊殺`), W / 2, y); y += 20; }
     const pulse = 0.7 + 0.3 * Math.sin(time * 4);
@@ -1106,7 +1127,7 @@ export function createRenderer(canvas, world) {
     for (const b of world.bosses) if (!b.cloak) targets.push({ x: b.x, y: b.y, r: b.r, color: b.color, type: 'boss', boss: true });
     for (const q of world.players) if (q.downed && q !== p) targets.push({ x: q.x, y: q.y, r: q.r, color: '#3ddc84', type: 'downed', boss: false });
     if (world.mods && world.mods.mission) {
-      for (const o of world.objectives || []) if (!o.done) targets.push({ x: o.x, y: o.y, r: o.r, color: '#ffd166', type: 'obj', boss: true, label: tr('中繼站'), dist: Math.hypot(o.x - p.x, o.y - p.y) });
+      for (const o of world.objectives || []) if (!o.done && o.kind !== 'kill') targets.push({ x: o.x, y: o.y, r: o.r, color: o.kind === 'boss' ? '#ff3860' : o.kind === 'nest' ? '#c77dff' : '#ffd166', type: 'obj', boss: true, label: tr(o.kind === 'boss' ? 'Boss 據點' : o.kind === 'nest' ? '蟲巢' : '中繼站'), dist: Math.hypot(o.x - p.x, o.y - p.y) });
       if (world.extract && world.extract.active) targets.push({ x: world.extract.x, y: world.extract.y, r: world.extract.r, color: '#4cc9f0', type: 'obj', boss: true, label: tr('撤離點'), dist: Math.hypot(world.extract.x - p.x, world.extract.y - p.y) });
     }
     // 全部換成視窗座標（攝影機）
@@ -1197,7 +1218,7 @@ export function createRenderer(canvas, world) {
   }
   function drawReticle({ mouse, time }) {
     const inGame = world.scene === 'play' || world.scene === 'pause';
-    ctx.save(); ctx.translate(mouse.x, mouse.y);
+    ctx.save(); ctx.translate(mouse.x - cam.x, mouse.y - cam.y);
     if (!inGame) {
       ctx.fillStyle = '#fff'; ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = 10; ctx.beginPath(); ctx.arc(0, 0, 4, 0, TAU); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, 10, 0, TAU); ctx.stroke();

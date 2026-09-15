@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
-import { MISSION } from '../shared/map.js';
+import { MISSION, MISSION_TYPES } from '../shared/map.js';
 import { snapshotWorld } from '../shared/snapshot.js';
 import { OFFLINE_GRACE, TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked, BOSS_RUSH_REWARD, weaponAllowed, defaultWeaponFor } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
@@ -425,7 +425,7 @@ wss.on('connection', ws => {
       case 'start':
         if (player.id !== room.hostId) return;
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
-          startRun(room.world, { bossRush: !!m.boss, mission: !!m.mission, arena: room.arena });
+          startRun(room.world, { bossRush: !!m.boss, mission: true, missionType: typeof m.type === 'string' && MISSION_TYPES[m.type] ? m.type : null, arena: room.arena });
           room.events.length = 0; room.departed = []; room.recorded = false;
           for (const p of room.world.players) logEvent('run_start', { mode: 'coop', ship: p.ship, wave0: m.boss ? 4 : 0, players: room.world.players.length }, p.acctId || null);
           broadcast(room, { t: 'started' });

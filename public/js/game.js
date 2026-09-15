@@ -2,7 +2,7 @@
 // 規則：不碰 DOM、Canvas、Audio、window、setTimeout。所有視聽回饋透過 fx 介面通知外界。
 // 這個模組同時在瀏覽器（單機）與伺服器（多人）執行。
 import { TAU, rand, randInt, rnd, clamp, dist2, angleDiff } from '../../shared/math.js';
-import { MISSION, genMap, resolveObstacles, obstacleAt } from '../../shared/map.js';
+import { MISSION, MISSION_TYPES, pickMissionType, genMap, resolveObstacles, obstacleAt } from '../../shared/map.js';
 import {
   SKILLS, skillById, ENERGY, BOSS_RUSH_WAVES, BOSS_RUSH_REWARD, weaponAllowed, defaultWeaponFor,
   WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS, BOSS_KINDS, BOSS_DOUBLE_FROM_WAVE, BOSS_DOUBLE_CHANCE, AMBIENT, PERFECT_WAVE_BONUS, GRAZE_SCORE, ENEMY_BLINK_FROM_WAVE,
@@ -34,7 +34,7 @@ export function createWorld() {
     waveMode: null, modeTimer: 0, modeSpawnCd: 0, beacon: null, lastMode: null,
     chrono: 0, waveTheme: null, arena: 'space', hazardCd: 6, wells: [], flare: null, blizzard: 0, wind: null, drag: 1,   // 場地與其危險（updateArena）
     event: null, eventCd: 30, crate: null, hole: null, eclipse: 0, dustBonus: 0, lastEvent: null,   // 隨機事件
-    obstacles: [], objectives: [], extract: null, mapSeed: 0, start: null, missionT: 0, patrolCd: 5, alarm: 0,   // 探索任務（shared/map.js）
+    obstacles: [], objectives: [], extract: null, mapSeed: 0, start: null, missionT: 0, patrolCd: 5, alarm: 0, missionType: null, caches: [],   // 任務（shared/map.js）
     stats: freshStats(),
     pendingUpgrades: new Map(),
     timers: [],
@@ -88,7 +88,7 @@ export function joinMidGame(world, opts) {
 }
 
 /** 開始一局：重置世界（保留玩家名單），startWave 可指定起始波（Boss 挑戰用 4） */
-export function startRun(world, { startWave = 0, mods = null, daily = false, arena = null, bossRush = false, mission = false } = {}) {
+export function startRun(world, { startWave = 0, mods = null, daily = false, arena = null, bossRush = false, mission = false, missionType = null, seed = 0 } = {}) {
   const roster = world.players.map(p => ({ id: p.id, name: p.name, local: p.local, token: p.token, acctId: p.acctId, perks: p.perks, ship: p.ship, weapon: p.flags?.meleeOnly ? p.baseWeapon || p.weapon : p.weapon, skin: p.skin, skill: p.skill }));
   const fresh = createWorld();
   Object.assign(world, fresh, { players: [] });
@@ -98,15 +98,28 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
   if (daily) world.mods.daily = true;
   if (bossRush) world.mods.bossRush = true;
   if (mission) {
-    // 探索任務：大地圖 + 地形 + 三座中繼站 + 撤離點（種子決定，客戶端用快照的種子重建）
-    world.mods.mission = true; world.mapSeed = randInt(1, 2147483646);
-    const m = genMap(world.mapSeed, world.arena);
-    world.W = m.W; world.H = m.H; world.start = m.start; world.obstacles = m.obstacles;
-    world.objectives = m.objectives.map((o, i) => ({ ...o, i, progress: 0, done: false, active: false }));
+    // 任務：大地圖 + 地形 + 目標 + 撤離點（種子決定，客戶端用快照的種子重建）
+    world.mods.mission = true; world.mapSeed = (seed >>> 0) || randInt(1, 2147483646);
+    world.missionType = MISSION_TYPES[missionType] ? missionType : pickMissionType(world.mapSeed);
+    const m = genMap(world.mapSeed, world.arena, world.missionType);
+    world.W = m.W; world.H = m.H; world.start = m.start; world.obstacles = m.obstacles; world.caches = m.caches;
+    const T = world.missionType;
+    if (T === 'relay') world.objectives = m.sites.map((o, i) => ({ kind: 'relay', ...o, i, progress: 0, done: false, active: false }));
+    else if (T === 'nests') world.objectives = m.sites.map((o, i) => ({ kind: 'nest', ...o, i, done: false, eid: null }));
+    else if (T === 'boss') world.objectives = m.sites.map((o, i) => ({ kind: 'boss', ...o, r: MISSION.bossSite, i, done: false, spawned: false }));
+    else world.objectives = [{ kind: 'kill', x: 0, y: 0, r: 0, i: 0, done: false, need: 0, count: 0 }];
     world.extract = { ...m.extract, r: 150, t: 0, active: false };
   }
   roster.forEach(r => addPlayer(world, r));
-  if (mission) world.players.forEach((p, i) => { p.x = world.start.x + (i - 1.5) * 60; p.y = world.start.y; });
+  if (mission) {
+    world.players.forEach((p, i) => { p.x = world.start.x + (i - 1.5) * 60; p.y = world.start.y; });
+    const n = nPlayers(world);
+    for (const o of world.objectives) {
+      if (o.kind === 'kill') o.need = MISSION.killNeed[0] + MISSION.killNeed[1] * n;
+      if (o.kind === 'nest') { const e = spawnEnemy(world, 'nest', o.x, o.y); e.hp = e.maxHp = Math.round(ENEMY_TYPES.nest.hp * (1 + (n - 1) * 0.6)); e.objective = o.i; o.eid = e.id; }
+    }
+    for (const c of world.caches) world.pickups.push({ id: world.nextId++, x: c.x, y: c.y, kind: 'dust', life: 9999, t: 0, cache: true });
+  }
   world.wave = mission ? 1 : world.mods.skip ? Math.max(startWave, 3) : startWave;
   world.upgradeOffered = true;
   world.scene = 'play';
@@ -241,8 +254,19 @@ function spawnEnemy(world, type, x, y, scale = 1, opts = {}) {
   return e;
 }
 /** 非波次單位：流星（直線穿越、撞到誰都痛、可打爆）與外星飛碟（橫越、隨機攻擊玩家與敵人） */
+/** 玩家附近的隨機點（任務地圖很大，危險與事件都要落在看得到的地方） */
+function nearPt(world, p, R) {
+  const c = p || { x: world.W / 2, y: world.H / 2 }, a = rand(0, TAU), d = rand(R * 0.3, R);
+  return { x: clamp(c.x + Math.cos(a) * d, 80, world.W - 80), y: clamp(c.y + Math.sin(a) * d, 80, world.H - 80) };
+}
 function spawnAmbient(world, kind, fx, opts = {}) {
   const w = world.wave, W = world.W, H = world.H;
+  if (world.mods.mission && opts.x === undefined) {
+    // 任務地圖：以隨機一位玩家為中心，從視野外飛進來
+    const ps = activePlayers(world), q = ps.length ? ps[randInt(0, ps.length - 1)] : { x: W / 2, y: H / 2 };
+    if (kind === 'meteor') { const side = rnd() < 0.5 ? -1 : 1; opts = { ...opts, x: q.x + side * 1000, y: q.y + rand(-700, -200), tx: q.x - side * 600 + rand(-300, 300), ty: q.y + rand(300, 800) }; }
+    else opts = { ...opts, x: q.x + (rnd() < 0.5 ? -1 : 1) * 1000, homeY: q.y - 260, homeX: q.x };
+  }
   if (kind === 'meteor') {
     const fromLeft = rnd() < 0.5, big = opts.big ?? rnd() < 0.5;
     const x = opts.x ?? (fromLeft ? -80 : W + 80), y = opts.y ?? rand(-60, H * 0.5);
@@ -256,7 +280,7 @@ function spawnAmbient(world, kind, fx, opts = {}) {
   }
   const fromLeft = rnd() < 0.5;
   const hp = AMBIENT.ufoHp * (1 + w * 0.1) * (1 + (nPlayers(world) - 1) * 0.3);
-  const e = { id: world.nextId++, type: 'ufo', kind: 'ufo', ambient: true, ally: !!opts.ally, fleet: !!opts.fleet, x: fromLeft ? -60 : W + 60, y: rand(120, 320), vx: 0, vy: 0, r: 26, hp, maxHp: hp, speed: 160, color: opts.ally ? '#f15bb5' : '#90f1a8', score: AMBIENT.ufoScore, contact: AMBIENT.ufoDmg, shootCd: 1, wobble: rand(0, TAU), hitFlash: 0, squash: 0, rot: 0, rotV: 0, tier: 0, flank: fromLeft ? 1 : -1, lunge: 0, lungeCd: 9, dodgeCd: 0, mineCd: 9, laserCd: 9, laserId: null, blinkCd: 9, blinkFlash: 0, life: AMBIENT.ufoLife };
+  const e = { id: world.nextId++, type: 'ufo', kind: 'ufo', ambient: true, ally: !!opts.ally, fleet: !!opts.fleet, homeY: opts.homeY, homeX: opts.homeX, x: opts.x ?? (fromLeft ? -60 : W + 60), y: rand(120, 320), vx: 0, vy: 0, r: 26, hp, maxHp: hp, speed: 160, color: opts.ally ? '#f15bb5' : '#90f1a8', score: AMBIENT.ufoScore, contact: AMBIENT.ufoDmg, shootCd: 1, wobble: rand(0, TAU), hitFlash: 0, squash: 0, rot: 0, rotV: 0, tier: 0, flank: fromLeft ? 1 : -1, lunge: 0, lungeCd: 9, dodgeCd: 0, mineCd: 9, laserCd: 9, laserId: null, blinkCd: 9, blinkFlash: 0, life: AMBIENT.ufoLife };
   world.enemies.push(e);
   if (!opts.fleet) { fx.text(e.x < 0 ? 120 : W - 120, e.y, opts.ally ? '母艦召喚飛碟' : '不明飛行物', e.color, 16, 1.4); fx.beep(900, 0.4, 'sine', 0.05, 400); }
   return e;
@@ -609,10 +633,10 @@ function updateBoss(world, b, dt, fx) {
     if (b.dying <= 0) killBoss(world, b, fx);
     return;
   }
-  const hoverY = H * 0.27, homeX = W * (b.slot === 0 ? 0.5 : b.slot < 0 ? 0.3 : 0.7);
+  const hoverY = b.homeY ?? H * 0.27, homeX = b.homeX ?? W * (b.slot === 0 ? 0.5 : b.slot < 0 ? 0.3 : 0.7);
   if (b.entering) {
     b.y += (hoverY - b.y) * Math.min(1, dt * 2.5);
-    if (Math.abs(b.y - hoverY) < 2) { b.entering = false; fx.text(b.x, H / 2 - 40, b.name, b.color, 40, 1.8); }
+    if (Math.abs(b.y - hoverY) < 2) { b.entering = false; fx.text(b.x, b.homeY !== undefined ? b.y - b.r - 60 : H / 2 - 40, b.name, b.color, 40, 1.8); }
     return;
   }
   const p = nearestPlayer(world, b.x, b.y);
@@ -832,7 +856,7 @@ function killBoss(world, b, fx) {
   world.stats.bosses++;
   if (world.bosses.length) return;   // 還有另一隻：獎勵等全部擊破
   if (world.stats.doublePending) { world.stats.doubleBoss = true; world.stats.doublePending = false; }
-  const win = world.wave >= (world.mods.bossRush ? BOSS_RUSH_WAVES : WIN_WAVE) && !world.won;
+  const win = !world.mods.mission && world.wave >= (world.mods.bossRush ? BOSS_RUSH_WAVES : WIN_WAVE) && !world.won;
   for (const p of world.players) {
     p.maxHp += 20; if (!p.dead) p.hp = Math.min(p.maxHp, p.hp + 40);
     if (p.downed) revive(world, p, fx);
@@ -919,6 +943,10 @@ function killEnemy(world, idx, killer, fx) {
   const gain = Math.round(e.score * mult) + (e.hunter ? 400 : 0);
   world.score += gain;
   world.stats.kills[e.type] = (world.stats.kills[e.type] || 0) + 1; if (e.elite) world.stats.elites++;
+  if (world.mods.mission && !e.ambient) {
+    const ko = world.objectives.find(o => o.kind === 'kill' && !o.done); if (ko) ko.count++;
+    if (e.type === 'nest') { const o = world.objectives.find(z => z.kind === 'nest' && z.eid === e.id); if (o) { o.done = true; o.pending = true; } }
+  }
   if (killer) { const wk = e.lastWeapon || killer.weapon; world.stats.weaponKills[wk] = (world.stats.weaponKills[wk] || 0) + 1; if (killer.flags.killResetBlink) killer.blinkCd = 0; if (e.kind === 'sniper' && e.aimT > 0) world.stats.sniperKills++; }
   if (e.hunter) { fx.text(e.x, e.y - 50, '追獵者殲滅 +400', '#ffd166', 26, 2); fx.shake(10); }
   onEnemyDeath(world, e, killer, fx);
@@ -1351,10 +1379,11 @@ export function update(world, dt, fx = NULL_FX) {
       // 飛碟：橫越畫面、隨機對玩家或敵人開火，時間到就飛走
       e.life -= dt; e.wobble += dt * 2;
       const dir = e.flank, leaving = e.life <= 0;
-      const ty = 200 + Math.sin(e.wobble) * 90;
+      const ty = (e.homeY ?? 200) + Math.sin(e.wobble) * 90;
       e.vx += ((leaving ? dir * 420 : dir * e.speed) - e.vx) * Math.min(1, dt * 2); e.vy += ((ty - e.y) * 2 - e.vy) * Math.min(1, dt * 2);
       e.x += e.vx * dt; e.y += e.vy * dt;
       if (!leaving && (e.x > W - 60 && dir > 0 || e.x < 60 && dir < 0)) e.flank = -dir;
+      if (!leaving && e.homeX !== undefined && Math.abs(e.x - e.homeX) > 900) e.flank = e.x > e.homeX ? -1 : 1;   // 任務地圖：在玩家附近來回
       e.shootCd -= dt;
       if (e.shootCd <= 0 && !leaving) {
         e.shootCd = AMBIENT.ufoShootCd;
@@ -1714,7 +1743,7 @@ export function update(world, dt, fx = NULL_FX) {
   if (world.bossWarn > 0) { world.bossWarn -= dt; if (world.bossWarn <= 0) spawnBoss(world, fx); }
   for (let i = world.bosses.length - 1; i >= 0; i--) if (world.bosses[i]) updateBoss(world, world.bosses[i], dt, fx);
   // 太空環境事件：流星 / 飛碟
-  if (world.wave >= AMBIENT.fromWave && world.bossWarn <= 0 && !world.mods.daily) { world.ambientCd -= dt; if (world.ambientCd <= 0) { world.ambientCd = rand(AMBIENT.cd[0], AMBIENT.cd[1]); const fleetOk = world.wave >= AMBIENT.fleetFromWave && !world.enemies.some(e => e.kind === 'mothership') && world.bosses.length === 0 && rnd() < AMBIENT.fleetChance; if (fleetOk) { spawnFleet(world, fx); world.ambientCd += 30; } else spawnAmbient(world, rnd() < 0.7 ? 'meteor' : 'ufo', fx); } }
+  if (world.wave >= AMBIENT.fromWave && world.bossWarn <= 0 && !world.mods.daily) { world.ambientCd -= dt; if (world.ambientCd <= 0) { world.ambientCd = rand(AMBIENT.cd[0], AMBIENT.cd[1]); const fleetOk = !world.mods.mission && world.wave >= AMBIENT.fleetFromWave && !world.enemies.some(e => e.kind === 'mothership') && world.bosses.length === 0 && rnd() < AMBIENT.fleetChance; if (fleetOk) { spawnFleet(world, fx); world.ambientCd += 30; } else spawnAmbient(world, rnd() < 0.7 ? 'meteor' : 'ufo', fx); } }
   updateArena(world, dt, fx);
   updateEvents(world, dt, fx);
   updateZones(world, dt, fx);
@@ -1741,6 +1770,17 @@ export function update(world, dt, fx = NULL_FX) {
 // ====================================================================
 // 探索任務：沒有波次；威脅等級隨時間上升、巡邏隊在視野外生成；啟動三座中繼站 → 撤離點 → 全員撐 8 秒撤離
 // ====================================================================
+/** Boss 據點：玩家靠近時在據點上方進場（Boss 挑戰一次多隻） */
+function spawnSiteBosses(world, o, fx) {
+  const kinds = Object.keys(BOSS_KINDS), n = world.mods.bossRush ? Math.min(6, 2 + nPlayers(world)) : 1, tier = 1 + Math.floor(world.wave / 3), hpMul = Math.max(0.35, 1 / Math.sqrt(n));
+  for (let k = 0; k < n; k++) {
+    const slot = k - (n - 1) / 2, kind = k === 0 && world.mods.bossRush ? 'annihilator' : kinds[randInt(0, kinds.length - 1)];
+    const b = makeBoss(world, kind, tier, slot, hpMul); b.x = o.x + slot * 240; b.y = o.y - 460; b.homeX = o.x + slot * 200; b.homeY = o.y; world.bosses.push(b);
+    if (!world.stats.bossesSeen.includes(b.kind)) world.stats.bossesSeen.push(b.kind);
+  }
+  fx.text(o.x, o.y - 120, n > 1 ? `${n} 隻 Boss 據守此地！` : '據點守衛出現！', '#ff3860', 30, 2.2); fx.shake(10); fx.sfx('wave');
+  if (n > 1) world.stats.doublePending = true;
+}
 function updateMission(world, dt, fx) {
   if (world.scene !== 'play') return;
   const W = world.W, H = world.H, ps = activePlayers(world);
@@ -1751,7 +1791,7 @@ function updateMission(world, dt, fx) {
   }
   if (world.alarm > 0) world.alarm -= dt;
   // 巡邏隊
-  world.patrolCd -= dt * (world.alarm > 0 ? MISSION.alarmMul : 1);
+  world.patrolCd -= dt * (world.alarm > 0 ? MISSION.alarmMul : world.missionType === 'exterminate' ? 1.7 : 1);
   if (world.patrolCd <= 0 && ps.length) {
     world.patrolCd = rand(MISSION.patrolCd[0], MISSION.patrolCd[1]);
     const n = Math.min(14, Math.round((3 + threat(world) * 0.6) * (1 + (nPlayers(world) - 1) * DIFFICULTY.perPlayer.count)));
@@ -1759,21 +1799,36 @@ function updateMission(world, dt, fx) {
     for (let i = 0; i < n; i++) { const type = pickType(world); schedule(world, i * 0.25, () => spawnWithElite(world, type, clamp(s.x + rand(-90, 90), 40, W - 40), clamp(s.y + rand(-90, 90), 40, H - 40)), true); }
     if (world.wave >= 3 && rnd() < 0.3) schedule(world, 0.5, () => spawnEnemy(world, 'tank', s.x, s.y), true);
   }
-  // 中繼站：站在範圍內累計 6 秒（離開會慢慢倒退）；啟動中與啟動後敵人加倍湧來
-  let allDone = true;
+  // 目標：依任務類型（中繼站 / 蟲巢 / Boss 據點 / 殲滅）
+  let allDone = true, justDone = null;
   for (const o of world.objectives) {
-    if (o.done) continue;
-    allDone = false;
-    const inside = ps.some(q => dist2(q.x, q.y, o.x, o.y) < (o.r + q.r) ** 2);
-    if (inside) { if (!o.active) { fx.text(o.x, o.y - o.r - 20, '中繼站啟動中…守住！', '#ffd166', 16, 1.5); world.alarm = Math.max(world.alarm, 8); } o.progress = Math.min(MISSION.activate, o.progress + dt); }
-    else o.progress = Math.max(0, o.progress - dt * 0.5);
-    o.active = inside;
-    if (o.progress >= MISSION.activate) {
-      o.done = true; o.active = false; world.score += MISSION.objScore; world.stats.objectives = (world.stats.objectives || 0) + 1; world.alarm = Math.max(world.alarm, 12);
-      fx.ring(o.x, o.y, '#ffd166', 20, 400, 0.8, 5); fx.burst(o.x, o.y, '#ffd166', 40, 300, 0.8, 4); fx.text(o.x, o.y - o.r - 30, `中繼站啟動 +${MISSION.objScore}`, '#ffd166', 24, 2); fx.sfx('wave'); fx.shake(8);
+    if (o.done && !o.pending) continue;
+    if (o.kind === 'relay') {
+      allDone = false;
+      const inside = ps.some(q => dist2(q.x, q.y, o.x, o.y) < (o.r + q.r) ** 2);
+      if (inside) { if (!o.active) { fx.text(o.x, o.y - o.r - 20, '中繼站啟動中…守住！', '#ffd166', 16, 1.5); world.alarm = Math.max(world.alarm, 8); } o.progress = Math.min(MISSION.activate, o.progress + dt); }
+      else o.progress = Math.max(0, o.progress - dt * 0.5);
+      o.active = inside;
+      if (o.progress >= MISSION.activate) { o.done = true; o.active = false; justDone = o; fx.text(o.x, o.y - o.r - 30, `中繼站啟動 +${MISSION.objScore}`, '#ffd166', 24, 2); }
+    } else if (o.kind === 'nest') {
+      if (o.pending) { o.pending = false; justDone = o; fx.text(o.x, o.y - o.r - 30, `蟲巢摧毀 +${MISSION.objScore}`, '#c77dff', 24, 2); }
+      else { allDone = false; if (ps.some(q => dist2(q.x, q.y, o.x, o.y) < 600 * 600)) world.alarm = Math.max(world.alarm, 2); }
+    } else if (o.kind === 'boss') {
+      allDone = false;
+      if (!o.spawned && ps.some(q => dist2(q.x, q.y, o.x, o.y) < o.r * o.r)) { o.spawned = true; spawnSiteBosses(world, o, fx); }
+      else if (o.spawned && world.bosses.length === 0) { o.done = true; justDone = o; fx.text(o.x, o.y - 60, `據點肅清 +${MISSION.objScore}`, '#ffd166', 26, 2); }
+    } else if (o.kind === 'kill') {
+      allDone = false;
+      if (o.count >= o.need) { o.done = true; justDone = o; fx.text(W / 2, H / 2 - 60, `殲滅目標達成 +${MISSION.objScore}`, '#ffd166', 26, 2); }
+    }
+    if (justDone === o) {
+      world.score += MISSION.objScore; world.stats.objectives = (world.stats.objectives || 0) + 1; world.alarm = Math.max(world.alarm, 12);
+      if (o.kind !== 'kill') { fx.ring(o.x, o.y, '#ffd166', 20, 400, 0.8, 5); fx.burst(o.x, o.y, '#ffd166', 40, 300, 0.8, 4); }
+      fx.sfx('wave'); fx.shake(8);
       const left = world.objectives.filter(z => !z.done).length;
-      fx.text(W / 2, H / 2 - 100, left ? `還剩 ${left} 座中繼站` : '全部啟動！前往撤離點', '#fff', 22, 2.5);
+      fx.text(W / 2, H / 2 - 100, left ? `還剩 ${left} 個目標` : '目標完成！前往撤離點', '#fff', 22, 2.5);
       if (left) { offerUpgrades(world, fx); return; }
+      allDone = true;
     }
   }
   const ex = world.extract;
@@ -2213,6 +2268,16 @@ const BEHAVE = {
     }
     return keepRange(dx, dy, d, 360, 560, e.flank > 0 ? 1 : -1);
   },
+  nest(world, e, tgt, dx, dy, d, dt, fx) {
+    // 任務目標：不動；玩家靠近時加快生敵
+    e.vx = 0; e.vy = 0; e.spawnCd = (e.spawnCd ?? 3) - dt * (d < 700 ? 1.6 : 1);
+    if (e.spawnCd <= 0) {
+      e.spawnCd = Math.max(2.8, 6.5 - threat(world) * 0.3);
+      for (let k = 0; k < 2; k++) { const a = rand(0, TAU); spawnEnemy(world, pickType(world), e.x + Math.cos(a) * (e.r + 30), e.y + Math.sin(a) * (e.r + 30)); }
+      fx.burst(e.x, e.y, e.color, 12, 160, 0.5, 3); fx.ring(e.x, e.y, e.color, e.r, e.r + 60, 0.4, 3); fx.beep(120, 0.3, 'sawtooth', 0.05, 60);
+    }
+    return { tx: 0, ty: 0, steer: false };
+  },
   kamikaze(world, e, tgt, dx, dy, d, dt, fx) {
     e.warn = d < 320 ? 2 : 0;
     if (d < 250 && rnd() < dt * 6) fx.beep(1400 - d * 2, 0.05, 'square', 0.03);
@@ -2294,28 +2359,28 @@ function updateArena(world, dt, fx) {
   if (world.wave < 2 || world.scene !== 'play') return;
   world.hazardCd -= dt;
   if (world.hazardCd > 0) return;
-  const p = nearestPlayer(world, W / 2, H / 2);
-  if (A === 'space') { world.hazardCd = rand(18, 30); world.zones.push({ id: world.nextId++, x: rand(150, W - 150), y: rand(150, H - 150), r: 130, life: 7, kind: 'rift' }); fx.text(W / 2, 90, '虛空裂隙開啟', '#c77dff', 18, 1.5); fx.beep(80, 0.6, 'sine', 0.06, 200); }
+  const ps = activePlayers(world), p = ps.length ? ps[randInt(0, ps.length - 1)] : null, np = R => nearPt(world, p, R);
+  if (A === 'space') { world.hazardCd = rand(18, 30); world.zones.push({ id: world.nextId++, ...np(650), r: 130, life: 7, kind: 'rift' }); fx.text(W / 2, 90, '虛空裂隙開啟', '#c77dff', 18, 1.5); fx.beep(80, 0.6, 'sine', 0.06, 200); }
   else if (A === 'inferno') {
     world.hazardCd = rand(9, 15);
-    if (rnd() < 0.6) { const x = rand(120, W - 120), y = rand(120, H - 120); world.zones.push({ id: world.nextId++, x, y, r: 95, life: 10, kind: 'lava' }); fx.text(x, y - 60, '熔岩浮出', '#ff8c42', 16, 1.2); fx.burst(x, y, '#ff8c42', 20, 200, 0.6, 4); }
+    if (rnd() < 0.6) { const { x, y } = np(600); world.zones.push({ id: world.nextId++, x, y, r: 95, life: 10, kind: 'lava' }); fx.text(x, y - 60, '熔岩浮出', '#ff8c42', 16, 1.2); fx.burst(x, y, '#ff8c42', 20, 200, 0.6, 4); }
     else if (p) { const x = clamp(p.x + p.vx * 0.8, 60, W - 60), y = clamp(p.y + p.vy * 0.8, 60, H - 60); world.zones.push({ id: world.nextId++, x, y, r: 70, life: 1.6, kind: 'geyser', fired: false }); fx.beep(150, 0.5, 'sawtooth', 0.06, 300); }
   }
   else if (A === 'mercury') {
     world.hazardCd = rand(14, 22);
-    if (rnd() < 0.5) { world.wells.push({ id: world.nextId++, x: rand(200, W - 200), y: rand(200, H - 200), r: 260, life: 8 }); fx.text(W / 2, 90, '重力井', '#ffd166', 18, 1.5); }
+    if (rnd() < 0.5) { world.wells.push({ id: world.nextId++, ...np(700), r: 260, life: 8 }); fx.text(W / 2, 90, '重力井', '#ffd166', 18, 1.5); }
     else { const fromLeft = rnd() < 0.5; world.flare = { x: fromLeft ? -60 : W + 60, sx: fromLeft ? -760 : W + 760, dir: fromLeft ? 1 : -1, w: 90, t: 2.2, speed: 280, hit: [] }; fx.text(W / 2, 90, '太陽風暴接近', '#ffd166', 22, 2); fx.beep(60, 1.2, 'sawtooth', 0.08, 120); }
   }
   else if (A === 'venom') {
     world.hazardCd = rand(10, 16);
-    world.zones.push({ id: world.nextId++, x: rand(100, W - 100), y: rand(100, H - 100), r: 100, life: 12, kind: 'toxic', vx: rand(-25, 25), vy: rand(-25, 25) });
-    if (rnd() < 0.4) world.zones.push({ id: world.nextId++, x: rand(100, W - 100), y: rand(100, H - 100), r: 170, life: 9, kind: 'fog', vx: rand(-20, 20), vy: rand(-20, 20) });
+    world.zones.push({ id: world.nextId++, ...np(650), r: 100, life: 12, kind: 'toxic', vx: rand(-25, 25), vy: rand(-25, 25) });
+    if (rnd() < 0.4) world.zones.push({ id: world.nextId++, ...np(650), r: 170, life: 9, kind: 'fog', vx: rand(-20, 20), vy: rand(-20, 20) });
     fx.text(W / 2, 90, '毒霧潮', '#3ddc84', 16, 1.2);
   }
   else if (A === 'abyss') {
     world.hazardCd = rand(12, 20);
     if (rnd() < 0.65) { const a = rand(0, TAU); world.wind = { x: Math.cos(a) * 150, y: Math.sin(a) * 150, life: 6 }; fx.text(W / 2, 90, '洋流', '#4cc9f0', 18, 1.5); }
-    else { world.zones.push({ id: world.nextId++, x: rand(200, W - 200), y: rand(200, H - 200), r: 200, life: 7, kind: 'pressure' }); fx.text(W / 2, 90, '深海壓力區', '#4cc9f0', 18, 1.5); }
+    else { world.zones.push({ id: world.nextId++, ...np(650), r: 200, life: 7, kind: 'pressure' }); fx.text(W / 2, 90, '深海壓力區', '#4cc9f0', 18, 1.5); }
   }
   else if (A === 'glacier') {
     world.hazardCd = rand(10, 16);
@@ -2394,9 +2459,9 @@ export function startEvent(world, id, fx) {
     case 'supply': { const hp = 200 * n; world.crate = { kind: 'crate', x: clamp(p.x + rand(-300, 300), 120, W - 120), y: clamp(p.y + rand(-200, 200), 120, H - 120), r: 34, hp, maxHp: hp, hitFlash: 0, alive: true }; fx.ring(world.crate.x, world.crate.y, '#ffd166', 10, 120, 0.6, 4); for (let i = 0; i < 4 + n; i++) schedule(world, 1 + i * 0.6, () => spawnWithElite(world, rnd() < 0.5 ? 'drifter' : 'dart')); break; }
     case 'wormhole': for (let k = 0; k < 6; k++) { const a = k * TAU / 6, x = clamp(p.x + Math.cos(a) * 220, 40, W - 40), y = clamp(p.y + Math.sin(a) * 220, 40, H - 40); fx.ring(x, y, '#c77dff', 6, 50, 1, 3); schedule(world, 1, () => { fx.burst(x, y, '#c77dff', 12, 180, 0.4, 3); spawnWithElite(world, pickType(world), x, y); }, true); } break;
     case 'solarwind': { const a = rand(0, TAU); world.wind = { x: Math.cos(a) * 190, y: Math.sin(a) * 190, life: 10 }; break; }
-    case 'blackhole': world.hole = { x: rand(300, W - 300), y: rand(220, H - 220), r: 300, life: 8 }; fx.shake(6); break;
+    case 'blackhole': world.hole = { ...nearPt(world, p, 520), r: 300, life: 8 }; fx.shake(6); break;
     case 'rift': { const others = ARENAS.filter(a => a.id !== world.arena); const A = others[randInt(0, others.length - 1)]; fx.text(W / 2, H / 2 - 80, `來自${A.name}的生物`, ELEMENTS[A.element].color, 18, 2); for (let k = 0; k < 5; k++) schedule(world, 0.5 + k * 0.4, () => spawnEnemy(world, k === 0 ? A.unique : pickType(world), undefined, undefined, 1, { element: A.element }), true); break; }
-    case 'duststorm': for (let k = 0; k < 8; k++) world.pickups.push({ id: world.nextId++, x: rand(80, W - 80), y: rand(80, H - 80), kind: 'dust', life: 15, t: 0 }); break;
+    case 'duststorm': for (let k = 0; k < 8; k++) world.pickups.push({ id: world.nextId++, ...nearPt(world, p, 520), kind: 'dust', life: 15, t: 0 }); break;
     case 'hunter': { const types = ['sniper', 'warden', 'hexer', 'mortar']; const e = spawnEnemy(world, types[randInt(0, types.length - 1)], undefined, undefined, 1, { elite: true, affixes: 2, hunter: true }); e.speed *= 1.2; fx.text(W / 2, H / 2 - 80, `${enemyLabel(e)}獵人 · ${e.affixes.map(a => AFFIXES[a].name).join(' + ')}`, '#ff8c9c', 18, 2.4); break; }
     case 'eclipse': world.eclipse = 8; break;
     case 'shower': for (let k = 0; k < 8; k++) schedule(world, k * 0.5, () => spawnAmbient(world, 'meteor', fx, { silent: k > 0 })); break;

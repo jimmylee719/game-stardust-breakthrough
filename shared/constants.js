@@ -46,6 +46,7 @@ export const ENEMY_TYPES = {
   frostbite:{ r: 17, hp: 32, speed: 190, color: '#b8ffff', score: 35, kind: 'chase', contact: 12, name: '霜噬', atk: '撞到會讓你短暫凍住；射冰刺減速', element: 'ice', freezeTouch: true },
   lancer:   { r: 20, hp: 46, speed: 75,  color: '#e040fb', score: 45, kind: 'lancer', contact: 18, name: '雷射兵', atk: '遠距預警後發射貫穿雷射', element: 'plasma' },   // 雷射兵：遠距預警後發射貫穿雷射
   bounty:   { r: 24, hp: 240, speed: 250, color: '#ffd166', score: 300, kind: 'flee',   contact: 20, name: '懸賞目標', atk: '逃跑、閃現、還擊；限時擊殺有額外分數', element: 'neutral' },   // 懸賞目標：逃跑、閃現、還擊
+  nest:     { r: 56, hp: 420, speed: 0,   color: '#c77dff', score: 400, kind: 'nest',   contact: 0,  name: '蟲巢', atk: '任務目標：不會移動，每隔幾秒生出一批敵人，拆掉才會停', element: 'neutral' },
 };
 
 /** 難度曲線：隨波次成長的倍率（玩家升級變強，敵人也要跟上） */
