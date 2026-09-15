@@ -9,7 +9,7 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects, trackFrame } 
 import { ensureAudio, toggleMute, isMuted, setMood, getMusicVolume, setMusicVolume, getSfxEnabled, setSfxEnabled } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { MISSION_TYPES } from '../../shared/map.js';
+import { MISSION, MISSION_TYPES, pickMissionType } from '../../shared/map.js';
 import { weaponAllowed, defaultWeaponFor, SKILLS, skillById, skillUnlocked, sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS, dayKey } from '../../shared/daily.js';
@@ -23,10 +23,10 @@ import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe
 const $ = id => document.getElementById(id);
 const canvas = $('game');
 const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily'), helpEl = $('help'), privacyEl = $('privacy'), aboutEl = $('about');
-const settingsEl = $('settings'), roomsEl = $('rooms'), questsEl = $('quests'), achEl = $('ach'), codexEl = $('codex');
+const settingsEl = $('settings'), roomsEl = $('rooms'), questsEl = $('quests'), achEl = $('ach'), codexEl = $('codex'), briefEl = $('briefing');
 const nameInput = $('name'), codeInput = $('code');
 const errEl = $('err'), bestEl = $('best');
-const OVERLAYS = [menuEl, lobbyEl, pauseEl, lbEl, hangarEl, dailyEl, helpEl, privacyEl, aboutEl, settingsEl, roomsEl, questsEl, achEl, codexEl];
+const OVERLAYS = [menuEl, lobbyEl, pauseEl, lbEl, hangarEl, dailyEl, helpEl, privacyEl, aboutEl, settingsEl, roomsEl, questsEl, achEl, codexEl, briefEl];
 
 // 說明 / 隱私的中文版存起來，切語言時可以切回來
 registerZhHtml('help', $('help-body').innerHTML); registerZhHtml('privacy', $('privacy-body').innerHTML); registerZhHtml('about', $('about-body').innerHTML);
@@ -159,8 +159,37 @@ onLangChange(refreshLangUi); refreshLangUi();
 
 /** 首頁選的任務類型（random = 依種子隨機） */
 function missionTypeChoice() { const el = document.querySelector('input[name="mtype"]:checked'); return el && el.value !== 'random' ? el.value : null; }
+/** 出擊前先看任務簡報（絕地戰兵式：星球 → 任務 → 裝備 → 空降）；種子與任務類型在這裡就決定，簡報和實際任務一致 */
+let pendingLaunch = null;
 function beginSolo(startWave = 0, daily = null, bossRush = false) {
-  const mission = true, missionType = bossRush ? 'boss' : daily ? null : missionTypeChoice();
+  const seed = daily ? daily.seed : Math.floor(Math.random() * 2147483646) + 1;
+  const missionType = bossRush ? 'boss' : daily ? pickMissionType(seed) : (missionTypeChoice() || pickMissionType(seed));
+  pendingLaunch = { startWave, daily, bossRush, missionType, seed };
+  ensureAudio();
+  renderBriefing(pendingLaunch);
+  for (const el of OVERLAYS) el.hidden = el !== briefEl;
+  requestAnimationFrame(() => fitPanel(briefEl));
+}
+function renderBriefing({ daily, bossRush, missionType, seed }) {
+  const A = arenaById(daily ? 'space' : arena), T = MISSION_TYPES[missionType];
+  const S = shipById(currentShip()), Wp = weaponById(currentWeapon()), K = skillById(currentSkill());
+  const steps = [];
+  if (missionType === 'relay') steps.push(tr(`啟動 ${MISSION.objectives} 座中繼站（各站 ${MISSION.activate} 秒，啟動中敵人加倍）`));
+  else if (missionType === 'nests') steps.push(tr(`摧毀 ${MISSION.objectives} 座蟲巢（蟲巢會不斷生敵，越近生得越快）`));
+  else if (missionType === 'exterminate') steps.push(tr(`殲滅 ${MISSION.killNeed[0] + MISSION.killNeed[1]} 名敵人（敵人會持續增援）`));
+  else steps.push(bossRush ? tr('深入據點，擊破所有 Boss（2 隻起，隨人數增加、最多 6 隻）') : tr('深入據點，擊破盤據的 Boss'));
+  steps.push(tr(`前往撤離點，全員停留 ${MISSION.extract} 秒`));
+  const rew = bossRush ? 1.5 : MISSION.reward;
+  $('brief-code').textContent = `${tr('作戰代號')} #${seed.toString(36).toUpperCase()}${daily ? ' · ' + tr('每日挑戰') : ''}`;
+  $('brief-body').innerHTML = `
+    <div class="bsec"><div class="bh">${tr('目標星球')}</div><div class="bl"><span class="bi">${A.icon}</span><b>${escapeHtml(tr(A.name))}</b> · ${escapeHtml(tr(A.desc))}<br><span class="dim">⚠ ${escapeHtml(tr(A.hazard))} · ${tr('原生生物')}${tr('：')}${escapeHtml(tr(ENEMY_TYPES[A.unique].name))}</span></div></div>
+    <div class="bsec"><div class="bh">${tr('任務')}</div><div class="bl"><span class="bi">${T.icon}</span><b>${escapeHtml(tr(T.name))}</b>${bossRush ? ' · ' + tr('Boss 挑戰') : ''}<ol class="bsteps">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol><span class="dim">${tr(`威脅每 ${MISSION.waveEvery} 秒 +1 · 地圖有 ${MISSION.caches} 個星塵礦點 · 撤離成功獎勵 ×${rew}`)}</span>${daily ? `<br><span class="dim">${tr('每日規則')}：${escapeHtml(daily.mods.map(id => tr(DAILY_MODS.find(m => m.id === id)?.name || id)).join(' + '))}</span>` : ''}</div></div>
+    <div class="bsec"><div class="bh">${tr('裝備')}</div><div class="bl bload"><span>${S.icon} ${escapeHtml(tr(S.name))}</span><span>${Wp.icon} ${escapeHtml(tr(Wp.name))}</span><span>${K.icon} ${escapeHtml(tr(K.name))}</span></div></div>`;
+}
+function launchPending() {
+  if (!pendingLaunch) return;
+  const { startWave, daily, bossRush, missionType, seed } = pendingLaunch; pendingLaunch = null;
+  const mission = true;
   ensureAudio(); goFullscreen();
   mode = 'solo'; myId = 1; fx = createFx(myId);
   world.players.length = 0;
@@ -168,7 +197,7 @@ function beginSolo(startWave = 0, daily = null, bossRush = false) {
   seedRandom(daily ? daily.seed : null);   // 每日挑戰：固定種子，全球同樣的敵人組合
   addPlayer(world, { id: myId, name: takeName(), local: true, perks: profile.unlocks, ship: currentShip(), weapon: currentWeapon(), skin: currentSkin(), skill: currentSkill() });
   resetEffects(); lastResult = null; leftTeam = false; soloSubmitted = false; metaReported = false;
-  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush, mission, missionType, seed: daily ? daily.seed : 0 });
+  startRun(world, { startWave, mods: daily ? daily.mods : null, daily: !!daily, arena: daily ? 'space' : arena, bossRush, mission, missionType, seed });
   { const T = MISSION_TYPES[world.missionType]; if (T) toast(`${T.icon} ${tr(T.name)}：${tr(T.desc)}${bossRush ? tr('（Boss 挑戰：一次多隻，獎勵 ×1.5）') : ''}`, 5000); }
   runStartedAt = performance.now();
   track('run_start', { mode: runKind, ship: currentShip(), weapon: currentWeapon(), arena: world.arena, wave0: world.wave, boss: bossRush, mission, type: world.missionType });
@@ -369,7 +398,7 @@ async function openCodex() {
     body.innerHTML = `<div class="grid">${list.map(([k, b]) => `<div class="card ${seen.bosses[k] ? '' : 'unseen'}"><div class="nm" style="color:${b.color}">${seen.bosses[k] ? escapeHtml(tr(b.name)) : '？？？'}</div><div class="ds">${seen.bosses[k] ? escapeHtml(tr(b.desc)) : tr('尚未遭遇')}</div></div>`).join('')}</div>`;
   } else if (codexTab === 'arenas') {
     $('codex-sub').textContent = tr('每個場地的最佳波次');
-    body.innerHTML = `<div class="grid">${ARENAS.map(a => `<div class="card"><div class="nm">${a.icon} ${escapeHtml(tr(a.name))} <span style="color:#ffd166">${arenasProg[a.id] ? tr(`最佳第 ${arenasProg[a.id]} 波`) : tr('未挑戰')}</span></div><div class="ds">${escapeHtml(tr(a.desc))}。${escapeHtml(tr(a.hazard))}。${tr('原生生物')}：${escapeHtml(tr(ENEMY_TYPES[a.unique].name))}</div></div>`).join('')}</div>`;
+    body.innerHTML = `<div class="grid">${ARENAS.map(a => `<div class="card"><div class="nm">${a.icon} ${escapeHtml(tr(a.name))} <span style="color:#ffd166">${arenasProg[a.id] ? tr(`最佳第 ${arenasProg[a.id]} 波`) : tr('未挑戰')}</span></div><div class="ds">${escapeHtml(tr(a.desc))}。${escapeHtml(tr(a.hazard))}。${tr('原生生物')}${tr('：')}${escapeHtml(tr(ENEMY_TYPES[a.unique].name))}</div></div>`).join('')}</div>`;
   } else if (codexTab === 'events') {
     const list = Object.entries(EVENTS);
     $('codex-sub').textContent = tr(`遇過 ${list.filter(([k]) => seen.events[k]).length} / ${list.length} 種隨機事件`);
@@ -443,6 +472,8 @@ function beginOnline(code) {
 }
 
 $('solo').addEventListener('click', () => beginSolo(0));
+$('brief-go').addEventListener('click', launchPending);
+$('brief-back').addEventListener('click', () => { pendingLaunch = null; showMenu(); });
 $('solo-boss').addEventListener('click', () => beginSolo(0, null, true));
 /** 大廳的任務選擇（房主）：random / relay / exterminate / nests / boss / bossrush */
 function lobbyMode() { const el = document.querySelector('input[name="lobby-mode"]:checked'); return el ? el.value : 'normal'; }
@@ -573,6 +604,7 @@ function leaveGame() {
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
   onKeyDown(code) {
+    if (!briefEl.hidden) { if (code === 'Enter' || code === 'NumpadEnter') launchPending(); else if (code === 'Escape') { pendingLaunch = null; showMenu(); } return; }
     if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { for (const el of OVERLAYS) if (el !== menuEl && el !== lobbyEl && !el.hidden) { el.hidden = true; break; } } return; }
     if (code === 'Escape') {
       if (!lbEl.hidden) { lbEl.hidden = true; return; }

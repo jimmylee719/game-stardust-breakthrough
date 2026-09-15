@@ -1,6 +1,11 @@
 // 補充英文對照表：涵蓋 i18n.js 尚未收錄的字串（圖鑑 / 機庫 / 任務 / 成就 / 升級 / 死亡原因 / 選單訊息）。
 // EXTRA：精確對照；RULES_EXTRA：含可變數字的樣式規則。
 export const EXTRA = {
+  // ── 任務簡報
+  '任務簡報': 'Mission briefing', '返回': 'Back', '：': ': ', '🚀 空降出擊': '🚀 Drop in', 'Enter 出擊 · Esc 返回': 'Enter to drop · Esc to go back', '作戰代號': 'Op code',
+  '目標星球': 'Target planet', '任務': 'Mission', '裝備': 'Loadout', '每日規則': 'Daily rules',
+  '深入據點，擊破盤據的 Boss': 'Push into the site and destroy the boss holding it',
+  '深入據點，擊破所有 Boss（2 隻起，隨人數增加、最多 6 隻）': 'Push into the site and destroy every boss (2+, more with more players, max 6)',
   // ── 死亡原因 / 攻擊來源（顯示為「被「X」擊落」，用名詞）
   ' 撞擊': ' ram', '不明攻擊': 'Unknown attack', '敵彈': 'Enemy fire', '碎片': 'Shards', '地雷': 'Mine', '炸彈': 'Bomb', '砲塔': 'Turret',
   '火柱': 'Fire geyser', '冰刺': 'Ice spike', '毒區': 'Toxic pool', '熔岩': 'Lava', '酸液': 'Acid', '深海壓力': 'Pressure', '生化毒物': 'Bio-toxin',
@@ -220,6 +225,11 @@ export const EXTRA = {
 };
 
 export const RULES_EXTRA = [
+  [/^啟動 (\d+) 座中繼站（各站 (\d+) 秒，啟動中敵人加倍）$/, m => `Activate ${m[1]} relays (${m[2]} s each; enemies double while activating)`],
+  [/^摧毀 (\d+) 座蟲巢（蟲巢會不斷生敵，越近生得越快）$/, m => `Destroy ${m[1]} nests (they keep spawning, faster when you are close)`],
+  [/^殲滅 (\d+) 名敵人（敵人會持續增援）$/, m => `Exterminate ${m[1]} enemies (reinforcements keep coming)`],
+  [/^前往撤離點，全員停留 (\d+) 秒$/, m => `Reach the extraction point and hold it for ${m[1]} s`],
+  [/^威脅每 (\d+) 秒 \+1 · 地圖有 (\d+) 個星塵礦點 · 撤離成功獎勵 ×([\d.]+)$/, m => `Threat +1 every ${m[1]} s · ${m[2]} stardust caches on the map · extraction reward ×${m[3]}`],
   // 升級（等級函式）
   [/^子彈傷害 \+(\d+)%（目前 \+(\d+)%）$/, m => `Bullet damage +${m[1]}% (now +${m[2]}%)`],
   [/^射速 \+(\d+)%（目前 \+(\d+)%）$/, m => `Fire rate +${m[1]}% (now +${m[2]}%)`],

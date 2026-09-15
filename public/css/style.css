@@ -266,3 +266,17 @@ canvas#game { display: block; position: fixed; inset: 0; width: 100vw; height: 1
 .lb-rows li.room .rk { font-size: 16px; color: var(--gold); letter-spacing: .1em; }
 .lb-rows li.room button { margin: 0; width: auto; padding: 6px 12px; font-size: 12px; letter-spacing: .05em; }
 @media (max-width: 560px) { .arenas { grid-template-columns: repeat(3, 1fr); } }
+
+/* 任務簡報 */
+.panel.brief { text-align: left; }
+.panel.brief h2, .panel.brief .sub, .panel.brief .sub2 { text-align: center; }
+.panel.brief .sub { margin-bottom: 4px; }
+.bsec { margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
+.bh { font-size: 11px; letter-spacing: .25em; color: var(--accent); margin-bottom: 6px; }
+.bl { font-size: 14px; line-height: 1.5; }
+.bi { font-size: 22px; margin-right: 6px; vertical-align: middle; }
+.bl .dim { color: rgba(255,255,255,.55); font-size: 12px; }
+.bsteps { margin: 6px 0 6px 20px; padding: 0; color: #fff; }
+.bload { display: flex; gap: 14px; flex-wrap: wrap; }
+.brief .hint { text-align: center; font-size: 11px; color: rgba(255,255,255,.4); margin-top: 10px; }
+.brief .row { margin-top: 14px; }
