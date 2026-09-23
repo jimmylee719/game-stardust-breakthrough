@@ -6,7 +6,7 @@ import { nearestTarget } from './game.js';
 import { vfx, particles, floatTexts, bolts } from './effects.js';
 import { themedContext, getTheme, onThemeChange } from './themes.js';
 import { touch, touchLayout, insets } from './input.js';
-import { MISSION, MISSION_TYPES, TERRAIN } from '../../shared/map.js';
+import { MISSION, MISSION_TYPES, SIDE_TYPES, TERRAIN } from '../../shared/map.js';
 
 export function createRenderer(canvas, world) {
   const raw = canvas.getContext('2d');
@@ -34,7 +34,9 @@ export function createRenderer(canvas, world) {
   const vis = (x, y, m = 80) => x > cam.x - m && x < cam.x + W + m && y > cam.y - m && y < cam.y + H + m;
   /** 前景視差圖層（public/img/fg-<arena>.webp，黑底 + screen 混合當透明層）；底部裁掉 AI 常畫的地平線 */
   const FG_CROP = { space: 0.7, inferno: 0.62, mercury: 0.84, venom: 0.7, abyss: 0.72, glacier: 0.72 };
-  const fgImgs = {}, fgTiles = {};
+  const fgImgs = {}, fgTiles = {}, objImgs = {};
+  /** 目標物件的 AI 貼圖（黑底 → screen 混合），沒載好就回 null */
+  function objImg(id) { if (!(id in objImgs)) { const im = new Image(); im.decoding = 'async'; im.src = `img/obj-${id}.webp`; objImgs[id] = im; } const im = objImgs[id]; return im.complete && im.naturalWidth ? im : null; }
   function fgFor(id) {
     if (typeof Image === 'undefined') return null;
     if (!(id in fgImgs)) { const im = new Image(); im.decoding = 'async'; im.src = `img/fg-${id}.webp`; fgImgs[id] = im; }
@@ -129,12 +131,24 @@ export function createRenderer(canvas, world) {
       ctx.shadowColor = c; ctx.shadowBlur = 16; ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.setLineDash([10, 8]); ctx.lineDashOffset = -time * 40;
       ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
       ctx.globalAlpha = 0.1 + (o.active ? 0.1 * Math.sin(time * 10) ** 2 : 0); ctx.fillStyle = c; ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
-      // 中央裝置：旋轉的三角天線
-      ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(time * (o.done ? 0.3 : o.active ? 3 : 0.8)); ctx.lineWidth = 3; ctx.beginPath(); for (let k = 0; k < 3; k++) { const a = k * TAU / 3; ctx.moveTo(Math.cos(a) * 14, Math.sin(a) * 14); ctx.lineTo(Math.cos(a) * 40, Math.sin(a) * 40); } ctx.stroke(); ctx.restore();
+      // 中央裝置：AI 中繼站貼圖（有的話），否則旋轉的三角天線
+      const ri = objImg('relay');
+      if (ri) { ctx.save(); ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = o.done ? 0.85 : 1; const s = o.r * 1.9; ctx.drawImage(ri, o.x - s / 2, o.y - s / 2 - 18, s, s); ctx.restore(); ctx.save(); ctx.translate(o.x, o.y); ctx.globalAlpha = 0.001; ctx.beginPath(); }
+      else { ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(time * (o.done ? 0.3 : o.active ? 3 : 0.8)); ctx.lineWidth = 3; ctx.beginPath(); for (let k = 0; k < 3; k++) { const a = k * TAU / 3; ctx.moveTo(Math.cos(a) * 14, Math.sin(a) * 14); ctx.lineTo(Math.cos(a) * 40, Math.sin(a) * 40); } ctx.stroke(); }ctx.restore();
       ctx.beginPath(); ctx.arc(o.x, o.y, 14, 0, TAU); ctx.fillStyle = c; ctx.fill();
       if (!o.done && prog > 0) { ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(o.x, o.y, o.r + 12, -Math.PI / 2, -Math.PI / 2 + TAU * prog); ctx.stroke(); }
       ctx.shadowBlur = 0; ctx.fillStyle = c; ctx.font = 'bold 14px sans-serif';
       ctx.fillText(o.done ? tr(`中繼站 ${i + 1} ✔`) : o.active ? tr(`啟動中 ${Math.ceil(MISSION.activate - (o.p ?? o.progress ?? 0))}s`) : tr(`中繼站 ${i + 1}`), o.x, o.y - o.r - 18);
+    });
+    // 次要目標
+    (world.side || []).forEach(o => {
+      if (!vis(o.x, o.y, o.r + 120)) return;
+      const S = SIDE_TYPES[o.kind] || SIDE_TYPES.supply, c = o.done ? '#3ddc84' : o.active ? '#fff' : '#4cc9f0', prog = (o.p ?? o.progress ?? 0) / MISSION.sideT;
+      ctx.shadowColor = c; ctx.shadowBlur = 12; ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.setLineDash([6, 8]); ctx.lineDashOffset = -time * 30; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.fillStyle = c; ctx.font = 'bold 34px sans-serif'; ctx.fillText(S.icon, o.x, o.y);
+      if (!o.done && prog > 0) { ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(o.x, o.y, o.r + 10, -Math.PI / 2, -Math.PI / 2 + TAU * prog); ctx.stroke(); }
+      ctx.shadowBlur = 0; ctx.font = 'bold 13px sans-serif'; ctx.fillText(o.done ? tr(`${S.name} ✔`) : tr(`次要：${S.name}`), o.x, o.y - o.r - 16);
     });
     const ex = world.extract;
     if (ex && ex.active && vis(ex.x, ex.y, ex.r + 400)) {
@@ -162,6 +176,7 @@ export function createRenderer(canvas, world) {
     ctx.fillStyle = '#fff'; ctx.fillText(`${T.icon} ${tr(T.name)} · ${goal}  ·  ${mm}:${ss}`, W / 2, world.waveMode || world.event ? 82 : 24);
     if (world.alarm > 0) { ctx.fillStyle = `rgba(255,56,96,${0.6 + 0.4 * Math.sin(time * 8)})`; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('⚠ 警戒：敵人增援中'), W / 2, 46); }
     ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = world.reinforce > 0 ? '#ffd166' : 'rgba(255,255,255,.4)'; ctx.fillText(tr(`🪂 增援 ×${world.reinforce || 0}`), W / 2, world.alarm > 0 ? 64 : 46);
+    { const sd = world.side || []; if (sd.length) { ctx.font = '12px sans-serif'; ctx.fillStyle = 'rgba(180,230,255,.8)'; ctx.fillText(tr(`◇ 次要目標 ${sd.filter(o => o.done).length} / ${sd.length}`), W / 2, world.alarm > 0 ? 82 : 64); } }
     if (me && me.dead && me.respawnT > 0) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 16; ctx.font = 'bold 34px sans-serif'; ctx.fillText(tr(`增援空降 ${Math.ceil(me.respawnT)}`), W / 2, H / 2 - 80); ctx.shadowBlur = 0; }
     // 小地圖
     const mw = 210, mh = Math.round(mw * world.H / world.W), mx = W - mw - 24, my = H - mh - 24;
@@ -172,10 +187,11 @@ export function createRenderer(canvas, world) {
     // 視窗框
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.strokeRect(mx + cam.x * sx, my + cam.y * sy, W * sx, H * sy);
     objs.forEach(o => { if (o.kind === 'kill') return; ctx.fillStyle = o.done ? '#3ddc84' : o.kind === 'boss' ? '#ff3860' : o.kind === 'nest' ? '#c77dff' : '#ffd166'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(mx + o.x * sx, my + o.y * sy, o.done ? 3 : 4 + Math.sin(time * 5) * 1.2, 0, TAU); ctx.fill(); });
+    for (const o of world.side || []) { ctx.fillStyle = o.done ? '#3ddc84' : '#4cc9f0'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 4; ctx.save(); ctx.translate(mx + o.x * sx, my + o.y * sy); ctx.rotate(Math.PI / 4); ctx.fillRect(-2.5, -2.5, 5, 5); ctx.restore(); }
     for (const c of world.pickups) if (c.cache) { ctx.fillStyle = '#fff3c4'; ctx.shadowBlur = 0; ctx.fillRect(mx + c.x * sx - 1.5, my + c.y * sy - 1.5, 3, 3); }
     if (ex && ex.active) { ctx.fillStyle = '#4cc9f0'; ctx.shadowColor = '#4cc9f0'; ctx.beginPath(); ctx.arc(mx + ex.x * sx, my + ex.y * sy, 4 + Math.sin(time * 6) * 1.5, 0, TAU); ctx.fill(); }
     ctx.shadowBlur = 0;
-    if (me) for (const e of world.enemies) { if (Math.hypot(e.x - me.x, e.y - me.y) > 1300) continue; ctx.fillStyle = e.elite ? '#ff8c42' : '#ff3860'; ctx.fillRect(mx + e.x * sx - 1, my + e.y * sy - 1, 2, 2); }
+    if (me) for (const e of world.enemies) { if (!world.radar && Math.hypot(e.x - me.x, e.y - me.y) > 1300) continue; ctx.fillStyle = e.elite ? '#ff8c42' : '#ff3860'; ctx.fillRect(mx + e.x * sx - 1, my + e.y * sy - 1, 2, 2); }
     for (const b of world.bosses) { ctx.fillStyle = '#ff3860'; ctx.beginPath(); ctx.arc(mx + b.x * sx, my + b.y * sy, 4, 0, TAU); ctx.fill(); }
     for (const q of world.players) { if (q.dead) continue; ctx.fillStyle = q.downed ? '#ff5f7a' : q.color; ctx.shadowColor = q.color; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(mx + q.x * sx, my + q.y * sy, 3, 0, TAU); ctx.fill(); }
     ctx.restore();

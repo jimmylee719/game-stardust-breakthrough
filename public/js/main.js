@@ -9,7 +9,7 @@ import { createFx, vfx, resetEffects, updateEffects, decayEffects, trackFrame } 
 import { ensureAudio, toggleMute, isMuted, setMood, getMusicVolume, setMusicVolume, getSfxEnabled, setSfxEnabled } from './audio.js';
 import { connect, playEvents } from './net.js';
 import { createPredictor } from './predict.js';
-import { MISSION, MISSION_TYPES, pickMissionType } from '../../shared/map.js';
+import { MISSION, MISSION_TYPES, SIDE_TYPES, pickMissionType } from '../../shared/map.js';
 import { weaponAllowed, defaultWeaponFor, SKILLS, skillById, skillUnlocked, sanitizeName, NAME_MAX_LEN, PERKS, perkLevels, SHIPS, shipById, shipUnlocked, WEAPONS, weaponById, weaponUnlocked, SKINS, skinById, skinUnlocked, ARENAS, arenaById, WEAPON_MODS, ELEMENTS, AFFINITY, EVENTS, ENEMY_TYPES, BOSS_KINDS, WEAPON_ELEMENT, EVOLUTIONS } from '../../shared/constants.js';
 import { seedRandom } from '../../shared/math.js';
 import { DAILY_MODS, dayKey } from '../../shared/daily.js';
@@ -80,7 +80,7 @@ const T = s => escapeHtml(tr(s));
 
 // ---------- 場地選擇 ----------
 function renderArenas(container, current, onPick, disabled = false) {
-  container.innerHTML = ARENAS.map(a => `<div class="arena ${a.id === current ? 'on' : ''}" data-arena="${a.id}" title="${escapeHtml(a.desc)}"><div class="ic">${a.icon}</div><div class="nm">${T(a.name)}</div></div>`).join('');
+  container.innerHTML = ARENAS.map(a => `<div class="arena ${a.id === current ? 'on' : ''}" data-arena="${a.id}" title="${escapeHtml(a.desc)}"><div class="ic"><img src="img/planet-${a.id}.webp" alt="${a.icon}" loading="lazy"></div><div class="nm">${T(a.name)}</div></div>`).join('');
   if (!disabled) for (const el of container.querySelectorAll('.arena')) el.addEventListener('click', () => { ensureAudio(); onPick(el.dataset.arena); });
   const A = arenaById(current);
   let d = container.nextElementSibling;
@@ -126,7 +126,7 @@ function toggleFullscreen() {
   else goFullscreen();
 }
 /** 首頁面板：依視窗大小整塊縮放，保證所有資訊同時看得到、不出現捲軸 */
-function fitMenu() { fitPanel(menuEl); }
+function fitMenu() { fitPanel(menuEl); fitPanel(briefEl); }
 /** 面板整塊縮放：首頁一律；機庫只在寬螢幕（窄螢幕退回捲動） */
 function fitPanel(overlay) {
   const box = overlay.querySelector('.fitbox'), panel = box && box.querySelector('.panel');
@@ -139,7 +139,7 @@ function fitPanel(overlay) {
 }
 // resize 事件有時在版面重排前就觸發（媒體查詢切欄、字型載入）→ 下一幀再量一次，並用 ResizeObserver 盯著面板尺寸
 window.addEventListener('resize', () => { fitMenu(); requestAnimationFrame(fitMenu); setTimeout(fitMenu, 150); setTimeout(fitMenu, 450); });
-if ('ResizeObserver' in window) { const ro = new ResizeObserver(() => fitMenu()); for (const el of [menuEl, hangarEl]) { const pn = el.querySelector('.panel'); if (pn) ro.observe(pn); } }
+if ('ResizeObserver' in window) { const ro = new ResizeObserver(() => fitMenu()); for (const el of [menuEl, hangarEl, briefEl]) { const pn = el.querySelector('.panel'); if (pn) ro.observe(pn); } }
 window.addEventListener('orientationchange', () => { setTimeout(() => { renderer.resize(); fitMenu(); }, 300); });
 if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { renderer.resize(); fitMenu(); });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitMenu());
@@ -182,8 +182,8 @@ function renderBriefing({ daily, bossRush, missionType, seed }) {
   const rew = bossRush ? 1.5 : MISSION.reward;
   $('brief-code').textContent = `${tr('作戰代號')} #${seed.toString(36).toUpperCase()}${daily ? ' · ' + tr('每日挑戰') : ''}`;
   $('brief-body').innerHTML = `
-    <div class="bsec"><div class="bh">${tr('目標星球')}</div><div class="bl"><span class="bi">${A.icon}</span><b>${escapeHtml(tr(A.name))}</b> · ${escapeHtml(tr(A.desc))}<br><span class="dim">⚠ ${escapeHtml(tr(A.hazard))} · ${tr('原生生物')}${tr('：')}${escapeHtml(tr(ENEMY_TYPES[A.unique].name))}</span></div></div>
-    <div class="bsec"><div class="bh">${tr('任務')}</div><div class="bl"><span class="bi">${T.icon}</span><b>${escapeHtml(tr(T.name))}</b>${bossRush ? ' · ' + tr('Boss 挑戰') : ''}<ol class="bsteps">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol><span class="dim">${tr(`威脅每 ${MISSION.waveEvery} 秒 +1 · 地圖有 ${MISSION.caches} 個星塵礦點 · 撤離成功獎勵 ×${rew}`)} · ${tr(`🪂 增援 ×${MISSION.reinforce[0] + MISSION.reinforce[1]}`)}</span>${daily ? `<br><span class="dim">${tr('每日規則')}：${escapeHtml(daily.mods.map(id => tr(DAILY_MODS.find(m => m.id === id)?.name || id)).join(' + '))}</span>` : ''}</div></div>
+    <div class="bsec"><div class="bh">${tr('目標星球')}</div><div class="bl bplanet"><img src="img/planet-${A.id}.webp" alt=""><div><span class="bi">${A.icon}</span><b>${escapeHtml(tr(A.name))}</b> · ${escapeHtml(tr(A.desc))}<br><span class="dim">⚠ ${escapeHtml(tr(A.hazard))} · ${tr('原生生物')}${tr('：')}${escapeHtml(tr(ENEMY_TYPES[A.unique].name))}</span></div></div></div>
+    <div class="bsec"><div class="bh">${tr('任務')}</div><div class="bl"><span class="bi">${T.icon}</span><b>${escapeHtml(tr(T.name))}</b>${bossRush ? ' · ' + tr('Boss 挑戰') : ''}<ol class="bsteps">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol><span class="dim">${tr(`威脅每 ${MISSION.waveEvery} 秒 +1 · 地圖有 ${MISSION.caches} 個星塵礦點 · 撤離成功獎勵 ×${rew}`)} · ${tr(`🪂 增援 ×${MISSION.reinforce[0] + MISSION.reinforce[1]}`)}</span><br><span class="dim">${tr('次要目標（可選）')}：${Object.values(SIDE_TYPES).map(S => `${S.icon} ${escapeHtml(tr(S.name))}`).join('、')} · ${tr(`各 +${MISSION.sideScore} 分`)}</span>${daily ? `<br><span class="dim">${tr('每日規則')}：${escapeHtml(daily.mods.map(id => tr(DAILY_MODS.find(m => m.id === id)?.name || id)).join(' + '))}</span>` : ''}</div></div>
     <div class="bsec"><div class="bh">${tr('裝備')}</div><div class="bl bload"><span>${S.icon} ${escapeHtml(tr(S.name))}</span><span>${Wp.icon} ${escapeHtml(tr(Wp.name))}</span><span>${K.icon} ${escapeHtml(tr(K.name))}</span></div></div>`;
 }
 function launchPending() {

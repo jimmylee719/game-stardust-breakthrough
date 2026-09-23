@@ -419,4 +419,16 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (K.world.scene !== 'gameover') fail('增援用完陣亡應 gameover，得 ' + K.world.scene);
   console.log('reinforcements ok');
 }
+// 30. 次要目標：站 4 秒完成、補給站回滿血、雷達站開全圖；不影響撤離
+{
+  const quiet = A => { A.world.timers.length = 0; A.world.enemies.length = 0; A.world.hazardCd = 999; A.world.eventCd = 999; A.world.ambientCd = 999; A.world.patrolCd = 999; };
+  const K = mk({}); startRun(K.world, { mission: true, missionType: 'relay', arena: 'space', seed: 777 }); quiet(K); K.p = K.world.players[0];
+  if (K.world.side.length !== 2) fail('應有 2 個次要目標，得 ' + K.world.side.length);
+  const sup = K.world.side.find(o => o.kind === 'supply'), rad = K.world.side.find(o => o.kind === 'radar'); if (!sup || !rad) fail('應有補給站與雷達站');
+  K.p.hp = 10; K.p.x = sup.x; K.p.y = sup.y; const sc = K.world.score; step(K.world, 270);
+  if (!sup.done) fail('站 4 秒補給站應完成'); if (K.p.hp !== K.p.maxHp) fail('補給站應回滿血'); if (K.world.score !== sc + 400) fail('次要目標應 +400');
+  K.p.x = rad.x; K.p.y = rad.y; step(K.world, 270); if (!rad.done || !K.world.radar) fail('雷達站應完成並開全圖');
+  if (K.world.extract.active) fail('次要目標不應開撤離點');
+  console.log('side objectives ok');
+}
 console.log('PASS');

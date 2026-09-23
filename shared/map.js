@@ -18,6 +18,13 @@ export const MISSION = {
   bossSite: 800,             // 靠近 Boss 據點多近會觸發
   reinforce: [2, 1],         // 增援次數（全隊共用）：基礎 + 每位玩家；陣亡後幾秒空降回來
   reinforceT: 5,
+  side: 2, sideScore: 400,   // 次要目標（可選）：每張圖 2 個，各 +400 分
+  sideT: 4,                  // 站在次要目標裡幾秒完成
+};
+/** 次要目標（絕地戰兵的「可選任務」）：不影響撤離，做了有好處 */
+export const SIDE_TYPES = {
+  supply: { icon: '📦', name: '補給站', desc: '站 4 秒：全員回滿血、短暫無敵' },
+  radar:  { icon: '🛰️', name: '雷達站', desc: '站 4 秒：小地圖顯示全圖敵人與 Boss' },
 };
 
 /** 任務類型（絕地戰兵式：每次出擊選一種或隨機） */
@@ -36,7 +43,7 @@ export const TERRAIN = { space: 'rock', inferno: 'lava', mercury: 'metal', venom
 function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 /**
- * 生成地圖。回傳 { W, H, type, start, obstacles: [{id,x,y,r,kind,pts,rot}], sites: [{x,y,r}], extract: {x,y}, caches: [{x,y}] }
+ * 生成地圖。回傳 { W, H, type, start, obstacles: [{id,x,y,r,kind,pts,rot}], sites: [{x,y,r}], extract: {x,y}, caches: [{x,y}], side: [{kind,x,y}] }
  * sites：依任務類型是中繼站 / 蟲巢（3 座）或 Boss 據點（1 座）；殲滅任務沒有站點。
  * pts：多邊形頂點半徑比例（畫鋸齒岩石用），同一種子永遠相同。
  */
@@ -61,8 +68,17 @@ export function genMap(seed, arena = 'space', type = 'relay') {
   const corners = [[300, 300], [W - 300, 300], [300, H - 300], [W - 300, H - 300]];
   let extract = null, best = -1;
   for (const [cx, cy] of corners) { const d = Math.min(...sites.map(o => Math.hypot(o.x - cx, o.y - cy)), Math.hypot(start.x - cx, start.y - cy)); if (d > best) { best = d; extract = { x: cx, y: cy }; } }
-  // 障礙：約 70 顆，避開起點、站點、撤離點
-  const keep = [{ x: start.x, y: start.y, r: 260 }, ...sites.map(o => ({ x: o.x, y: o.y, r: type === 'boss' ? 420 : 220 })), { x: extract.x, y: extract.y, r: 260 }];
+  // 次要目標：補給站 + 雷達站，離起點 / 站點 / 撤離點都有距離
+  const side = [], sideKinds = Object.keys(SIDE_TYPES);
+  guard = 0;
+  while (side.length < MISSION.side && guard++ < 600) {
+    const x = rand(300, W - 300), y = rand(300, H - 300);
+    if (Math.hypot(x - start.x, y - start.y) < 700 || Math.hypot(x - extract.x, y - extract.y) < 600) continue;
+    if (!sites.every(o => Math.hypot(o.x - x, o.y - y) > 600) || !side.every(o => Math.hypot(o.x - x, o.y - y) > 700)) continue;
+    side.push({ kind: sideKinds[side.length % sideKinds.length], x: Math.round(x), y: Math.round(y) });
+  }
+  // 障礙：約 70 顆，避開起點、站點、撤離點、次要目標
+  const keep = [{ x: start.x, y: start.y, r: 260 }, ...sites.map(o => ({ x: o.x, y: o.y, r: type === 'boss' ? 420 : 220 })), { x: extract.x, y: extract.y, r: 260 }, ...side.map(o => ({ x: o.x, y: o.y, r: 190 }))];
   const obstacles = [];
   guard = 0;
   while (obstacles.length < 70 && guard++ < 3000) {
@@ -80,7 +96,7 @@ export function genMap(seed, arena = 'space', type = 'relay') {
     if (Math.hypot(x - start.x, y - start.y) < 500 || obstacleAt(obstacles, x, y, 40) || !caches.every(c => Math.hypot(c.x - x, c.y - y) > 400)) continue;
     caches.push({ x: Math.round(x), y: Math.round(y) });
   }
-  return { W, H, type, start, obstacles, sites, extract, caches };
+  return { W, H, type, start, obstacles, sites, extract, caches, side };
 }
 
 /** 把圓形物體推出所有障礙（純函式，只改 o.x / o.y / o.vx / o.vy）。回傳是否碰到。 */

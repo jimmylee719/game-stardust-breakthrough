@@ -280,3 +280,17 @@ canvas#game { display: block; position: fixed; inset: 0; width: 100vw; height: 1
 .bload { display: flex; gap: 14px; flex-wrap: wrap; }
 .brief .hint { text-align: center; font-size: 11px; color: rgba(255,255,255,.4); margin-top: 10px; }
 .brief .row { margin-top: 14px; }
+
+/* 星球圖 */
+.arena .ic img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto; box-shadow: 0 0 12px rgba(120,200,255,.35); }
+.panel.fit .arena .ic img { width: 48px; height: 48px; }
+.bl.bplanet { display: flex; gap: 12px; align-items: center; }
+.bl.bplanet img { width: 84px; height: 84px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 24px rgba(120,200,255,.35); }
+
+/* 簡報：用 fitbox zoom 縮放（手機橫向也放得下）；寬螢幕兩欄 */
+.panel.brief { max-height: none; overflow: visible; }
+@media (min-width: 700px) {
+  .panel.brief { width: min(96vw, 880px); }
+  #brief-body { display: grid; grid-template-columns: 1fr 1.1fr; gap: 0 12px; align-items: start; }
+  #brief-body .bsec:nth-child(2) { grid-row: span 2; }
+}

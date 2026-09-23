@@ -2,7 +2,7 @@
 // 規則：不碰 DOM、Canvas、Audio、window、setTimeout。所有視聽回饋透過 fx 介面通知外界。
 // 這個模組同時在瀏覽器（單機）與伺服器（多人）執行。
 import { TAU, rand, randInt, rnd, clamp, dist2, angleDiff } from '../../shared/math.js';
-import { MISSION, MISSION_TYPES, pickMissionType, genMap, resolveObstacles, obstacleAt } from '../../shared/map.js';
+import { MISSION, MISSION_TYPES, SIDE_TYPES, pickMissionType, genMap, resolveObstacles, obstacleAt } from '../../shared/map.js';
 import {
   SKILLS, skillById, ENERGY, BOSS_RUSH_WAVES, BOSS_RUSH_REWARD, weaponAllowed, defaultWeaponFor,
   WORLD, PLAYER_BASE, PLAYER_COLORS, ENEMY_TYPES, DIFFICULTY, AI, BOSS_NAMES, BOSS_EVERY, BOSS_RADIUS, BOSS_KINDS, BOSS_DOUBLE_FROM_WAVE, BOSS_DOUBLE_CHANCE, AMBIENT, PERFECT_WAVE_BONUS, GRAZE_SCORE, ENEMY_BLINK_FROM_WAVE,
@@ -34,7 +34,7 @@ export function createWorld() {
     waveMode: null, modeTimer: 0, modeSpawnCd: 0, beacon: null, lastMode: null,
     chrono: 0, waveTheme: null, arena: 'space', hazardCd: 6, wells: [], flare: null, blizzard: 0, wind: null, drag: 1,   // 場地與其危險（updateArena）
     event: null, eventCd: 30, crate: null, hole: null, eclipse: 0, dustBonus: 0, lastEvent: null,   // 隨機事件
-    obstacles: [], objectives: [], extract: null, mapSeed: 0, start: null, missionT: 0, patrolCd: 5, alarm: 0, missionType: null, caches: [], reinforce: 0,   // 任務（shared/map.js）
+    obstacles: [], objectives: [], extract: null, mapSeed: 0, start: null, missionT: 0, patrolCd: 5, alarm: 0, missionType: null, caches: [], reinforce: 0, side: [], radar: false,   // 任務（shared/map.js）
     stats: freshStats(),
     pendingUpgrades: new Map(),
     timers: [],
@@ -110,6 +110,7 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
     else world.objectives = [{ kind: 'kill', x: 0, y: 0, r: 0, i: 0, done: false, need: 0, count: 0 }];
     world.extract = { ...m.extract, r: 150, t: 0, active: false };
     world.reinforce = MISSION.reinforce[0] + MISSION.reinforce[1] * Math.max(1, world.players.length);
+    world.side = m.side.map((o, i) => ({ kind: o.kind, x: o.x, y: o.y, r: 110, i, progress: 0, done: false, active: false })); world.radar = false;
   }
   roster.forEach(r => addPlayer(world, r));
   if (mission) {
@@ -1813,6 +1814,19 @@ function updateMission(world, dt, fx) {
     const s = ringSpawn(world);
     for (let i = 0; i < n; i++) { const type = pickType(world); schedule(world, i * 0.25, () => spawnWithElite(world, type, clamp(s.x + rand(-90, 90), 40, W - 40), clamp(s.y + rand(-90, 90), 40, H - 40)), true); }
     if (world.wave >= 3 && rnd() < 0.3) schedule(world, 0.5, () => spawnEnemy(world, 'tank', s.x, s.y), true);
+  }
+  // 次要目標（可選）：站在裡面幾秒就完成，不影響撤離
+  for (const o of world.side) {
+    if (o.done) continue;
+    const inside = ps.some(q => dist2(q.x, q.y, o.x, o.y) < (o.r + q.r) ** 2);
+    o.progress = inside ? Math.min(MISSION.sideT, o.progress + dt) : Math.max(0, o.progress - dt * 0.5); o.active = inside;
+    if (o.progress >= MISSION.sideT) {
+      o.done = true; o.active = false; world.score += MISSION.sideScore; world.stats.side = (world.stats.side || 0) + 1;
+      const S = SIDE_TYPES[o.kind];
+      if (o.kind === 'supply') for (const q of world.players) { if (q.dead || q.offline) continue; q.hp = q.maxHp; q.inv = Math.max(q.inv, 2); if (q.downed) revive(world, q, fx); }
+      else if (o.kind === 'radar') world.radar = true;
+      fx.text(o.x, o.y - o.r - 30, `${S.icon} ${S.name}完成 +${MISSION.sideScore}`, '#4cc9f0', 22, 2); fx.ring(o.x, o.y, '#4cc9f0', 20, 300, 0.7, 4); fx.sfx('pickup');
+    }
   }
   // 目標：依任務類型（中繼站 / 蟲巢 / Boss 據點 / 殲滅）
   let allDone = true, justDone = null;
