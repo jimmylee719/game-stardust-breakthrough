@@ -102,7 +102,7 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
     world.mods.mission = true; world.mapSeed = (seed >>> 0) || randInt(1, 2147483646);
     world.missionType = MISSION_TYPES[missionType] ? missionType : pickMissionType(world.mapSeed);
     const m = genMap(world.mapSeed, world.arena, world.missionType);
-    world.W = m.W; world.H = m.H; world.start = m.start; world.obstacles = m.obstacles; world.caches = m.caches;
+    world.W = m.W; world.H = m.H; world.start = m.start; world.obstacles = m.obstacles; world.caches = m.caches; world.turretSpots = m.turrets || [];
     const T = world.missionType;
     if (T === 'relay') world.objectives = m.sites.map((o, i) => ({ kind: 'relay', ...o, i, progress: 0, done: false, active: false }));
     else if (T === 'nests') world.objectives = m.sites.map((o, i) => ({ kind: 'nest', ...o, i, done: false, eid: null }));
@@ -121,6 +121,7 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
       if (o.kind === 'nest') { const e = spawnEnemy(world, 'nest', o.x, o.y); e.hp = e.maxHp = Math.round(ENEMY_TYPES.nest.hp * (1 + (n - 1) * 0.6)); e.objective = o.i; o.eid = e.id; }
     }
     for (const c of world.caches) world.pickups.push({ id: world.nextId++, x: c.x, y: c.y, kind: 'dust', life: 9999, t: 0, cache: true });
+    for (const t of world.turretSpots || []) { const e = spawnEnemy(world, 'turret', t.x, t.y); e.hp = e.maxHp = Math.round(ENEMY_TYPES.turret.hp * (1 + (n - 1) * 0.4)); e.ta = rand(0, TAU); e.atkCd = rand(0.5, 1.5); }
   }
   world.wave = mission ? 1 : world.mods.skip ? Math.max(startWave, 3) : startWave;
   world.upgradeOffered = true;
@@ -2317,6 +2318,26 @@ const BEHAVE = {
       for (let k = 0; k < 2; k++) { const a = rand(0, TAU); spawnEnemy(world, pickType(world), e.x + Math.cos(a) * (e.r + 30), e.y + Math.sin(a) * (e.r + 30)); }
       fx.burst(e.x, e.y, e.color, 12, 160, 0.5, 3); fx.ring(e.x, e.y, e.color, e.r, e.r + 60, 0.4, 3); fx.beep(120, 0.3, 'sawtooth', 0.05, 60);
     }
+    return { tx: 0, ty: 0, steer: false };
+  },
+  turret(world, e, tgt, dx, dy, d, dt, fx) {
+    // 據點防禦塔：不動；玩家進射程就轉向瞄準（0.8 秒預警線），然後 3 連發
+    e.vx = 0; e.vy = 0;
+    const inRange = d < 600;
+    const want = Math.atan2(dy, dx);
+    if (inRange) { let da = want - (e.ta ?? want); da = Math.atan2(Math.sin(da), Math.cos(da)); e.ta = (e.ta ?? want) + da * Math.min(1, dt * 4); }
+    if (e.burst > 0) {
+      e.burstCd -= dt;
+      if (e.burstCd <= 0) { e.burst--; e.burstCd = 0.14; eb(world, e, e.x + Math.cos(e.ta) * e.r, e.y + Math.sin(e.ta) * e.r, e.ta + rand(-0.05, 0.05), 520, { r: 5, life: 2, kind: 'lead', dmg: 10, by: '防禦砲塔' }); fx.beep(700, 0.06, 'square', 0.05, -300); fx.burstDir(e.x, e.y, e.color, 4, e.ta, 0.2, 200, 0.2, 2); }
+      return { tx: 0, ty: 0, steer: false };
+    }
+    if (e.aimT > 0) {
+      e.aimT -= dt; e.aimA = e.ta;
+      if (e.aimT <= 0) { e.burst = 3; e.burstCd = 0; }
+      return { tx: 0, ty: 0, steer: false };
+    }
+    e.atkCd = (e.atkCd ?? 1) - dt;
+    if (inRange && e.atkCd <= 0) { e.aimT = 0.8; e.aimA = e.ta; e.atkCd = 2.2 * (e.buffRapid > 0 ? 0.5 : 1); }
     return { tx: 0, ty: 0, steer: false };
   },
   kamikaze(world, e, tgt, dx, dy, d, dt, fx) {

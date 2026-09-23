@@ -458,4 +458,19 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (Math.abs(K.world.flare.cy - K.p.y) > 1) fail('任務太陽風暴應以玩家 y 為中心'); if (Math.abs(K.world.flare.sx - K.p.x) > 1200) fail('任務太陽風暴應從玩家附近開始'); console.log('flare centered ok');
   console.log('boss site moves ok');
 }
+// 32. 據點防禦塔：中繼站旁各 2 座、不動、玩家進射程會瞄準後 3 連發、遠離就安靜
+{
+  const quiet = A => { A.world.timers.length = 0; A.world.enemies = A.world.enemies.filter(e => e.type === 'turret'); A.world.hazardCd = 999; A.world.eventCd = 999; A.world.ambientCd = 999; A.world.patrolCd = 999; };
+  const K = mk({}); startRun(K.world, { mission: true, missionType: 'relay', arena: 'space', seed: 777 }); quiet(K); K.p = K.world.players[0];
+  const ts = K.world.enemies.filter(e => e.type === 'turret');
+  if (ts.length !== 3 * 2 + 2 * 1) fail('中繼站任務應有 8 座砲塔（3 站 ×2 + 次要 ×1），得 ' + ts.length);
+  const t = ts[0]; K.p.inv = 99;
+  { const W = K.world.W, H = K.world.H, cands = [[W/2,H/2],[200,200],[W-200,200],[200,H-200],[W-200,H-200],[W/2,200],[W/2,H-200],[200,H/2],[W-200,H/2]]; const safe = cands.find(([x,y]) => ts.every(q => Math.hypot(q.x-x,q.y-y) > 750)); if (!safe) fail('找不到離所有砲塔 750 以上的點'); K.p.x = safe[0]; K.p.y = safe[1]; }
+  step(K.world, 120); if (K.world.enemyBullets.length) fail('玩家在射程外砲塔不該開火'); if (t.x !== ts[0].x) fail('砲塔不該移動');
+  K.p.x = t.x + 300; K.p.y = t.y; K.world.enemyBullets.length = 0;
+  let aimed = false; const seen = new Set(); for (let i = 0; i < 240; i++) { update(K.world, 1 / 60, fx); if (t.aimT > 0) aimed = true; for (const b of K.world.enemyBullets) if (b.by === '防禦砲塔') seen.add(b.id); K.world.enemies = K.world.enemies.filter(e => e.type === 'turret'); }
+  if (!aimed) fail('砲塔應先瞄準'); if (seen.size < 3) fail('砲塔應 3 連發，得 ' + seen.size);
+  if (Math.abs(Math.atan2(Math.sin(t.ta), Math.cos(t.ta))) > 0.3) fail('砲塔應朝向玩家（右邊），得 ' + t.ta.toFixed(2));
+  console.log('turrets ok');
+}
 console.log('PASS');

@@ -2,7 +2,7 @@
 // EXTRA：精確對照；RULES_EXTRA：含可變數字的樣式規則。
 export const EXTRA = {
   // ── 任務簡報
-  '任務簡報': 'Mission briefing', 'MISSION DEBRIEF': 'MISSION DEBRIEF', '任務結算': 'Mission debrief', '撤離成功': 'Extraction successful', '任務失敗': 'Mission failed', '任務放棄': 'Mission abandoned',
+  '任務簡報': 'Mission briefing', '防禦砲塔': 'Defense turret', '據點有防禦砲塔，先拆掉再進場': 'Sites are guarded by turrets; clear them before moving in', '據點守衛：固定不動，玩家進 600 內先瞄準 0.8 秒再 3 連發，打掉才安靜': 'Site guard: stationary; when you come within 600 it aims for 0.8 s then fires a 3-round burst. Destroy it to silence it', 'MISSION DEBRIEF': 'MISSION DEBRIEF', '任務結算': 'Mission debrief', '撤離成功': 'Extraction successful', '任務失敗': 'Mission failed', '任務放棄': 'Mission abandoned',
   '你已離隊': 'You left the squad', '分數': 'Score', '任務時間': 'Mission time', '威脅等級': 'Threat level', '主目標': 'Main objectives', '次要目標': 'Side objectives', '擊殺': 'Kills', '星塵礦點': 'Stardust caches', '增援使用': 'Reinforcements used',
   '小隊': 'Squad', '（你）': ' (you)', '結算中…': 'Tallying…', '沒有拿到星塵（零分局不記錄）': 'No stardust (zero-score runs are not recorded)', '🏆 新紀錄！': '🏆 New record!', '回首頁': 'Home',
   '🚀 再次出擊': '🚀 Drop again', '🚀 再次出擊（全員）': '🚀 Drop again (squad)', 'Enter 再次出擊 · Esc 回首頁': 'Enter to drop again · Esc for home', '等待房主再次出擊…': 'Waiting for the host…', '每日挑戰一天一次': 'Daily challenge: once a day', '🚀 全員空降': '🚀 Drop the squad', '等待房主空降…': 'Waiting for the host to drop…', '返回': 'Back', '：': ': ', '🚀 空降出擊': '🚀 Drop in', 'Enter 出擊 · Esc 返回': 'Enter to drop · Esc to go back', '作戰代號': 'Op code',

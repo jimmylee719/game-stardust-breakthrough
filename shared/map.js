@@ -18,6 +18,7 @@ export const MISSION = {
   bossSite: 800,             // 靠近 Boss 據點多近會觸發
   reinforce: [2, 1],         // 增援次數（全隊共用）：基礎 + 每位玩家；陣亡後幾秒空降回來
   reinforceT: 5,
+  turrets: { site: 2, boss: 4, side: 1 },   // 據點防禦塔：中繼站 / 蟲巢各 2、Boss 據點 4、次要目標各 1
   side: 2, sideScore: 400,   // 次要目標（可選）：每張圖 2 個，各 +400 分
   sideT: 4,                  // 站在次要目標裡幾秒完成
 };
@@ -40,6 +41,7 @@ export function pickMissionType(seed) { return MISSION_TYPE_IDS[(seed >>> 0) % M
 /** 各場地的地形種類（render 依 kind 配色） */
 export const TERRAIN = { space: 'rock', inferno: 'lava', mercury: 'metal', venom: 'spore', abyss: 'coral', glacier: 'ice' };
 
+const clamp01 = (v, a, b) => Math.max(a, Math.min(b, v));
 function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 /**
@@ -73,7 +75,7 @@ export function genMap(seed, arena = 'space', type = 'relay') {
   guard = 0;
   while (side.length < MISSION.side && guard++ < 600) {
     const x = rand(300, W - 300), y = rand(300, H - 300);
-    if (Math.hypot(x - start.x, y - start.y) < 700 || Math.hypot(x - extract.x, y - extract.y) < 600) continue;
+    if (Math.hypot(x - start.x, y - start.y) < 1000 || Math.hypot(x - extract.x, y - extract.y) < 600) continue;
     if (!sites.every(o => Math.hypot(o.x - x, o.y - y) > 600) || !side.every(o => Math.hypot(o.x - x, o.y - y) > 700)) continue;
     side.push({ kind: sideKinds[side.length % sideKinds.length], x: Math.round(x), y: Math.round(y) });
   }
@@ -96,7 +98,12 @@ export function genMap(seed, arena = 'space', type = 'relay') {
     if (Math.hypot(x - start.x, y - start.y) < 500 || obstacleAt(obstacles, x, y, 40) || !caches.every(c => Math.hypot(c.x - x, c.y - y) > 400)) continue;
     caches.push({ x: Math.round(x), y: Math.round(y) });
   }
-  return { W, H, type, start, obstacles, sites, extract, caches, side };
+  // 據點防禦塔：繞著站點 / 次要目標放，避開地形
+  const turrets = [];
+  const ring = (cx, cy, rr, n, a0) => { for (let k = 0; k < n; k++) { const a = a0 + k * TAU / n; let x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; for (let g = 0; g < 8 && obstacleAt(obstacles, x, y, 40); g++) { x = cx + Math.cos(a + g * 0.35) * rr; y = cy + Math.sin(a + g * 0.35) * rr; } turrets.push({ x: Math.round(clamp01(x, 60, W - 60)), y: Math.round(clamp01(y, 60, H - 60)) }); } };
+  for (const s of sites) ring(s.x, s.y, type === 'boss' ? 380 : s.r + 110, type === 'boss' ? MISSION.turrets.boss : MISSION.turrets.site, rand(0, TAU));
+  for (const s of side) ring(s.x, s.y, 190, MISSION.turrets.side, rand(0, TAU));
+  return { W, H, type, start, obstacles, sites, extract, caches, side, turrets };
 }
 
 /** 把圓形物體推出所有障礙（純函式，只改 o.x / o.y / o.vx / o.vy）。回傳是否碰到。 */
