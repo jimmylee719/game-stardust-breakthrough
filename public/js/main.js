@@ -170,24 +170,36 @@ function beginSolo(startWave = 0, daily = null, bossRush = false) {
   for (const el of OVERLAYS) el.hidden = el !== briefEl;
   requestAnimationFrame(() => fitPanel(briefEl));
 }
-function renderBriefing({ daily, bossRush, missionType, seed }) {
-  const A = arenaById(daily ? 'space' : arena), T = MISSION_TYPES[missionType];
+function renderBriefing({ daily, bossRush, missionType, seed, arena: arenaId = null, players = 1, online = false, host = true }) {
+  const A = arenaById(arenaId || (daily ? 'space' : arena)), T = MISSION_TYPES[missionType];
   const S = shipById(currentShip()), Wp = weaponById(currentWeapon()), K = skillById(currentSkill());
   const steps = [];
   if (missionType === 'relay') steps.push(tr(`啟動 ${MISSION.objectives} 座中繼站（各站 ${MISSION.activate} 秒，啟動中敵人加倍）`));
   else if (missionType === 'nests') steps.push(tr(`摧毀 ${MISSION.objectives} 座蟲巢（蟲巢會不斷生敵，越近生得越快）`));
-  else if (missionType === 'exterminate') steps.push(tr(`殲滅 ${MISSION.killNeed[0] + MISSION.killNeed[1]} 名敵人（敵人會持續增援）`));
+  else if (missionType === 'exterminate') steps.push(tr(`殲滅 ${MISSION.killNeed[0] + MISSION.killNeed[1] * players} 名敵人（敵人會持續增援）`));
   else steps.push(bossRush ? tr('深入據點，擊破所有 Boss（2 隻起，隨人數增加、最多 6 隻）') : tr('深入據點，擊破盤據的 Boss'));
   steps.push(tr(`前往撤離點，全員停留 ${MISSION.extract} 秒`));
   const rew = bossRush ? 1.5 : MISSION.reward;
-  $('brief-code').textContent = `${tr('作戰代號')} #${seed.toString(36).toUpperCase()}${daily ? ' · ' + tr('每日挑戰') : ''}`;
+  $('brief-code').textContent = `${tr('作戰代號')} #${seed.toString(36).toUpperCase()}${daily ? ' · ' + tr('每日挑戰') : ''}${online ? ' · ' + tr(`小隊 ${players} 人`) : ''}`;
+  $('brief-go').hidden = !host; $('brief-back').hidden = !host; $('brief-go').textContent = tr(online ? '🚀 全員空降' : '🚀 空降出擊');
+  $('brief-hint').textContent = tr(host ? 'Enter 出擊 · Esc 返回' : '等待房主空降…');
   $('brief-body').innerHTML = `
     <div class="bsec"><div class="bh">${tr('目標星球')}</div><div class="bl bplanet"><img src="img/planet-${A.id}.webp" alt=""><div><span class="bi">${A.icon}</span><b>${escapeHtml(tr(A.name))}</b> · ${escapeHtml(tr(A.desc))}<br><span class="dim">⚠ ${escapeHtml(tr(A.hazard))} · ${tr('原生生物')}${tr('：')}${escapeHtml(tr(ENEMY_TYPES[A.unique].name))}</span></div></div></div>
-    <div class="bsec"><div class="bh">${tr('任務')}</div><div class="bl"><span class="bi">${T.icon}</span><b>${escapeHtml(tr(T.name))}</b>${bossRush ? ' · ' + tr('Boss 挑戰') : ''}<ol class="bsteps">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol><span class="dim">${tr(`威脅每 ${MISSION.waveEvery} 秒 +1 · 地圖有 ${MISSION.caches} 個星塵礦點 · 撤離成功獎勵 ×${rew}`)} · ${tr(`🪂 增援 ×${MISSION.reinforce[0] + MISSION.reinforce[1]}`)}</span><br><span class="dim">${tr('次要目標（可選）')}：${Object.values(SIDE_TYPES).map(S => `${S.icon} ${escapeHtml(tr(S.name))}`).join('、')} · ${tr(`各 +${MISSION.sideScore} 分`)}</span>${daily ? `<br><span class="dim">${tr('每日規則')}：${escapeHtml(daily.mods.map(id => tr(DAILY_MODS.find(m => m.id === id)?.name || id)).join(' + '))}</span>` : ''}</div></div>
+    <div class="bsec"><div class="bh">${tr('任務')}</div><div class="bl"><span class="bi">${T.icon}</span><b>${escapeHtml(tr(T.name))}</b>${bossRush ? ' · ' + tr('Boss 挑戰') : ''}<ol class="bsteps">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol><span class="dim">${tr(`威脅每 ${MISSION.waveEvery} 秒 +1 · 地圖有 ${MISSION.caches} 個星塵礦點 · 撤離成功獎勵 ×${rew}`)} · ${tr(`🪂 增援 ×${MISSION.reinforce[0] + MISSION.reinforce[1] * players}`)}</span><br><span class="dim">${tr('次要目標（可選）')}：${Object.values(SIDE_TYPES).map(S => `${S.icon} ${escapeHtml(tr(S.name))}`).join('、')} · ${tr(`各 +${MISSION.sideScore} 分`)}</span>${daily ? `<br><span class="dim">${tr('每日規則')}：${escapeHtml(daily.mods.map(id => tr(DAILY_MODS.find(m => m.id === id)?.name || id)).join(' + '))}</span>` : ''}</div></div>
     <div class="bsec"><div class="bh">${tr('裝備')}</div><div class="bl bload"><span>${S.icon} ${escapeHtml(tr(S.name))}</span><span>${Wp.icon} ${escapeHtml(tr(Wp.name))}</span><span>${K.icon} ${escapeHtml(tr(K.name))}</span></div></div>`;
+}
+/** 連線房間：伺服器發來的任務簡報（房主按出擊後全員同看；房主再按一次才真的空降） */
+function onCoopBrief(m) {
+  if (m.cancel) { pendingLaunch = null; if (!briefEl.hidden) { briefEl.hidden = true; lobbyEl.hidden = world.scene === 'play'; } return; }
+  ensureAudio();
+  pendingLaunch = { online: true };
+  renderBriefing({ daily: null, bossRush: !!m.boss, missionType: m.type, seed: m.seed, arena: m.arena || roomArena, players: m.players || 1, online: true, host: hostId === myId });
+  for (const el of OVERLAYS) el.hidden = el !== briefEl;
+  requestAnimationFrame(() => fitPanel(briefEl));
 }
 function launchPending() {
   if (!pendingLaunch) return;
+  if (pendingLaunch.online) { if (hostId === myId) net?.launch(); return; }
   const { startWave, daily, bossRush, missionType, seed } = pendingLaunch; pendingLaunch = null;
   const mission = true;
   ensureAudio(); goFullscreen();
@@ -463,7 +475,8 @@ function beginOnline(code) {
       renderArenas($('lobby-arena'), roomArena, id => net?.send({ t: 'arena', id }), !host);
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
-    onStarted() { runStartedAt = performance.now(); track('run_start', { mode: 'coop', ship: currentShip(), weapon: currentWeapon(), arena: roomArena }); resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; metaReported = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
+    onBrief: onCoopBrief,
+    onStarted() { briefEl.hidden = true; pendingLaunch = null; runStartedAt = performance.now(); track('run_start', { mode: 'coop', ship: currentShip(), weapon: currentWeapon(), arena: roomArena }); resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; metaReported = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
     onResult(m) { const mb = m.metaBy?.[getAccount()?.id]; if (mb) { if (mb.dust) { profile.dust += mb.dust; profile.dustTotal += mb.dust; } setTimeout(() => announceMeta(mb), 4200); fetchMeta(); } const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
@@ -473,7 +486,8 @@ function beginOnline(code) {
 
 $('solo').addEventListener('click', () => beginSolo(0));
 $('brief-go').addEventListener('click', launchPending);
-$('brief-back').addEventListener('click', () => { pendingLaunch = null; showMenu(); });
+function briefBack() { if (pendingLaunch && pendingLaunch.online) { if (hostId === myId) net?.cancelBrief(); return; } pendingLaunch = null; showMenu(); }
+$('brief-back').addEventListener('click', briefBack);
 $('solo-boss').addEventListener('click', () => beginSolo(0, null, true));
 /** 大廳的任務選擇（房主）：random / relay / exterminate / nests / boss / bossrush */
 function lobbyMode() { const el = document.querySelector('input[name="lobby-mode"]:checked'); return el ? el.value : 'normal'; }
@@ -604,7 +618,7 @@ function leaveGame() {
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
   onKeyDown(code) {
-    if (!briefEl.hidden) { if (code === 'Enter' || code === 'NumpadEnter') launchPending(); else if (code === 'Escape') { pendingLaunch = null; showMenu(); } return; }
+    if (!briefEl.hidden) { if (code === 'Enter' || code === 'NumpadEnter') launchPending(); else if (code === 'Escape') briefBack(); return; }
     if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { for (const el of OVERLAYS) if (el !== menuEl && el !== lobbyEl && !el.hidden) { el.hidden = true; break; } } return; }
     if (code === 'Escape') {
       if (!lbEl.hidden) { lbEl.hidden = true; return; }

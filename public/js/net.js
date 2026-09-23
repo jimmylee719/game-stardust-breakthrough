@@ -5,7 +5,7 @@ import { TICK_RATE } from '../../shared/constants.js';
 const INTERP_DELAY = 2 * (1000 / TICK_RATE); // 落後兩個 tick 渲染，吸收網路抖動
 const RECONNECT_WINDOW = 12000;               // 斷線後嘗試重連的時間（伺服器保留角色 15 秒）
 
-export function connect({ name, code, token, acct, ship, weapon, skin, skill, onWelcome, onLobby, onStarted, onError, onClose, onReconnecting, onResult }) {
+export function connect({ name, code, token, acct, ship, weapon, skin, skill, onWelcome, onLobby, onStarted, onError, onClose, onReconnecting, onResult, onBrief }) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const net = {
     ws: null, id: null, code: code || null, token: token || null, connected: false, closedByUser: false,
@@ -13,7 +13,10 @@ export function connect({ name, code, token, acct, ship, weapon, skin, skill, on
     send(m) { if (net.ws && net.ws.readyState === WebSocket.OPEN) net.ws.send(JSON.stringify(m)); },
     sendInput(inp) { net.send({ t: 'input', ...inp }); },
     chooseUpgrade(idx) { net.send({ t: 'upgrade', idx }); },
-    start(mode = 'random') { net.send({ t: 'start', mission: true, boss: mode === 'bossrush' || mode === 'boss' && false, type: mode === 'bossrush' ? 'boss' : mode === 'random' ? null : mode }); },
+    /** 房主按出擊：先要求伺服器發任務簡報（全員同看），再由 launch() 真的開始 */
+    start(mode = 'random') { net.send({ t: 'brief', boss: mode === 'bossrush', type: mode === 'bossrush' ? 'boss' : mode === 'random' ? null : mode }); },
+    launch() { net.send({ t: 'start' }); },
+    cancelBrief() { net.send({ t: 'brief_cancel' }); },
     close() { net.closedByUser = true; try { net.ws?.close(); } catch {} },
     applyTo(world, now) {
       if (!net.curr) return [];
@@ -39,6 +42,7 @@ export function connect({ name, code, token, acct, ship, weapon, skin, skill, on
           hadWelcome = true; reconnectUntil = 0;
           onWelcome?.(m); break;
         case 'lobby': onLobby?.(m); break;
+        case 'brief': onBrief?.(m); break;
         case 'started': net.prev = net.curr = null; net.snapCount = 0; onStarted?.(m); break;
         case 'snap':
           net.prev = net.curr; net.tPrev = net.tCurr;

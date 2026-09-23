@@ -2,7 +2,7 @@
 // EXTRA：精確對照；RULES_EXTRA：含可變數字的樣式規則。
 export const EXTRA = {
   // ── 任務簡報
-  '任務簡報': 'Mission briefing', '返回': 'Back', '：': ': ', '🚀 空降出擊': '🚀 Drop in', 'Enter 出擊 · Esc 返回': 'Enter to drop · Esc to go back', '作戰代號': 'Op code',
+  '任務簡報': 'Mission briefing', '🚀 全員空降': '🚀 Drop the squad', '等待房主空降…': 'Waiting for the host to drop…', '返回': 'Back', '：': ': ', '🚀 空降出擊': '🚀 Drop in', 'Enter 出擊 · Esc 返回': 'Enter to drop · Esc to go back', '作戰代號': 'Op code',
   '目標星球': 'Target planet', '次要目標（可選）': 'Side objectives (optional)', '補給站': 'Supply depot', '雷達站': 'Radar station', '補給站 ✔': 'Supply depot ✔', '雷達站 ✔': 'Radar station ✔', '次要：補給站': 'Side: supply depot', '次要：雷達站': 'Side: radar station',
   '站 4 秒：全員回滿血、短暫無敵': 'Hold 4 s: full heal for everyone, brief invulnerability', '站 4 秒：小地圖顯示全圖敵人與 Boss': 'Hold 4 s: minimap shows every enemy and boss on the map', '任務': 'Mission', '裝備': 'Loadout', '每日規則': 'Daily rules',
   '深入據點，擊破盤據的 Boss': 'Push into the site and destroy the boss holding it',
@@ -229,6 +229,7 @@ export const RULES_EXTRA = [
   [/^啟動 (\d+) 座中繼站（各站 (\d+) 秒，啟動中敵人加倍）$/, m => `Activate ${m[1]} relays (${m[2]} s each; enemies double while activating)`],
   [/^摧毀 (\d+) 座蟲巢（蟲巢會不斷生敵，越近生得越快）$/, m => `Destroy ${m[1]} nests (they keep spawning, faster when you are close)`],
   [/^殲滅 (\d+) 名敵人（敵人會持續增援）$/, m => `Exterminate ${m[1]} enemies (reinforcements keep coming)`],
+  [/^小隊 (\d+) 人$/, m => `squad of ${m[1]}`],
   [/^◇ 次要目標 (\d+) \/ (\d+)$/, m => `◇ Side objectives ${m[1]} / ${m[2]}`],
   [/^各 \+(\d+) 分$/, m => `+${m[1]} pts each`],
   [/^🪂 增援 ×(\d+)$/, m => `🪂 Reinforcements ×${m[1]}`],

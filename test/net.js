@@ -12,11 +12,12 @@ await new Promise(resolve => server.stdout.on('data', d => { if (String(d).inclu
 
 function client(name) {
   const ws = new WebSocket(`ws://localhost:${PORT}`);
-  const c = { ws, name, id: null, code: null, lobby: null, snaps: [], events: [], errors: [], send: m => ws.send(JSON.stringify(m)) };
+  const c = { ws, name, id: null, code: null, lobby: null, briefs: [], snaps: [], events: [], errors: [], send: m => ws.send(JSON.stringify(m)) };
   ws.on('message', raw => {
     const m = JSON.parse(raw);
     if (m.t === 'welcome') { c.id = m.id; c.code = m.code; c.token = m.token; c.welcome = m; }
     else if (m.t === 'lobby') c.lobby = m;
+    else if (m.t === 'brief') c.briefs.push(m);
     else if (m.t === 'snap') { c.snaps.push(m.s); if (m.ev) c.events.push(...m.ev); }
     else if (m.t === 'error') c.errors.push(m.msg);
   });
@@ -42,8 +43,17 @@ console.log('lobby:', A.lobby.players.map(p => p.name).join(', '), '| host =', A
 B.send({ t: 'start' }); await wait(150);
 if (A.snaps.length) fail('非房主不該能開始遊戲');
 
+// 任務簡報握手：房主要求簡報 → 全員收到同一個種子 / 類型 → 房主 start 用簡報的種子開局；非房主要求簡報應被忽略；取消會廣播
+B.send({ t: 'brief', type: 'relay' }); await wait(150); if (A.briefs.length) fail('非房主不該能發簡報');
+A.send({ t: 'brief', type: 'nests' }); await wait(200);
+if (!A.briefs.length || !B.briefs.length) fail('全員都應收到簡報');
+const bA = A.briefs.at(-1), bB = B.briefs.at(-1); if (bA.seed !== bB.seed || bA.type !== 'nests' || bB.type !== 'nests' || bA.players !== 2) fail('簡報內容應一致 ' + JSON.stringify([bA, bB]));
+A.send({ t: 'brief_cancel' }); await wait(150); if (!A.briefs.at(-1).cancel || !B.briefs.at(-1).cancel) fail('取消簡報應廣播');
+A.send({ t: 'brief', type: 'relay' }); await wait(200); const bSeed = A.briefs.at(-1).seed;
 A.send({ t: 'start' }); await wait(300);
 if (!A.snaps.length || !B.snaps.length) fail('開始後應收到快照');
+if (A.snaps[0].map.seed !== bSeed || A.snaps[0].map.type !== 'relay') fail('開局應用簡報的種子與類型 ' + JSON.stringify(A.snaps[0].map) + ' vs ' + bSeed);
+console.log('briefing handshake ok: seed', bSeed);
 const first = B.snaps[0];
 if (first.players.length !== 2) fail('快照應包含 2 名玩家');
 const bobStart = first.players.find(p => p.id === B.id);

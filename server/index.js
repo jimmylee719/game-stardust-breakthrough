@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createWorld, addPlayer, joinMidGame, startRun, update, chooseUpgrade, dropPendingUpgrade, queueInput, continueEndless, finishRun, NULL_FX } from '../public/js/game.js';
-import { MISSION, MISSION_TYPES } from '../shared/map.js';
+import { MISSION, MISSION_TYPES , pickMissionType } from '../shared/map.js';
 import { snapshotWorld } from '../shared/snapshot.js';
 import { OFFLINE_GRACE, TICK_RATE, MAX_PLAYERS, MIN_RUN_SCORE, sanitizeName, dustFor, PERKS, shipUnlocked, SHIPS, WEAPONS, weaponUnlocked, SKINS, skinUnlocked, SKILLS, skillUnlocked, BOSS_RUSH_REWARD, weaponAllowed, defaultWeaponFor } from '../shared/constants.js';
 import { dayKey, dailyChallenge } from '../shared/daily.js';
@@ -422,10 +422,24 @@ wss.on('connection', ws => {
         if (cur) queueInput(cur, Number(m.seq) | 0, { ix: clampN(m.ix, 1), iy: clampN(m.iy, 1), angle: clampN(m.angle, Math.PI), fire: !!m.fire, dash: !!m.dash, blink: !!m.blink, skill: !!m.skill });
         break;
       }
+      case 'brief': {
+        // 任務簡報：房主按出擊 → 伺服器先決定種子與任務類型，全員同看簡報；房主再送 start 才真的開始
+        if (player.id !== room.hostId || inProgress(room)) return;
+        const seed = Math.floor(Math.random() * 2147483646) + 1;
+        const type = typeof m.type === 'string' && MISSION_TYPES[m.type] ? m.type : pickMissionType(seed);
+        room.brief = { seed, type, boss: !!m.boss };
+        broadcast(room, { t: 'brief', seed, type, boss: !!m.boss, arena: room.arena, players: room.world.players.length });
+        break;
+      }
+      case 'brief_cancel':
+        if (player.id !== room.hostId || !room.brief) return;
+        room.brief = null; broadcast(room, { t: 'brief', cancel: true });
+        break;
       case 'start':
         if (player.id !== room.hostId) return;
         if (room.world.scene === 'lobby' || room.world.scene === 'gameover') {
-          startRun(room.world, { bossRush: !!m.boss, mission: true, missionType: typeof m.type === 'string' && MISSION_TYPES[m.type] ? m.type : null, arena: room.arena });
+          const B = room.brief; room.brief = null;   // 有簡報就用簡報決定的種子 / 類型（簡報寫的就是實際會玩到的圖）
+          startRun(room.world, { bossRush: B ? B.boss : !!m.boss, mission: true, missionType: B ? B.type : typeof m.type === 'string' && MISSION_TYPES[m.type] ? m.type : null, arena: room.arena, seed: B ? B.seed : 0 });
           room.events.length = 0; room.departed = []; room.recorded = false;
           for (const p of room.world.players) logEvent('run_start', { mode: 'coop', ship: p.ship, wave0: m.boss ? 4 : 0, players: room.world.players.length }, p.acctId || null);
           broadcast(room, { t: 'started' });
@@ -433,7 +447,7 @@ wss.on('connection', ws => {
         }
         break;
       case 'arena':
-        if (player.id === room.hostId && ARENAS.some(a => a.id === m.id) && !inProgress(room)) { room.arena = m.id; broadcast(room, lobbyMsg(room)); }
+        if (player.id === room.hostId && ARENAS.some(a => a.id === m.id) && !inProgress(room)) { room.arena = m.id; if (room.brief) { room.brief = null; broadcast(room, { t: 'brief', cancel: true }); } broadcast(room, lobbyMsg(room)); }
         break;
       case 'public':
         if (player.id === room.hostId) { room.public = !!m.on; broadcast(room, lobbyMsg(room)); }
