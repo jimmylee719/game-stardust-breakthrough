@@ -294,3 +294,15 @@ canvas#game { display: block; position: fixed; inset: 0; width: 100vw; height: 1
   #brief-body { display: grid; grid-template-columns: 1fr 1.1fr; gap: 0 12px; align-items: start; }
   #brief-body .bsec:nth-child(2) { grid-row: span 2; }
 }
+
+/* 任務結算 */
+.panel.debrief h2 { margin-bottom: 2px; }
+.dgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 4px; }
+.dcell { padding: 8px 6px; border-radius: 10px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); text-align: center; }
+.dcell .dk { font-size: 11px; letter-spacing: .15em; color: rgba(255,255,255,.55); }
+.dcell .dv { font-size: 20px; font-weight: 700; margin-top: 2px; color: rgba(255,255,255,.9); }
+.dteam { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.6; }
+.dreward { text-align: center; font-size: 15px; color: #ffd166; }
+.dreward .dim { color: rgba(255,255,255,.55); font-size: 13px; }
+@media (max-width: 600px) { .dgrid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 700px) { #debrief-body { display: block; } }

@@ -1095,6 +1095,7 @@ export function createRenderer(canvas, world) {
   }
   function drawVictory(time, ui) {
     ctx.fillStyle = 'rgba(3,4,10,.72)'; ctx.fillRect(0, 0, W, H);
+    if (world.mods && world.mods.mission) return;   // 任務：撤離後直接進結算面板
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 30 + Math.sin(time * 4) * 8; ctx.font = 'bold 64px sans-serif'; ctx.fillText(world.mods && world.mods.mission ? tr('撤離成功') : tr('突圍成功'), W / 2, H / 2 - 110); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 40);
@@ -1108,6 +1109,7 @@ export function createRenderer(canvas, world) {
   }
   function drawGameOver(time, best, ui) {
     ctx.fillStyle = 'rgba(3,4,10,.7)'; ctx.fillRect(0, 0, W, H);
+    if (world.mods && world.mods.mission) return;   // 任務：HTML 的任務結算面板取代
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ff3860'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 24; ctx.font = 'bold 56px sans-serif'; if (world.won) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; } ctx.fillText(tr(world.won && !world.abandoned ? (world.endless ? '無盡模式終結' : '突圍成功') : ui.left ? '已離開戰鬥' : world.abandoned ? '撤退' : world.players.length > 1 ? '全員陣亡' : '艦艇損毀'), W / 2, H / 2 - 100); ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(`${world.score}`, W / 2, H / 2 - 30);

@@ -109,7 +109,7 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
     else if (T === 'boss') world.objectives = m.sites.map((o, i) => ({ kind: 'boss', ...o, r: MISSION.bossSite, i, done: false, spawned: false }));
     else world.objectives = [{ kind: 'kill', x: 0, y: 0, r: 0, i: 0, done: false, need: 0, count: 0 }];
     world.extract = { ...m.extract, r: 150, t: 0, active: false };
-    world.reinforce = MISSION.reinforce[0] + MISSION.reinforce[1] * Math.max(1, world.players.length);
+    world.reinforce = MISSION.reinforce[0] + MISSION.reinforce[1] * Math.max(1, world.players.length); world.reinforce0 = world.reinforce;
     world.side = m.side.map((o, i) => ({ kind: o.kind, x: o.x, y: o.y, r: 110, i, progress: 0, done: false, active: false })); world.radar = false;
   }
   roster.forEach(r => addPlayer(world, r));
@@ -1762,7 +1762,7 @@ export function update(world, dt, fx = NULL_FX) {
     if (!p) continue;
     const d = Math.hypot(p.x - k.x, p.y - k.y) || 1;
     if (d < p.magnetR) { k.x += (p.x - k.x) / d * 260 * dt; k.y += (p.y - k.y) / d * 260 * dt; }
-    if (d < p.r + 14) { applyPickup(world, p, k.kind, fx); world.pickups.splice(i, 1); }
+    if (d < p.r + 14) { if (k.cache) world.stats.caches = (world.stats.caches || 0) + 1; applyPickup(world, p, k.kind, fx); world.pickups.splice(i, 1); }
   }
 
   if (world.comboTimer > 0) { world.comboTimer -= dt; if (world.comboTimer <= 0) world.combo = 0; }

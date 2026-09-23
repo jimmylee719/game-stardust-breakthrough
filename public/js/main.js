@@ -23,10 +23,10 @@ import { ensureAccount, accountCredentials, submitRun, fetchLeaderboard, fetchMe
 const $ = id => document.getElementById(id);
 const canvas = $('game');
 const menuEl = $('menu'), lobbyEl = $('lobby'), pauseEl = $('pause'), toastEl = $('toast'), lbEl = $('leaderboard'), hangarEl = $('hangar'), dailyEl = $('daily'), helpEl = $('help'), privacyEl = $('privacy'), aboutEl = $('about');
-const settingsEl = $('settings'), roomsEl = $('rooms'), questsEl = $('quests'), achEl = $('ach'), codexEl = $('codex'), briefEl = $('briefing');
+const settingsEl = $('settings'), roomsEl = $('rooms'), questsEl = $('quests'), achEl = $('ach'), codexEl = $('codex'), briefEl = $('briefing'), debriefEl = $('debrief');
 const nameInput = $('name'), codeInput = $('code');
 const errEl = $('err'), bestEl = $('best');
-const OVERLAYS = [menuEl, lobbyEl, pauseEl, lbEl, hangarEl, dailyEl, helpEl, privacyEl, aboutEl, settingsEl, roomsEl, questsEl, achEl, codexEl, briefEl];
+const OVERLAYS = [menuEl, lobbyEl, pauseEl, lbEl, hangarEl, dailyEl, helpEl, privacyEl, aboutEl, settingsEl, roomsEl, questsEl, achEl, codexEl, briefEl, debriefEl];
 
 // 說明 / 隱私的中文版存起來，切語言時可以切回來
 registerZhHtml('help', $('help-body').innerHTML); registerZhHtml('privacy', $('privacy-body').innerHTML); registerZhHtml('about', $('about-body').innerHTML);
@@ -197,6 +197,54 @@ function onCoopBrief(m) {
   for (const el of OVERLAYS) el.hidden = el !== briefEl;
   requestAnimationFrame(() => fitPanel(briefEl));
 }
+/** 任務結算面板：任務模式下 gameover（撤離成功 / 全滅 / 放棄）時顯示；星塵與排名等伺服器回覆後再補上 */
+function showDebrief() {
+  if (!world.mods || !world.mods.mission) return;
+  const won = world.won && !world.abandoned, T = MISSION_TYPES[world.missionType] || MISSION_TYPES.relay, A = arenaById(world.arena), st = world.stats || {};
+  const objs = (world.objectives || []).filter(o => o.kind !== 'kill'), ko = (world.objectives || []).find(o => o.kind === 'kill'), side = world.side || [];
+  const t = Math.floor(st.timeAlive || 0), mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, '0');
+  const kills = Object.values(st.kills || {}).reduce((a, b) => a + b, 0);
+  const used = Math.max(0, (world.reinforce0 || 0) - (world.reinforce || 0));
+  $('debrief-title').textContent = tr(world.abandoned ? '任務放棄' : won ? '撤離成功' : '任務失敗');
+  $('debrief-title').style.color = won ? '#ffd166' : '#ff5f7a';
+  $('debrief-sub').textContent = `${T.icon} ${tr(T.name)} · ${A.icon} ${tr(A.name)}${world.mapSeed ? ' · #' + world.mapSeed.toString(36).toUpperCase() : ''}${leftTeam ? ' · ' + tr('你已離隊') : ''}`;
+  const cell = (k, v, c = '') => `<div class="dcell"><div class="dk">${k}</div><div class="dv" style="${c ? 'color:' + c : ''}">${v}</div></div>`;
+  const mainTxt = ko ? `${Math.min(ko.count || 0, ko.need || 0)} / ${ko.need || 0}` : `${objs.filter(o => o.done).length} / ${objs.length}`;
+  const grid = [
+    cell(tr('分數'), world.score, '#fff'),
+    cell(tr('任務時間'), `${mm}:${ss}`),
+    cell(tr('威脅等級'), world.wave),
+    cell(tr('主目標'), mainTxt, objs.length && objs.every(o => o.done) || (ko && ko.done) ? '#3ddc84' : ''),
+    cell(tr('次要目標'), `${side.filter(o => o.done).length} / ${side.length}`, side.length && side.every(o => o.done) ? '#3ddc84' : ''),
+    cell(tr('擊殺'), kills),
+    cell(tr('星塵礦點'), `${st.caches || 0} / ${MISSION.caches}`, '#fff3c4'),
+    cell(tr('增援使用'), `${used} / ${world.reinforce0 || 0}`, used ? '#ffd166' : ''),
+  ].join('');
+  const players = world.players.map(q => `<li style="color:${q.color}">${shipById(q.ship || 'falcon').icon} ${escapeHtml(q.name)}${q.id === myId ? tr('（你）') : ''} · ${tr(`${q.kills || 0} 擊殺`)}${q.dead ? ' ✕' : ''}</li>`).join('');
+  $('debrief-body').innerHTML = `<div class="dgrid">${grid}</div>
+    <div class="bsec"><div class="bh">${tr('小隊')}</div><ul class="dteam">${players}</ul></div>
+    <div id="debrief-reward" class="bsec dreward">${lastResult ? debriefReward() : `<span class="dim">${tr(won ? `撤離成功：星塵 ×${world.mods.bossRush ? 1.5 : MISSION.reward}，結算中…` : '結算中…')}</span>`}</div>`;
+  const host = mode !== 'online' || hostId === myId;
+  $('debrief-again').hidden = !host || leftTeam || runKind === 'daily'; $('debrief-again').textContent = tr(mode === 'online' ? '🚀 再次出擊（全員）' : '🚀 再次出擊');
+  $('debrief-hint').textContent = tr(runKind === 'daily' ? '每日挑戰一天一次' : leftTeam ? '' : host ? 'Enter 再次出擊 · Esc 回首頁' : '等待房主再次出擊…');
+  for (const el of OVERLAYS) el.hidden = el !== debriefEl;
+  requestAnimationFrame(() => fitPanel(debriefEl));
+}
+function debriefReward() {
+  const r = lastResult || {}; const parts = [];
+  if (r.dust) parts.push(`✨ ${tr(`星塵 +${r.dust}`)}`);
+  if (r.rank) parts.push(`🏆 ${tr(r.mode === 'daily' ? '今日挑戰' : '單人排行榜')} ${tr(`第 ${r.rank} 名`)}`);
+  if (world.score >= best && world.score > 0) parts.push(tr('🏆 新紀錄！'));
+  return parts.length ? parts.join('　·　') : `<span class="dim">${tr('沒有拿到星塵（零分局不記錄）')}</span>`;
+}
+function refreshDebriefReward() { const el = $('debrief-reward'); if (el && !debriefEl.hidden) el.innerHTML = debriefReward(); }
+function debriefAgain() {
+  if (debriefEl.hidden) return;
+  if (mode === 'solo') { if (runKind === 'daily') return; debriefEl.hidden = true; beginSolo(0, null, !!(world.mods && world.mods.bossRush)); }
+  else if (hostId === myId) net?.start(lobbyMode());
+}
+$('debrief-again').addEventListener('click', debriefAgain);
+$('debrief-home').addEventListener('click', () => { debriefEl.hidden = true; if (mode === 'online') leaveGame(); else showMenu(); });
 function launchPending() {
   if (!pendingLaunch) return;
   if (pendingLaunch.online) { if (hostId === myId) net?.launch(); return; }
@@ -476,8 +524,8 @@ function beginOnline(code) {
       if (m.scene === 'lobby' && world.scene !== 'play') { lobbyEl.hidden = false; world.scene = 'menu'; }
     },
     onBrief: onCoopBrief,
-    onStarted() { briefEl.hidden = true; pendingLaunch = null; runStartedAt = performance.now(); track('run_start', { mode: 'coop', ship: currentShip(), weapon: currentWeapon(), arena: roomArena }); resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; metaReported = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
-    onResult(m) { const mb = m.metaBy?.[getAccount()?.id]; if (mb) { if (mb.dust) { profile.dust += mb.dust; profile.dustTotal += mb.dust; } setTimeout(() => announceMeta(mb), 4200); fetchMeta(); } const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
+    onStarted() { briefEl.hidden = true; debriefEl.hidden = true; pendingLaunch = null; runStartedAt = performance.now(); track('run_start', { mode: 'coop', ship: currentShip(), weapon: currentWeapon(), arena: roomArena }); resetEffects(); predictor.reset(); lastSnapSeen = -1; lastResult = null; leftTeam = false; metaReported = false; lobbyEl.hidden = true; pauseEl.hidden = true; world.scene = 'play'; },
+    onResult(m) { setTimeout(refreshDebriefReward, 50); const mb = m.metaBy?.[getAccount()?.id]; if (mb) { if (mb.dust) { profile.dust += mb.dust; profile.dustTotal += mb.dust; } setTimeout(() => announceMeta(mb), 4200); fetchMeta(); } const d = m.dustBy?.[getAccount()?.id] || 0; if (d) { profile.dust += d; profile.dustTotal += d; } lastResult = { rank: m.rank, mode: 'coop', dust: d }; toast(`${m.rank ? `合作排行榜 第 ${m.rank} 名 · ` : ''}星塵 +${d}`, 4000); },
     onReconnecting() { toast('連線中斷，重新連線中…', 1500); },
     onError(msg) { showMenu(msg); },
     onClose() { if (mode === 'online') showMenu('與伺服器的連線已中斷'); },
@@ -590,7 +638,7 @@ function finishSoloRun() {
   submitRun(world.score, world.wave, { mode: kind, day, dustBonus: world.dustBonus || 0, boss: !!(world.mods && world.mods.bossRush), mission: !!(world.mods && world.mods.mission) }).then(r => {
     if (!r) return;
     lastResult = { rank: r.rank, mode: kind, dust: r.dust };
-    renderDust();
+    renderDust(); refreshDebriefReward();
     toast(`${tr(kind === 'daily' ? '今日挑戰' : '單人排行榜')}${r.rank ? ' ' + tr(`第 ${r.rank} 名`) : ''} · ${tr(`星塵 +${r.dust}`)}${r.bonus ? ` (${tr(`含 ${r.bonus} 星塵碎片`)})` : ''}`, 4000);
   });
   reportMeta();
@@ -618,6 +666,7 @@ function leaveGame() {
 // ---------- 輸入 ----------
 attachInput(canvas, renderer.toWorld, {
   onKeyDown(code) {
+    if (!debriefEl.hidden) { if (code === 'Enter' || code === 'NumpadEnter') debriefAgain(); else if (code === 'Escape') $('debrief-home').click(); return; }
     if (!briefEl.hidden) { if (code === 'Enter' || code === 'NumpadEnter') launchPending(); else if (code === 'Escape') briefBack(); return; }
     if (!menuEl.hidden || !lobbyEl.hidden) { if (code === 'Escape') { for (const el of OVERLAYS) if (el !== menuEl && el !== lobbyEl && !el.hidden) { el.hidden = true; break; } } return; }
     if (code === 'Escape') {
@@ -696,7 +745,8 @@ function frame(now) {
     const mine = me();
     if (mine && !mine.downed) predictor.applyTo(mine);
     if (net.curr && (world.scene === 'play' || world.scene === 'upgrade') && !lobbyEl.hidden) lobbyEl.hidden = true;
-    if (prevScene !== 'gameover' && world.scene === 'gameover') { if (world.score > best) { best = world.score; lsSet('stardust_best', String(best)); } track('run_end', { ...runEndProps(world.won ? 'victory' : 'dead'), mode: 'coop' }); reportMeta(); }
+    if (prevScene !== 'gameover' && world.scene === 'gameover') { if (world.score > best) { best = world.score; lsSet('stardust_best', String(best)); } track('run_end', { ...runEndProps(world.won ? 'victory' : 'dead'), mode: 'coop' }); reportMeta(); showDebrief(); }
+    if (prevScene !== 'victory' && world.scene === 'victory' && world.mods && world.mods.mission && hostId === myId) net?.send({ t: 'finish' });
     updateEffects(rawDt);
     renderer.updateStars(rawDt, mine);
   } else if (world.scene === 'play') {
@@ -708,7 +758,8 @@ function frame(now) {
       update(world, dt, fx);
       updateEffects(dt);
       renderer.updateStars(dt, p);
-      if (prevScene !== 'gameover' && world.scene === 'gameover') finishSoloRun();
+      if (prevScene !== 'gameover' && world.scene === 'gameover') { finishSoloRun(); showDebrief(); }
+      if (prevScene !== 'victory' && world.scene === 'victory' && world.mods && world.mods.mission) { victoryChoice(false); showDebrief(); }
     }
   } else {
     updateEffects(rawDt);
