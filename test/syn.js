@@ -407,4 +407,16 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   ko.count = ko.need; step(K.world, 2); if (!ko.done || !K.world.extract.active) fail('殲滅達標應完成並開撤離點');
   console.log('mission types ok');
 }
+// 29. 增援空降：任務中陣亡不會立刻結束，幾秒後回來；用完才 gameover
+{
+  const quiet = A => { A.world.timers.length = 0; A.world.enemies.length = 0; A.world.hazardCd = 999; A.world.eventCd = 999; A.world.ambientCd = 999; A.world.patrolCd = 999; };
+  const K = mk({}); startRun(K.world, { mission: true, missionType: 'relay', arena: 'space', seed: 777 }); quiet(K); K.p = K.world.players[0];
+  const pool = K.world.reinforce; if (pool < 3) fail('單人應有 3 次增援，得 ' + pool);
+  K.p.hp = 1; K.p.shield = 0; K.p.inv = 0; K.p.downed = true; K.p.downTimer = 0; step(K.world, 0.1);
+  if (!K.p.dead) fail('倒地計時結束應陣亡'); if (K.world.scene !== 'play') fail('有增援時不應 gameover'); if (K.world.reinforce !== pool - 1) fail('增援應扣 1');
+  step(K.world, 400); if (K.p.dead || K.p.hp !== K.p.maxHp) fail('增援應在幾秒後滿血回來');
+  K.world.reinforce = 0; K.p.downed = true; K.p.downTimer = 0; K.p.inv = 0; step(K.world, 0.1);
+  if (K.world.scene !== 'gameover') fail('增援用完陣亡應 gameover，得 ' + K.world.scene);
+  console.log('reinforcements ok');
+}
 console.log('PASS');

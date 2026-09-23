@@ -228,6 +228,10 @@ export const RULES_EXTRA = [
   [/^啟動 (\d+) 座中繼站（各站 (\d+) 秒，啟動中敵人加倍）$/, m => `Activate ${m[1]} relays (${m[2]} s each; enemies double while activating)`],
   [/^摧毀 (\d+) 座蟲巢（蟲巢會不斷生敵，越近生得越快）$/, m => `Destroy ${m[1]} nests (they keep spawning, faster when you are close)`],
   [/^殲滅 (\d+) 名敵人（敵人會持續增援）$/, m => `Exterminate ${m[1]} enemies (reinforcements keep coming)`],
+  [/^🪂 增援 ×(\d+)$/, m => `🪂 Reinforcements ×${m[1]}`],
+  [/^增援空降 (\d+)$/, m => `Reinforcement drop in ${m[1]}`],
+  [/^增援 (\d+) 秒後空降（剩 (\d+)）$/, m => `Reinforcement drops in ${m[1]} s (${m[2]} left)`],
+  [/^(.+) 增援抵達！$/, m => `${m[1]} has dropped in!`],
   [/^前往撤離點，全員停留 (\d+) 秒$/, m => `Reach the extraction point and hold it for ${m[1]} s`],
   [/^威脅每 (\d+) 秒 \+1 · 地圖有 (\d+) 個星塵礦點 · 撤離成功獎勵 ×([\d.]+)$/, m => `Threat +1 every ${m[1]} s · ${m[2]} stardust caches on the map · extraction reward ×${m[3]}`],
   // 升級（等級函式）

@@ -34,7 +34,7 @@ export function createWorld() {
     waveMode: null, modeTimer: 0, modeSpawnCd: 0, beacon: null, lastMode: null,
     chrono: 0, waveTheme: null, arena: 'space', hazardCd: 6, wells: [], flare: null, blizzard: 0, wind: null, drag: 1,   // 場地與其危險（updateArena）
     event: null, eventCd: 30, crate: null, hole: null, eclipse: 0, dustBonus: 0, lastEvent: null,   // 隨機事件
-    obstacles: [], objectives: [], extract: null, mapSeed: 0, start: null, missionT: 0, patrolCd: 5, alarm: 0, missionType: null, caches: [],   // 任務（shared/map.js）
+    obstacles: [], objectives: [], extract: null, mapSeed: 0, start: null, missionT: 0, patrolCd: 5, alarm: 0, missionType: null, caches: [], reinforce: 0,   // 任務（shared/map.js）
     stats: freshStats(),
     pendingUpgrades: new Map(),
     timers: [],
@@ -109,6 +109,7 @@ export function startRun(world, { startWave = 0, mods = null, daily = false, are
     else if (T === 'boss') world.objectives = m.sites.map((o, i) => ({ kind: 'boss', ...o, r: MISSION.bossSite, i, done: false, spawned: false }));
     else world.objectives = [{ kind: 'kill', x: 0, y: 0, r: 0, i: 0, done: false, need: 0, count: 0 }];
     world.extract = { ...m.extract, r: 150, t: 0, active: false };
+    world.reinforce = MISSION.reinforce[0] + MISSION.reinforce[1] * Math.max(1, world.players.length);
   }
   roster.forEach(r => addPlayer(world, r));
   if (mission) {
@@ -1021,7 +1022,19 @@ function killPlayer(world, p, fx) {
   fx.burst(p.x, p.y, '#ffffff', 50, 300, 1, 4); fx.burst(p.x, p.y, p.color, 30, 250, 0.8, 3);
   fx.shake(24);
   fx.text(p.x, p.y - 40, `${p.name} 陣亡`, '#ff5f7a', 20, 2);
+  if (world.mods.mission && world.reinforce > 0) { world.reinforce--; p.respawnT = MISSION.reinforceT; fx.text(p.x, p.y - 64, `增援 ${MISSION.reinforceT} 秒後空降（剩 ${world.reinforce}）`, '#ffd166', 14, 2.5); }
   checkGameOver(world, fx);
+}
+/** 增援空降：陣亡幾秒後在活著的隊友旁（或原地）回來，滿血 + 短暫無敵 */
+function reinforce(world, p, fx) {
+  const ally = activePlayers(world).find(q => q !== p);
+  const a = Math.random() * TAU, d = ally ? 90 : 0;
+  p.x = clamp((ally ? ally.x : p.x) + Math.cos(a) * d, 40, world.W - 40); p.y = clamp((ally ? ally.y : p.y) + Math.sin(a) * d, 40, world.H - 40);
+  resolveObstacles(world.obstacles, p, p.r);
+  p.dead = false; p.downed = false; p.respawnT = 0; p.reviveProgress = 0; p.hp = p.maxHp; p.inv = 3; p.vx = p.vy = 0;
+  p.emp = 0; p.frozen = 0; p.hexed = 0; p.dashing = 0; p.bash = false; p.laser = 0;
+  fx.ring(p.x, p.y, '#ffd166', 20, 260, 0.6, 4); fx.burst(p.x, p.y, '#ffd166', 40, 260, 0.8, 3); fx.shake(10);
+  fx.text(p.x, p.y - 44, `${p.name} 增援抵達！`, '#ffd166', 22, 1.8); fx.sfx('pickup');
 }
 function revive(world, p, fx) {
   p.downed = false; p.reviveProgress = 0; p.hp = Math.max(1, Math.round(p.maxHp * 0.5)); p.inv = 2;
@@ -1032,6 +1045,7 @@ function revive(world, p, fx) {
 }
 function checkGameOver(world, fx) {
   if (world.players.some(p => !p.dead && !p.downed && !p.offline)) return;
+  if (world.players.some(p => p.dead && p.respawnT > 0 && !p.offline)) return;   // 還有增援在路上
   world.scene = 'gameover'; fx.sfx('gameover');
 }
 
@@ -1184,6 +1198,7 @@ export function update(world, dt, fx = NULL_FX) {
   }
   // 玩家
   for (const p of world.players) {
+    if (p.dead && p.respawnT > 0 && !p.offline) { p.respawnT -= dt; if (p.respawnT <= 0 && world.scene === 'play') reinforce(world, p, fx); continue; }
     if (p.dead || p.offline) continue;
     const lfx = fx.local(p);
 

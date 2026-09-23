@@ -161,6 +161,8 @@ export function createRenderer(canvas, world) {
     const goal = ex && ex.active ? tr('前往撤離點') : ko ? tr(`殲滅 ${ko.count || 0} / ${ko.need || 0}`) : bo ? (bo.spawned ? tr('擊破據點的 Boss') : tr('前往 Boss 據點')) : world.missionType === 'nests' ? tr(`拆除蟲巢 ${done} / ${objs.length}`) : tr(`啟動中繼站 ${done} / ${objs.length}`);
     ctx.fillStyle = '#fff'; ctx.fillText(`${T.icon} ${tr(T.name)} · ${goal}  ·  ${mm}:${ss}`, W / 2, world.waveMode || world.event ? 82 : 24);
     if (world.alarm > 0) { ctx.fillStyle = `rgba(255,56,96,${0.6 + 0.4 * Math.sin(time * 8)})`; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('⚠ 警戒：敵人增援中'), W / 2, 46); }
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = world.reinforce > 0 ? '#ffd166' : 'rgba(255,255,255,.4)'; ctx.fillText(tr(`🪂 增援 ×${world.reinforce || 0}`), W / 2, world.alarm > 0 ? 64 : 46);
+    if (me && me.dead && me.respawnT > 0) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 16; ctx.font = 'bold 34px sans-serif'; ctx.fillText(tr(`增援空降 ${Math.ceil(me.respawnT)}`), W / 2, H / 2 - 80); ctx.shadowBlur = 0; }
     // 小地圖
     const mw = 210, mh = Math.round(mw * world.H / world.W), mx = W - mw - 24, my = H - mh - 24;
     ctx.globalAlpha = 0.85; ctx.fillStyle = 'rgba(3,4,10,.75)'; roundRect(mx - 6, my - 6, mw + 12, mh + 12, 8); ctx.fill();
