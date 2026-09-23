@@ -431,4 +431,31 @@ const step = (world, n, dt = 1 / 60) => { for (let i = 0; i < n; i++) update(wor
   if (K.world.extract.active) fail('次要目標不應開撤離點');
   console.log('side objectives ok');
 }
+// 31. 據點 Boss：招式與活動範圍以據點為中心（玩家跑遠也不追過去、彈牆繞著 Boss、流星從據點周圍來）；太陽風暴以玩家為中心
+{
+  const quiet = A => { A.world.timers.length = 0; A.world.enemies.length = 0; A.world.hazardCd = 999; A.world.eventCd = 999; A.world.ambientCd = 999; A.world.patrolCd = 999; };
+  const K = mk({}); startRun(K.world, { mission: true, missionType: 'boss', arena: 'space', seed: 777 }); quiet(K); K.p = K.world.players[0];
+  const site = K.world.objectives[0]; K.p.x = site.x; K.p.y = site.y + 100; step(K.world, 5); quiet(K);
+  if (!site.spawned || !K.world.bosses.length) fail('靠近據點應出 Boss');
+  const b = K.world.bosses[0]; b.entering = false; b.y = site.y;
+  K.p.x = site.x + 2000; K.p.y = site.y + 1200; K.p.inv = 99;
+  for (let i = 0; i < 600; i++) { update(K.world, 1 / 60, fx); if (K.world.bosses.length) { K.world.bosses[0].atk = 'idle'; K.world.bosses[0].atkT = 9; } K.world.enemies.length = 0; K.world.enemyBullets.length = 0; }
+  if (!K.world.bosses.length) fail('Boss 應還在'); const dd = Math.hypot(b.x - site.x, b.y - site.y);
+  if (dd > 700) fail('據點 Boss 不該離據點超過 700，得 ' + Math.round(dd));
+  // 彈牆：全部子彈都在 Boss 附近
+  K.p.x = site.x; K.p.y = site.y + 300; b.atk = 'wall'; b.atkT = 0; b.sub = 0; K.world.enemyBullets.length = 0; update(K.world, 1 / 60, fx);
+  const wb = K.world.enemyBullets.filter(x => x.wall); if (wb.length < 10) fail('彈牆應有子彈，得 ' + wb.length);
+  if (wb.some(x => Math.hypot(x.x - b.x, x.y - b.y) > 900)) fail('任務彈牆應繞著 Boss，不是橫跨整張地圖');
+  // 流星：從據點周圍來
+  b.atk = 'meteors'; b.atkT = 0; b.sub = 0; update(K.world, 1 / 60, fx);
+  const m = K.world.enemies.find(e => e.kind === 'meteor'); if (!m) fail('流星招式應生流星');
+  if (Math.hypot(m.x - site.x, m.y - site.y) > 1300) fail('任務流星應從據點周圍生成');
+  // 太陽風暴以玩家為中心
+  // 太陽風暴是水星場地的危險（50% 機率）：用水星任務圖多試幾次
+  const M2 = mk({ arena: 'mercury' }); startRun(M2.world, { mission: true, missionType: 'relay', arena: 'mercury', seed: 777 }); quiet(M2); M2.p = M2.world.players[0]; M2.world.wave = 2; M2.p.x = 1000; M2.p.y = 900;
+  for (let i = 0; i < 60 && !M2.world.flare; i++) { M2.world.hazardCd = 0; M2.world.wells.length = 0; update(M2.world, 1 / 60, fx); }
+  K.world.flare = M2.world.flare; K.p = M2.p; if (!K.world.flare) fail('水星任務圖應會出太陽風暴');
+  if (Math.abs(K.world.flare.cy - K.p.y) > 1) fail('任務太陽風暴應以玩家 y 為中心'); if (Math.abs(K.world.flare.sx - K.p.x) > 1200) fail('任務太陽風暴應從玩家附近開始'); console.log('flare centered ok');
+  console.log('boss site moves ok');
+}
 console.log('PASS');

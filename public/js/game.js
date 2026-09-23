@@ -621,6 +621,16 @@ function bossBrain(world, b, dt, fx) {
     }
   }
 }
+const BOSS_LEASH = 520;   // 據點 Boss 離據點中心最多多遠
+/** Boss 招式用的流星：任務地圖從據點周圍的環飛向玩家（或亂飛），舊競技場從上方掉下來 */
+function bossMeteor(world, b, p, fx, opts = {}) {
+  const W = world.W, H = world.H;
+  if (world.mods.mission && b.homeX !== undefined) {
+    const a = rand(0, TAU), d = 1000, tx = p ? p.x : b.homeX + rand(-400, 400), ty = p ? p.y : b.homeY + rand(-400, 400);
+    return spawnAmbient(world, 'meteor', fx, { ...opts, x: b.homeX + Math.cos(a) * d, y: b.homeY + Math.sin(a) * d, tx: tx + rand(-220, 220), ty: ty + rand(-220, 220) });
+  }
+  return spawnAmbient(world, 'meteor', fx, { x: rand(80, W - 80), y: -80, tx: (p ? p.x : rand(100, W - 100)) + rand(-200, 200), ty: H + 80, ...opts });
+}
 function updateBoss(world, b, dt, fx) {
   const W = world.W, H = world.H;
   b.t += dt; b.spin += dt * (b.phase === 3 ? 2.5 : 1.2);
@@ -659,8 +669,9 @@ function updateBoss(world, b, dt, fx) {
   bossBrain(world, b, dt, fx);
   const spdMul = b.speedMul * (b.slow > 0 ? 0.5 : 1) * (b.buff > 0 ? 1.4 : 1);
   if (b.atk !== 'charge' && b.atk !== 'strike') {
-    const targetX = b.wantPickup ? b.x : clamp((b.kind === 'phantom' && b.cloak > 0 ? p.x + Math.cos(b.t * 2) * 300 : homeX * 0.4 + p.x * 0.6) + Math.sin(b.t * 0.8) * 200, b.r + 20, W - b.r - 20);
-    const targetY = b.wantPickup ? b.y : hoverY + Math.sin(b.t * 1.3) * 40 + (b.kind === 'phantom' ? Math.sin(b.t * 0.6) * 160 : 0);
+    const site = world.mods.mission && b.homeX !== undefined ? { x: b.homeX, y: b.homeY } : null;   // 任務：據點守衛，招式與活動範圍都以據點為中心
+    const targetX = b.wantPickup ? b.x : site ? clamp(site.x + (p.x - site.x) * 0.5 + Math.sin(b.t * 0.8) * 200, site.x - BOSS_LEASH, site.x + BOSS_LEASH) : clamp((b.kind === 'phantom' && b.cloak > 0 ? p.x + Math.cos(b.t * 2) * 300 : homeX * 0.4 + p.x * 0.6) + Math.sin(b.t * 0.8) * 200, b.r + 20, W - b.r - 20);
+    const targetY = b.wantPickup ? b.y : site ? clamp(site.y + (p.y - site.y) * 0.5 + Math.sin(b.t * 1.3) * 60, site.y - BOSS_LEASH * 0.8, site.y + BOSS_LEASH * 0.8) : hoverY + Math.sin(b.t * 1.3) * 40 + (b.kind === 'phantom' ? Math.sin(b.t * 0.6) * 160 : 0);
     b.vx += (targetX - b.x) * 1.5 * dt * spdMul; b.vy += (targetY - b.y) * 1.5 * dt * spdMul;
     b.vx *= Math.pow(0.1, dt); b.vy *= Math.pow(0.1, dt);
     b.x += b.vx * dt; b.y += b.vy * dt;
@@ -718,7 +729,8 @@ function updateBoss(world, b, dt, fx) {
     case 'wall': {
       if (b.atkT <= 0) {
         const cols = 16, gap = randInt(1, cols - 2), spacing = W / cols;
-        for (let i = 0; i < cols; i++) { if (i === gap || i === gap + 1) continue; bossFire(world, spacing * (i + 0.5), b.y + b.r * 0.5, Math.PI / 2, 200 + b.phase * 30, 9, 6, { wall: true }); }
+        if (world.mods.mission) { const a = Math.atan2(p.y - b.y, p.x - b.x), nx = -Math.sin(a), ny = Math.cos(a); for (let i = 0; i < cols; i++) { if (i === gap || i === gap + 1) continue; const off = (i - cols / 2 + 0.5) * 100; bossFire(world, b.x + nx * off, b.y + ny * off, a, 200 + b.phase * 30, 9, 6, { wall: true }); } }
+        else for (let i = 0; i < cols; i++) { if (i === gap || i === gap + 1) continue; bossFire(world, spacing * (i + 0.5), b.y + b.r * 0.5, Math.PI / 2, 200 + b.phase * 30, 9, 6, { wall: true }); }
         fx.beep(150, 0.3, 'square', 0.08, -60);
         b.sub++; b.atkT = 1.1;
         if (b.sub >= (b.phase === 3 ? 3 : 2)) { b.atk = 'idle'; b.atkT = 1.5; }
@@ -746,7 +758,7 @@ function updateBoss(world, b, dt, fx) {
         const hitWall = b.x < b.r || b.x > W - b.r || b.y < b.r || b.y > H - b.r;
         if (b.chargeT <= 0 || hitWall) {
           b.x = clamp(b.x, b.r, W - b.r); b.y = clamp(b.y, b.r, H - b.r);
-          if (hitWall) { fx.shake(16); fx.burst(b.x, b.y, b.color, 30, 350, 0.6, 5); fx.noise(0.2, 0.2); if (b.kind === 'titan') for (let i = 0; i < 3; i++) spawnAmbient(world, 'meteor', fx, { silent: true, x: rand(100, W - 100), y: -70, tx: rand(100, W - 100), ty: H + 60, big: false, hp: AMBIENT.meteorHp * 0.5 }); }
+          if (hitWall) { fx.shake(16); fx.burst(b.x, b.y, b.color, 30, 350, 0.6, 5); fx.noise(0.2, 0.2); if (b.kind === 'titan') for (let i = 0; i < 3; i++) bossMeteor(world, b, null, fx, { silent: true, big: false, hp: AMBIENT.meteorHp * 0.5 }); }
           b.vx = 0; b.vy = 0; b.atk = 'idle'; b.atkT = 1.2;
         }
       }
@@ -785,7 +797,7 @@ function updateBoss(world, b, dt, fx) {
     case 'meteors':
       if (b.atkT <= 0) {
         const big = b.kind === 'titan';
-        spawnAmbient(world, 'meteor', fx, { silent: b.sub > 0, x: rand(80, W - 80), y: -80, tx: p.x + rand(-200, 200), ty: H + 80, big, hp: AMBIENT.meteorHp * (big ? 0.9 : 0.45), speed: big ? 260 : 380 });
+        bossMeteor(world, b, p, fx, { silent: b.sub > 0, big, hp: AMBIENT.meteorHp * (big ? 0.9 : 0.45), speed: big ? 260 : 380 });
         b.sub++; b.atkT = big ? 0.8 : 0.45;
         if (b.sub >= (big ? 3 + b.phase : 5 + b.phase)) { b.atk = 'idle'; b.atkT = 2.2; }
       }
@@ -2377,12 +2389,12 @@ function updateArena(world, dt, fx) {
     // 弧形：以畫面外的太陽（sx, H/2）為圓心、半徑 = 太陽到 F.x 的距離，帶子像日冕一樣向外擴散
     if (F.t <= 0) {
       F.x += F.dir * F.speed * dt; const R = Math.abs(F.x - F.sx);
-      for (const q of activePlayers(world)) if (Math.abs(Math.hypot(q.x - F.sx, q.y - H / 2) - R) < F.w / 2 && !F.hit.includes(q.id)) { F.hit.push(q.id); hurtPlayer(world, q, 22, fx, { x: F.sx, y: H / 2, by: '太陽風暴' }); }
+      for (const q of activePlayers(world)) if (Math.abs(Math.hypot(q.x - F.sx, q.y - (F.cy ?? H / 2)) - R) < F.w / 2 && !F.hit.includes(q.id)) { F.hit.push(q.id); hurtPlayer(world, q, 22, fx, { x: F.sx, y: F.cy ?? H / 2, by: '太陽風暴' }); }
       // 無差別：敵人與 Boss 也會被日冕帶掃到（電漿生物免疫）
       F.hitE = F.hitE || [];
-      for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || o.ambient || o.element === 'plasma' || F.hitE.includes(o.id) || Math.abs(Math.hypot(o.x - F.sx, o.y - H / 2) - R) > F.w / 2 + o.r * 0.5) continue; F.hitE.push(o.id); hitEnemy(world, o, 60, { element: 'fire', x: F.sx, y: H / 2 }, fx); o.vx += F.dir * 380; fx.burst(o.x, o.y, '#ffd166', 6, 160, 0.4, 3); if (o.hp <= 0) killEnemy(world, j, null, fx); }
-      for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && !F.hitE.includes(bb.id) && Math.abs(Math.hypot(bb.x - F.sx, bb.y - H / 2) - R) < F.w / 2 + bb.r * 0.5) { F.hitE.push(bb.id); damageBoss(world, bb, 80, bb.x, bb.y, fx); }
-      if (F.x < -220 || F.x > W + 220) world.flare = null;
+      for (let j = world.enemies.length - 1; j >= 0; j--) { const o = world.enemies[j]; if (!o || o.ambient || o.element === 'plasma' || F.hitE.includes(o.id) || Math.abs(Math.hypot(o.x - F.sx, o.y - (F.cy ?? H / 2)) - R) > F.w / 2 + o.r * 0.5) continue; F.hitE.push(o.id); hitEnemy(world, o, 60, { element: 'fire', x: F.sx, y: H / 2 }, fx); o.vx += F.dir * 380; fx.burst(o.x, o.y, '#ffd166', 6, 160, 0.4, 3); if (o.hp <= 0) killEnemy(world, j, null, fx); }
+      for (const bb of world.bosses) if (!bb.entering && bb.dying <= 0 && !F.hitE.includes(bb.id) && Math.abs(Math.hypot(bb.x - F.sx, bb.y - (F.cy ?? H / 2)) - R) < F.w / 2 + bb.r * 0.5) { F.hitE.push(bb.id); damageBoss(world, bb, 80, bb.x, bb.y, fx); }
+      if (F.x < -220 || F.x > W + 220 || (F.far && Math.abs(F.x - F.sx) > F.far)) world.flare = null;
     }
   }
   if (world.wave < 2 || world.scene !== 'play') return;
@@ -2398,7 +2410,7 @@ function updateArena(world, dt, fx) {
   else if (A === 'mercury') {
     world.hazardCd = rand(14, 22);
     if (rnd() < 0.5) { world.wells.push({ id: world.nextId++, ...np(700), r: 260, life: 8 }); fx.text(W / 2, 90, '重力井', '#ffd166', 18, 1.5); }
-    else { const fromLeft = rnd() < 0.5; world.flare = { x: fromLeft ? -60 : W + 60, sx: fromLeft ? -760 : W + 760, dir: fromLeft ? 1 : -1, w: 90, t: 2.2, speed: 280, hit: [] }; fx.text(W / 2, 90, '太陽風暴接近', '#ffd166', 22, 2); fx.beep(60, 1.2, 'sawtooth', 0.08, 120); }
+    else { const fromLeft = rnd() < 0.5, ps = activePlayers(world), q = world.mods.mission && ps.length ? ps[randInt(0, ps.length - 1)] : null; const sx = q ? q.x + (fromLeft ? -1000 : 1000) : fromLeft ? -760 : W + 760; world.flare = { x: sx + (fromLeft ? 700 : -700), sx, cy: q ? q.y : H / 2, dir: fromLeft ? 1 : -1, w: 90, t: 2.2, speed: 280, hit: [], far: q ? 2200 : 0 }; fx.text(q ? q.x : W / 2, q ? q.y - 200 : 90, '太陽風暴接近', '#ffd166', 22, 2); fx.beep(60, 1.2, 'sawtooth', 0.08, 120); }
   }
   else if (A === 'venom') {
     world.hazardCd = rand(10, 16);

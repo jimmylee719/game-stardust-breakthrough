@@ -17,7 +17,7 @@ export function snapshotWorld(world) {
     crate: world.crate ? { kind: 'crate', x: world.crate.x, y: world.crate.y, r: world.crate.r, hp: Math.round(world.crate.hp), maxHp: world.crate.maxHp, hitFlash: world.crate.hitFlash > 0 ? 1 : 0, alive: world.crate.alive } : null,
     hole: world.hole ? { x: world.hole.x, y: world.hole.y, r: world.hole.r, life: r1(world.hole.life) } : null,
     wells: world.wells.map(w => ({ id: w.id, x: w.x, y: w.y, r: w.r, life: r1(w.life) })),
-    drag: world.drag !== 1 ? world.drag : undefined, chrono: world.chrono > 0 ? r1(world.chrono) : undefined, flare: world.flare ? { x: r1(world.flare.x), sx: world.flare.sx, w: world.flare.w, t: r1(world.flare.t), dir: world.flare.dir } : null,
+    drag: world.drag !== 1 ? world.drag : undefined, chrono: world.chrono > 0 ? r1(world.chrono) : undefined, flare: world.flare ? { x: r1(world.flare.x), sx: world.flare.sx, cy: world.flare.cy, far: world.flare.far || undefined, w: world.flare.w, t: r1(world.flare.t), dir: world.flare.dir } : null,
     blizzard: world.blizzard > 0 ? r1(world.blizzard) : undefined, wind: world.wind ? { x: r1(world.wind.x), y: r1(world.wind.y) } : null, eclipse: world.eclipse > 0 ? r1(world.eclipse) : undefined,
     stats: world.stats,
     beacon: world.beacon ? { x: r1(world.beacon.x), y: r1(world.beacon.y), r: world.beacon.r, hp: Math.round(world.beacon.hp), maxHp: world.beacon.maxHp, hitFlash: world.beacon.hitFlash > 0 ? 1 : 0, alive: world.beacon.alive, kind: world.beacon.kind } : null,

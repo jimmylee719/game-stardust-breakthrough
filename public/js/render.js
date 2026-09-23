@@ -173,10 +173,11 @@ export function createRenderer(canvas, world) {
     const t = Math.floor(world.missionT || 0), mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, '0');
     const T = MISSION_TYPES[world.missionType] || MISSION_TYPES.relay, ko = objs.find(o => o.kind === 'kill'), bo = objs.find(o => o.kind === 'boss');
     const goal = ex && ex.active ? tr('前往撤離點') : ko ? tr(`殲滅 ${ko.count || 0} / ${ko.need || 0}`) : bo ? (bo.spawned ? tr('擊破據點的 Boss') : tr('前往 Boss 據點')) : world.missionType === 'nests' ? tr(`拆除蟲巢 ${done} / ${objs.length}`) : tr(`啟動中繼站 ${done} / ${objs.length}`);
-    ctx.fillStyle = '#fff'; ctx.fillText(`${T.icon} ${tr(T.name)} · ${goal}  ·  ${mm}:${ss}`, W / 2, world.waveMode || world.event ? 82 : 24);
-    if (world.alarm > 0) { ctx.fillStyle = `rgba(255,56,96,${0.6 + 0.4 * Math.sin(time * 8)})`; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('⚠ 警戒：敵人增援中'), W / 2, 46); }
-    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = world.reinforce > 0 ? '#ffd166' : 'rgba(255,255,255,.4)'; ctx.fillText(tr(`🪂 增援 ×${world.reinforce || 0}`), W / 2, world.alarm > 0 ? 64 : 46);
-    { const sd = world.side || []; if (sd.length) { ctx.font = '12px sans-serif'; ctx.fillStyle = 'rgba(180,230,255,.8)'; ctx.fillText(tr(`◇ 次要目標 ${sd.filter(o => o.done).length} / ${sd.length}`), W / 2, world.alarm > 0 ? 82 : 64); } }
+    const hy = world.waveMode || world.event || (world.bosses && world.bosses.length) ? 82 : 24;
+    ctx.fillStyle = '#fff'; ctx.fillText(`${T.icon} ${tr(T.name)} · ${goal}  ·  ${mm}:${ss}`, W / 2, hy);
+    if (world.alarm > 0) { ctx.fillStyle = `rgba(255,56,96,${0.6 + 0.4 * Math.sin(time * 8)})`; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('⚠ 警戒：敵人增援中'), W / 2, hy + 22); }
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = world.reinforce > 0 ? '#ffd166' : 'rgba(255,255,255,.4)'; ctx.fillText(tr(`🪂 增援 ×${world.reinforce || 0}`), W / 2, hy + (world.alarm > 0 ? 40 : 22));
+    { const sd = world.side || []; if (sd.length) { ctx.font = '12px sans-serif'; ctx.fillStyle = 'rgba(180,230,255,.8)'; ctx.fillText(tr(`◇ 次要目標 ${sd.filter(o => o.done).length} / ${sd.length}`), W / 2, hy + (world.alarm > 0 ? 58 : 40)); } }
     if (me && me.dead && me.respawnT > 0) { ctx.fillStyle = '#ffd166'; ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 16; ctx.font = 'bold 34px sans-serif'; ctx.fillText(tr(`增援空降 ${Math.ceil(me.respawnT)}`), W / 2, H / 2 - 80); ctx.shadowBlur = 0; }
     // 小地圖
     const mw = 210, mh = Math.round(mw * world.H / world.W), mx = W - mw - 24, my = H - mh - 24;
@@ -650,7 +651,7 @@ export function createRenderer(canvas, world) {
     for (const q of world.players) if (q.novaT > 0) { ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = '#ff3860'; ctx.font = 'bold 26px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowColor = '#ff3860'; ctx.shadowBlur = 16; ctx.fillText(tr(`☢ ${q.novaT.toFixed(1)}`), q.x, q.y - 60); ctx.restore(); }
     if (world.flare) {
       const F = world.flare; ctx.save();
-      const warn = F.t > 0, sx = F.sx ?? (F.dir > 0 ? -760 : W + 760), sy = H / 2, R = Math.abs(F.x - sx);
+      const warn = F.t > 0, sx = F.sx ?? (F.dir > 0 ? -760 : W + 760), sy = F.cy ?? H / 2, R = Math.abs(F.x - sx);
       // 太陽在畫面外：來向那側的邊緣先發光（警告時脈動），玩家知道風暴從哪邊來
       const edge = ctx.createLinearGradient(F.dir > 0 ? 0 : W, 0, F.dir > 0 ? 220 : W - 220, 0);
       edge.addColorStop(0, `rgba(255,209,102,${warn ? 0.35 + 0.25 * Math.sin(time * 12) : 0.45})`); edge.addColorStop(1, 'rgba(255,209,102,0)');
