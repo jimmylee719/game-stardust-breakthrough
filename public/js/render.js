@@ -36,7 +36,7 @@ export function createRenderer(canvas, world) {
   const FG_CROP = { space: 0.7, inferno: 0.62, mercury: 0.84, venom: 0.7, abyss: 0.72, glacier: 0.72 };
   const fgImgs = {}, fgTiles = {}, objImgs = {};
   /** 目標物件的 AI 貼圖（黑底 → screen 混合），沒載好就回 null */
-  function objImg(id) { if (!(id in objImgs)) { const im = new Image(); im.decoding = 'async'; im.src = `img/obj-${id}.webp`; objImgs[id] = im; } const im = objImgs[id]; return im.complete && im.naturalWidth ? im : null; }
+  function objImg(id) { if (!(id in objImgs)) { const im = new Image(); im.decoding = 'async'; im.onerror = () => { objImgs[id] = null; }; im.src = `img/obj-${id}.webp`; objImgs[id] = im; } const im = objImgs[id]; return im && im.complete && im.naturalWidth ? im : null; }
   function fgFor(id) {
     if (typeof Image === 'undefined') return null;
     if (!(id in fgImgs)) { const im = new Image(); im.decoding = 'async'; im.src = `img/fg-${id}.webp`; fgImgs[id] = im; }
@@ -146,11 +146,14 @@ export function createRenderer(canvas, world) {
       const S = SIDE_TYPES[o.kind] || SIDE_TYPES.supply, c = o.done ? '#3ddc84' : o.active ? '#fff' : '#4cc9f0', prog = (o.p ?? o.progress ?? 0) / MISSION.sideT;
       ctx.shadowColor = c; ctx.shadowBlur = 12; ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.setLineDash([6, 8]); ctx.lineDashOffset = -time * 30; ctx.globalAlpha = 0.8;
       ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
-      ctx.fillStyle = c; ctx.font = 'bold 34px sans-serif'; ctx.fillText(S.icon, o.x, o.y);
+      const si = objImg(o.kind === 'radar' ? 'radar' : 'supply');
+      if (si) { ctx.save(); ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = o.done ? 0.7 : 1; const s = o.r * 2.1; ctx.drawImage(si, o.x - s / 2, o.y - s / 2 - 10, s, s); ctx.restore(); ctx.fillStyle = c; ctx.font = 'bold 22px sans-serif'; ctx.fillText(S.icon, o.x + o.r * 0.55, o.y + o.r * 0.55); }
+      else { ctx.fillStyle = c; ctx.font = 'bold 34px sans-serif'; ctx.fillText(S.icon, o.x, o.y); }
       if (!o.done && prog > 0) { ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(o.x, o.y, o.r + 10, -Math.PI / 2, -Math.PI / 2 + TAU * prog); ctx.stroke(); }
       ctx.shadowBlur = 0; ctx.font = 'bold 13px sans-serif'; ctx.fillText(o.done ? tr(`${S.name} ✔`) : tr(`次要：${S.name}`), o.x, o.y - o.r - 16);
     });
     const ex = world.extract;
+    if (ex && vis(ex.x, ex.y, ex.r + 100)) { const xi = objImg('extract'); if (xi) { ctx.save(); ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = ex.active ? 0.95 : 0.45; const s = ex.r * 2.2; ctx.drawImage(xi, ex.x - s / 2, ex.y - s / 2, s, s); ctx.restore(); if (!ex.active) { ctx.fillStyle = 'rgba(76,201,240,.6)'; ctx.font = 'bold 13px sans-serif'; ctx.fillText(tr('撤離平台（完成目標後啟動）'), ex.x, ex.y - ex.r * 0.75); } } }
     if (ex && ex.active && vis(ex.x, ex.y, ex.r + 400)) {
       const c = '#4cc9f0', prog = ex.t / MISSION.extract;
       ctx.shadowColor = c; ctx.shadowBlur = 20; ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.setLineDash([16, 10]); ctx.lineDashOffset = -time * 60;
@@ -415,7 +418,10 @@ export function createRenderer(canvas, world) {
       else if (e.type === 'tank') { for (let i = 0; i < 8; i++) { const a = i * TAU / 8, r = i % 2 ? e.r : e.r * 0.8; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
       else if (e.type === 'shooter') { ctx.arc(0, 0, e.r, 0, TAU); ctx.moveTo(e.r * 0.5, 0); ctx.arc(0, 0, e.r * 0.5, 0, TAU); }
       else if (e.type === 'lancer') { ctx.moveTo(e.r * 1.6, 0); ctx.lineTo(0, e.r * 0.55); ctx.lineTo(-e.r, 0); ctx.lineTo(0, -e.r * 0.55); ctx.closePath(); ctx.moveTo(e.r * 0.5, 0); ctx.arc(e.r * 0.2, 0, e.r * 0.3, 0, TAU); }
-      else if (e.type === 'turret') { const a = e.ta || 0; for (let i = 0; i < 6; i++) { const q = i * TAU / 6; ctx.lineTo(Math.cos(q) * e.r, Math.sin(q) * e.r); } ctx.closePath(); ctx.moveTo(Math.cos(a) * e.r * 0.25, Math.sin(a) * e.r * 0.25); ctx.lineTo(Math.cos(a) * e.r * 1.7, Math.sin(a) * e.r * 1.7); ctx.moveTo(e.r * 0.45, 0); ctx.arc(0, 0, e.r * 0.45, 0, TAU); }
+      else if (e.type === 'turret') { const a = e.ta || 0, ti = objImg('turret');
+        if (ti) { ctx.save(); ctx.rotate(a - 0.66); ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'screen'; const s = e.r * 4.2; ctx.drawImage(ti, -s / 2, -s / 2, s, s); ctx.restore(); ctx.moveTo(e.r * 0.2, 0); ctx.arc(0, 0, e.r * 0.2, 0, TAU); }
+        else { for (let i = 0; i < 6; i++) { const q = i * TAU / 6; ctx.lineTo(Math.cos(q) * e.r, Math.sin(q) * e.r); } ctx.closePath(); ctx.moveTo(Math.cos(a) * e.r * 0.25, Math.sin(a) * e.r * 0.25); ctx.lineTo(Math.cos(a) * e.r * 1.7, Math.sin(a) * e.r * 1.7); ctx.moveTo(e.r * 0.45, 0); ctx.arc(0, 0, e.r * 0.45, 0, TAU); } }
+      else if (e.type === 'nest' && objImg('nest')) { const ni = objImg('nest'); ctx.save(); ctx.rotate(e.wobble * 0.05); ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'screen'; const s = e.r * 3.6; ctx.drawImage(ni, -s / 2, -s / 2, s, s); ctx.restore(); ctx.moveTo(e.r * 0.3, 0); ctx.arc(0, 0, e.r * 0.3, 0, TAU); }
       else if (e.type === 'nest') { for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + e.wobble * 0.15; ctx.lineTo(Math.cos(a) * e.r, Math.sin(a) * e.r); } ctx.closePath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + Math.PI / 6 - e.wobble * 0.3, rr = e.r * (0.45 + 0.08 * Math.sin(e.wobble * 2 + i)); ctx.moveTo(Math.cos(a) * rr + 6, Math.sin(a) * rr); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 6, 0, TAU); } ctx.moveTo(e.r * 0.25, 0); ctx.arc(0, 0, e.r * 0.25, 0, TAU); }
       else if (e.type === 'bounty') { for (let i = 0; i < 12; i++) { const a = i * TAU / 12 + e.wobble * 0.5, rr = i % 2 ? e.r : e.r * 0.55; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
       else if (e.type === 'meteor') { const n = 10; for (let i = 0; i < n; i++) { const a = i * TAU / n; const rr = e.r * (0.7 + 0.3 * Math.abs(Math.sin(i * 1.9 + e.id))); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } }
